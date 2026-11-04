@@ -2,8 +2,9 @@
 
 ## Original project assets
 
-The donut machine, donuts, counter, trays, signage, background props, materials,
-and animations are original procedural geometry and animation authored for this
+The donut machine, donuts, counter, trays, signage, customers, first-person hands,
+scoop, packaging, background props, materials, and animations are original
+procedural geometry and animation authored for this
 project. No commercial game models or textures are included. Equipment names in
 the design discussion are references; the prototype uses an original fictional
 machine design.

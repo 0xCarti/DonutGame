@@ -24,6 +24,11 @@ func _run() -> void:
 		return
 	var audio = audio_script.new()
 	root.add_child(audio)
+	# Give the headless audio driver an initial mix before the deliberately dense
+	# playback burst. Starting and freeing every voice during initialization can
+	# leave pending playback commands behind before the mixer has run once.
+	await process_frame
+	await create_timer(0.05).timeout
 	var initial_nodes: int = audio.get_child_count()
 	_check(initial_nodes == 12, "Seven named event players, four score voices, one music player")
 	var music: AudioStreamPlayer = audio.get_node("FairgroundMusic")
@@ -105,9 +110,17 @@ func _run() -> void:
 	_check(not music.playing, "Stop stops music")
 	for player: AudioStreamPlayer in audio.get_children():
 		player.stop()
-	audio.free()
-	# Allow the audio mixer to release stopped stream playback references.
+	# Keep the players alive while the asynchronous mixer consumes stop commands.
+	# Detach their resources only after that drain, then free at a frame boundary.
+	await process_frame
 	await create_timer(0.2).timeout
+	for player: AudioStreamPlayer in audio.get_children():
+		player.stream = null
+	audio.queue_free()
+	await process_frame
+	await process_frame
+	audio_script = null
+	await create_timer(0.05).timeout
 	if failures == 0:
 		print("AUDIO_SMOKE_OK: %d checks; tier selection, shared voice budget, headroom, mute, aliases, and loop" % checks)
 	else:

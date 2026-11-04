@@ -4,31 +4,35 @@ Use PowerShell 7 on Windows and Godot **4.7.2 stable** with its matching Windows
 x64 and Web export templates. From the repository root:
 
 ```powershell
-pwsh -File tools/build_playtest.ps1
+pwsh -File tools/build_stand_playtest.ps1
 ```
 
 The script finds `godot` or `godot4` on PATH, falling back to the verified local
 cache at `C:/Users/bryce/.cache/donutsgame/godot/`. You can select an exact editor:
 
 ```powershell
-pwsh -File tools/build_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-stable_win64_console.exe'
+pwsh -File tools/build_stand_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-stable_win64_console.exe'
 ```
 
-It imports assets, runs the core regression suite (at least 134 checks), runs
-any `tests/*controller*.gd` checks present, and checks the audio module. It then
-checks score feedback when present, exports Windows and Web sequentially, packages their required files and full
+The active Idea 2 script requires version 0.3.0 and the first-person stand scene.
+It imports assets, runs the stand model and controller suites, checks the audio
+module, exports Windows and Web sequentially, packages their required files and full
 license notices, and writes separate ZIPs plus SHA256 hashes under
 `builds/releases/`. Native engine helper processes run without visible windows;
 the script does not launch an interactive game.
 
 Build logs are under `builds/logs/`. Each packaging operation uses a fresh staging
 directory; existing builds, release archives, and saves are never deleted. All
-output paths are resolved and checked to stay within this workspace. Windows exports live under `builds/windows/<version>/` so a new release can be built while an earlier version is open. A
+output paths are resolved and checked to stay within this workspace. Windows exports live under `builds/windows/<version>/` and browser exports under `builds/web/<version>/` so a new release can be built while an earlier version is open. A
 `builds/.gdignore` file keeps generated artifacts out of Godot's import scan.
 
 The script stops on failed checks, missing files, an engine version mismatch,
 or export errors. Passing automated checks does not replace visual and browser
 playtesting. Native iOS/Android builds and store submissions are not part of it.
+
+The original `build_playtest.ps1` belongs to the historical Idea 1 prototype.
+Use the source from that release when rebuilding it; the current project and
+export configuration select Idea 2.
 
 ## Asset reproduction and notices
 
