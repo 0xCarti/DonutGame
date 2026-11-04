@@ -44,6 +44,23 @@ V1 has no paid store, checkout, paid entitlements, purchase prompts or usable ga
 
 V2 will specify boost effects, durations, pricing, purchase validation and restore behaviour alongside platform integration. Keep run simulation and presentation independent of any future entitlement system. Do not retroactively charge for V1's earned unlocks. Additional concert and sports venues remain separate future content.
 
+## Deferred gameplay ideas — 2026-11-04
+
+**Status: saved for later only. Do not implement these until the user requests it.**
+
+1. **Stand appeal and customer ratings.** Give the stand an overall appeal score
+   that affects how many customers approach. If the customer currently being
+   served waits a long time, their rating should suffer. Punching a customer
+   should also negatively affect their rating and the stand's appeal.
+2. **Accept imperfect orders with consequences.** Allow handing a bag to a
+   customer who requested a bucket, or serving the wrong flavor. Award only a
+   fraction of the reward for a correct order and reduce the stand's appeal.
+3. **Adjustable machine production speed.** Add a player control that slows the
+   machine's donut production rate.
+
+The appeal scale, rating weights, partial-reward amounts, and production-control
+design remain undecided. These notes do not change the current game or builds.
+
 ## What to learn from this pivot
 
 1. Does scooping, pouring, coating, and handing over feel good to repeat?
