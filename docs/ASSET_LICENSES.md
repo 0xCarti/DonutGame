@@ -31,14 +31,23 @@ original project geometry by `tools/bake_customer_geometry.gd`; they do not
 contain downloaded character models. Runtime instancing reuses those meshes
 to avoid rebuilding detailed faces during customer arrivals.
 
+The 1.0.5 booth surprises use original procedural geometry and animation for
+the service bell, extinguisher, seagull, donut hat, cartoon punch, sneeze,
+fryer fire and foam effects. They contain no imported character or effect assets.
+
 All WAV files were synthesized specifically for this project. The original
 service/reward effects and 30-second fairground loop are reproducible with
 `tools/generate_audio.py`. The finished stand uses fourteen additional assets
 from `tools/generate_stand_audio.py`: eleven tactile service and warning cues,
 fryer and evening ambience loops, and a 76.8-second original 32-bar evening
-theme. The generators use mathematical oscillators and deterministic noise;
+theme. Version 1.0.5 adds eight original cues in `assets/audio/gags/`, reproduced
+by `tools/generate_gag_audio.py`: `bell.wav`, `bell_reply.wav`, `extinguish.wav`,
+`fire.wav`, `hat.wav`, `punch.wav`, `seagull.wav` and `sneeze.wav`. Their manifest
+is `assets/audio/gags/manifest.json`.
+
+The generators use mathematical oscillators and deterministic noise;
 there are no sampled recordings, downloaded effects or third-party melodies.
-Asset manifests record sample lengths and measured peaks. Both generators
+Asset manifests record sample lengths and measured peaks. All generators
 remain in the source project.
 
 ## Godot Engine

@@ -24,6 +24,8 @@ const CHUTE_LENGTH: float = 1.85
 const CHUTE_DROP: float = 0.08
 const SWEEP_SECONDS: float = 8.4
 const SHAKE_SECONDS: float = 0.60
+const SHAKE_CHAIN_SECONDS: float = 0.65
+const MAX_SHAKE_STRENGTH: float = 5.0
 
 var _world: Node3D
 var _capacity: int = 36
@@ -45,6 +47,13 @@ var _outlet_velocity: Vector3 = Vector3.ZERO
 var _tray_surfaces: Array[StaticBody3D] = []
 var _shake_time: float = SHAKE_SECONDS
 var _shake_cooldown: float = 0.0
+var _shake_strength: float = 0.0
+var _shake_chain_age: float = 1000.0
+var _shake_extra_pulse: bool = false
+var _shake_burst: int = 0
+var _shower_announced: bool = false
+var _gull_cooldown: float = 0.0
+var _gull_caught_burst: int = -1
 
 
 func configure(world: Node3D) -> void:
@@ -139,19 +148,38 @@ func _update_chute_pose(delta: float) -> void:
 
 
 func shake_tray() -> bool:
-	if _paused or _shake_cooldown > 0.0:
+	if _paused:
 		return false
-	_shake_time = -0.20 # The hands reach the rim before the tray begins moving.
-	_shake_cooldown = 1.25
+	var continuing: bool = _shake_chain_age <= SHAKE_CHAIN_SECONDS
+	if continuing:
+		_shake_strength = minf(MAX_SHAKE_STRENGTH, maxf(1.0, _shake_strength) + 1.0)
+	else:
+		_shake_strength = 1.0
+		_shake_burst += 1
+		_shower_announced = false
+	if _shake_time >= SHAKE_SECONDS:
+		_shake_time = 0.0 if continuing else -0.20
+		_shake_extra_pulse = continuing
+	elif _shake_time >= 0.0:
+		# Extra clicks add momentum without resetting the hands' reach or phase.
+		_shake_extra_pulse = true
+	_shake_chain_age = 0.0
+	_shake_cooldown = SHAKE_CHAIN_SECONDS
+	if _shake_strength >= 3.0 and not _shower_announced and get_available_count() > 0:
+		_shower_announced = true
+		if _world.has_method("play_gag"):
+			_world.call("play_gag", "donut_shower", {"strength":_shake_strength})
 	return true
 
 
 func _loosen_tray(pulse: int = 0) -> void:
-	# Three short lateral pulses overcome static friction and visibly redistribute
-	# the pile. Target speed is bounded, so pulses and repeat clicks cannot stack
-	# into a launch. Steer edge pieces inward and ease the force on deep piles.
+	# Isolated shakes remain helpful. Deliberate rapid clicks build toward a
+	# comic launch, but target velocities remain finite and strictly bounded.
 	var crowding: float = clampf(float(get_available_count() - 30) / 30.0, 0.0, 1.0)
 	var speed: float = 0.94 * (1.0 - crowding * 0.34) * (1.0 - float(pulse) * 0.11)
+	var rage: bool = _shake_strength >= 3.0
+	if rage: speed = 1.55 + (_shake_strength - 3.0) * 0.55
+	elif _shake_strength >= 2.0: speed *= 1.18
 	var stroke: Vector3 = Vector3(1.0 if pulse % 2 == 0 else -1.0, 0, 0.32 if pulse == 1 else -0.18)
 	for entry in _entries:
 		if str(entry.stage) != "resident": continue
@@ -168,25 +196,46 @@ func _loosen_tray(pulse: int = 0) -> void:
 			var distance: float = separation.length()
 			if distance > 0.001 and distance < 0.40:
 				direction += separation / distance * (1.0 - distance / 0.40) * 1.5
-		if absf(offset.x) > 0.74: direction.x = -signf(offset.x) * maxf(0.85, absf(direction.x))
-		if absf(offset.z) > 0.39: direction.z = -signf(offset.z) * maxf(0.85, absf(direction.z))
+		if rage:
+			direction = Vector3(offset.x, 0, offset.z).normalized() + direction * 0.30
+			entry["launched_burst"] = _shake_burst
+			entry["launch_age"] = 0.0
+		else:
+			if absf(offset.x) > 0.74: direction.x = -signf(offset.x) * maxf(0.85, absf(direction.x))
+			if absf(offset.z) > 0.39: direction.z = -signf(offset.z) * maxf(0.85, absf(direction.z))
 		direction = direction.normalized()
 		var horizontal: Vector3 = Vector3(body.linear_velocity.x, 0, body.linear_velocity.z)
 		body.sleeping = false
-		body.apply_central_impulse((direction * speed - horizontal + Vector3(0, 0.20 * (1.0 - crowding * 0.4), 0)) * body.mass)
-		body.apply_torque_impulse(Vector3(_rng.randf_range(-0.00012, 0.00012), 0, _rng.randf_range(-0.00012, 0.00012)))
+		var lift: float = 0.20 * (1.0 - crowding * 0.4)
+		if rage: lift = 1.70 + (_shake_strength - 3.0) * 0.55 - body.linear_velocity.y
+		body.apply_central_impulse((direction * speed - horizontal + Vector3(0, lift, 0)) * body.mass)
+		if rage:
+			body.angular_velocity = Vector3(_rng.randf_range(-4.0, 4.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-4.0, 4.0))
+		else:
+			body.apply_torque_impulse(Vector3(_rng.randf_range(-0.00012, 0.00012), 0, _rng.randf_range(-0.00012, 0.00012)))
 
 
 func _update_tray_shake(delta: float) -> void:
 	_shake_cooldown = maxf(0.0, _shake_cooldown - delta)
+	_shake_chain_age += delta
+	_gull_cooldown = maxf(0.0, _gull_cooldown - delta)
+	if _shake_chain_age > SHAKE_CHAIN_SECONDS:
+		_shake_strength = maxf(0.0, _shake_strength - delta * 2.5)
 	var before: float = _shake_time
 	_shake_time = minf(SHAKE_SECONDS, _shake_time + delta)
+	if _shake_extra_pulse and _shake_time >= 0.0:
+		_loosen_tray(0)
+		_shake_extra_pulse = false
 	for pulse in range(3):
 		var pulse_time: float = float(pulse) * 0.20
 		if before < pulse_time and _shake_time >= pulse_time:
 			_loosen_tray(pulse)
+	if _shake_time >= SHAKE_SECONDS and _shake_chain_age < SHAKE_CHAIN_SECONDS and _shake_strength >= 2.0:
+		_shake_time = 0.0
+		_shake_extra_pulse = true
 	var t: float = maxf(0.0, _shake_time) / SHAKE_SECONDS
-	var offset: Vector3 = Vector3(sin(t * TAU * 2.0) * sin(t * PI) * 0.055, 0, sin(t * TAU) * sin(t * PI) * 0.028) if t < 1.0 else Vector3.ZERO
+	var intensity: float = 1.0 + maxf(0.0, _shake_strength - 1.0) * 0.32
+	var offset: Vector3 = Vector3(sin(t * TAU * 2.0) * sin(t * PI) * 0.055, 0, sin(t * TAU) * sin(t * PI) * 0.028) * intensity if t < 1.0 else Vector3.ZERO
 	for body in _tray_surfaces:
 		body.position = Vector3(body.get_meta("rest_position")) + offset
 	if _world.has_method("set_tray_shake_offset"):
@@ -233,6 +282,13 @@ func clear_food() -> void:
 	_paused_velocities.clear()
 	_shake_time = SHAKE_SECONDS
 	_shake_cooldown = 0.0
+	_shake_strength = 0.0
+	_shake_chain_age = 1000.0
+	_shake_extra_pulse = false
+	_shake_burst = 0
+	_shower_announced = false
+	_gull_cooldown = 0.0
+	_gull_caught_burst = -1
 	_update_tray_shake(0.0)
 
 
@@ -413,6 +469,7 @@ func _physics_process(delta: float) -> void:
 					_release(entry)
 			continue
 		entry.age = float(entry.age) + delta
+		if entry.has("launch_age"): entry.launch_age = float(entry.launch_age) + delta
 		if stage == "waste":
 			if float(entry.age) > WASTE_SECONDS - 1.0:
 				_set_transparency(entry.visual, clampf(float(entry.age) - (WASTE_SECONDS - 1.0), 0.0, 1.0))
@@ -425,8 +482,11 @@ func _physics_process(delta: float) -> void:
 		var contacts: bool = body.get_contact_count() > 0
 		var counter_contact: bool = _touching_counter(body)
 		if stage == "resident":
-			if float(entry.age) > 0.20 and not inside and (counter_contact or body.position.y < 1.72):
+			var launched_out: bool = int(entry.get("launched_burst", -1)) >= 0 and float(entry.get("launch_age", 100.0)) < 2.0 and _fully_left_tray(body.position)
+			if launched_out or (float(entry.age) > 0.20 and not inside and (counter_contact or body.position.y < 1.72)):
 				_mark_waste(entry, true)
+				if launched_out and _try_gull_catch(entry):
+					_entries.remove_at(index)
 			continue
 		if not inside and (counter_contact or body.position.y < 1.72):
 			_mark_waste(entry, false)
@@ -492,7 +552,33 @@ func _inside_tray(at: Vector3) -> bool:
 	return at.x > TRAY_CENTER.x - 1.10 and at.x < TRAY_CENTER.x + 1.10 and at.z > TRAY_CENTER.z - 0.70 and at.z < TRAY_CENTER.z + 0.70 and at.y > 1.75
 
 
+func _fully_left_tray(at: Vector3) -> bool:
+	# A tagged airborne donut is waste only once its entire outline clears a rim.
+	return absf(at.x - TRAY_CENTER.x) > 1.10 + OUTER_RADIUS or absf(at.z - TRAY_CENTER.z) > 0.70 + OUTER_RADIUS
+
+
+func _try_gull_catch(entry: Dictionary) -> bool:
+	var burst: int = int(entry.get("launched_burst", -1))
+	if _gull_cooldown > 0.0 or burst < 0 or burst == _gull_caught_burst or not _world.has_method("play_gag"):
+		return false
+	var body: RigidBody3D = entry.body
+	var visual: Node3D = entry.visual
+	if body.position.y < 1.72 or not is_instance_valid(visual): return false
+	_gull_caught_burst = burst
+	_gull_cooldown = 8.0
+	var origin: Vector3 = visual.global_position
+	visual.reparent(_world, true)
+	visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	remove_child(body)
+	body.queue_free()
+	# stock_spilled already fired above. The gag owns this exact detached visual
+	# and is responsible for freeing it on exit/reset; it cannot charge stock again.
+	_world.call("play_gag", "seagull", {"donut":visual, "from":origin, "id":int(entry.id), "burst":burst})
+	return true
+
+
 func _mark_waste(entry: Dictionary, was_stock: bool) -> void:
+	if str(entry.stage) == "waste": return
 	entry.stage = "waste"
 	entry.age = 0.0
 	if was_stock:
@@ -522,6 +608,10 @@ func _trim_waste() -> void:
 
 func debug_snapshot() -> Dictionary:
 	var snapshot: Dictionary = {"available": 0, "conveyor": 0, "falling": 0, "waste": 0, "bodies": _entries.size(), "paused": _paused, "capacity": _capacity, "positions": [], "entries": [], "chute_angle": _chute_angle, "chute_phase": _sweep_phase, "outlet": _chute_tip, "shaking": _shake_time < SHAKE_SECONDS}
+	snapshot["shake_strength"] = _shake_strength
+	snapshot["rage_shaking"] = _shake_strength >= 3.0 and _shake_time < SHAKE_SECONDS
+	snapshot["shake_burst"] = _shake_burst
+	snapshot["gull_cooldown"] = _gull_cooldown
 	for entry in _entries:
 		var stage: String = entry.stage
 		if stage == "resident":

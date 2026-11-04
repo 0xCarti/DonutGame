@@ -3,7 +3,10 @@ extends RefCounted
 ## The clock, food, orders, heat, repairs and money are authoritative here.
 
 const Content = preload("res://scripts/stand_content.gd")
-const SAVE_VERSION: int = 3
+const SAVE_VERSION: int = 4
+const FIRE_BUILDUP_SECONDS: float = 12.0
+const FIRE_RECOVERY_SECONDS: float = 2.4
+const FOAM_SECONDS: float = 8.0
 const ENABLE_FUTURE_BOOSTS: bool = false
 const TARGETS: Array[int] = [110, 175, 250, 330, 420, 520]
 const SHIFT_TIMES: Array[float] = [105.0, 110.0, 115.0, 120.0, 125.0, 130.0]
@@ -26,6 +29,10 @@ var heat_setting: int = 3
 var jammed: bool = false
 var jam_progress: float = 0.0
 var overheated: bool = false
+var fire_active: bool = false
+var fire_danger: float = 0.0
+var fire_recovery: float = 0.0
+var foam_time: float = 0.0
 var refill_progress: float = 0.0
 var production_count: int = 0
 ## Rendering enables this so food becomes stock only after its physical landing.
@@ -131,6 +138,10 @@ func _reset_shift() -> void:
 	jammed = false
 	jam_progress = 0.0
 	overheated = false
+	fire_active = false
+	fire_danger = 0.0
+	fire_recovery = 0.0
+	foam_time = 0.0
 	refill_progress = 0.0
 	production_count = 0
 	package_type = ""
@@ -197,6 +208,8 @@ func _step(step: float, practice: bool = false) -> void:
 	_machine_elapsed += step
 	_refill_age = minf(10.0, _refill_age + step)
 	_service_age = minf(10.0, _service_age + step)
+	fire_recovery = maxf(0.0, fire_recovery - step)
+	foam_time = maxf(0.0, foam_time - step)
 	for boost in active_boosts.keys():
 		active_boosts[boost] = maxf(0.0, float(active_boosts[boost]) - step)
 		if float(active_boosts[boost]) <= 0.000001: active_boosts.erase(boost)
@@ -207,12 +220,15 @@ func _step(step: float, practice: bool = false) -> void:
 	if active_boosts.has("coolant"):
 		temperature = minf(175.0, temperature)
 		overheated = false
-	if not overheated and temperature >= 205.0:
+	if fire_active:
+		overheated = true
+	elif not overheated and temperature >= 205.0:
 		overheated = true
 		events.append({"type": "overheat", "temperature": temperature})
 	elif overheated and temperature <= 190.0:
 		overheated = false
 		events.append({"type": "cooled", "temperature": temperature})
+	_update_fire(step, desired)
 	if _can_produce():
 		var interval: float = clampf(1.5 - (temperature - 145.0) * 0.01, 0.85, 1.5) * pow(0.85, float(level("fast_motor")))
 		_production_clock += step
@@ -253,7 +269,40 @@ func _step(step: float, practice: bool = false) -> void:
 
 
 func _can_produce() -> bool:
-	return phase == "playing" and not jammed and not overheated and temperature >= 145.0 and batter > 0 and not (refill_progress > 0.0 and _refill_age <= 0.25) and not (jam_progress > 0.0 and _service_age <= 0.25)
+	return phase == "playing" and not jammed and not overheated and not fire_active and fire_recovery <= 0.0 and temperature >= 145.0 and batter > 0 and not (refill_progress > 0.0 and _refill_age <= 0.25) and not (jam_progress > 0.0 and _service_age <= 0.25)
+
+
+func _update_fire(step: float, desired_temperature: float) -> void:
+	if fire_active: return
+	var previous_danger: float = fire_danger
+	if temperature >= 205.0 and desired_temperature >= 205.0 and fire_recovery <= 0.0:
+		fire_danger = minf(1.0, fire_danger + step / FIRE_BUILDUP_SECONDS)
+	else:
+		# Turning the heater down to a safe setting helps immediately, even while
+		# the oil is still cooling. Warning smoke therefore leaves time to react.
+		fire_danger = maxf(0.0, fire_danger - step / 5.0)
+	if previous_danger < 0.35 and fire_danger >= 0.35:
+		events.append({"type": "fire_warning", "danger": fire_danger})
+	if fire_danger >= 1.0 - 0.000001:
+		fire_danger = 1.0
+		fire_active = true
+		overheated = true
+		events.append({"type": "fire", "temperature": temperature})
+
+
+func extinguish_fire() -> Dictionary:
+	if phase != "playing": return _fail("closed", "The stand is closed.")
+	if not fire_active: return _fail("no_fire", "The fryer is not on fire.")
+	fire_active = false
+	fire_danger = 0.0
+	fire_recovery = FIRE_RECOVERY_SECONDS
+	foam_time = FOAM_SECONDS
+	heat_setting = 0
+	temperature = 175.0
+	overheated = false
+	_refresh_alerts()
+	events.append({"type": "extinguished", "recovery": fire_recovery, "foam_time": foam_time})
+	return _ok("extinguished", "Fire out! Let the fryer settle, then set the heat.", {"recovery": fire_recovery, "foam_time": foam_time})
 
 
 func pending_delivery_ids() -> Array:
@@ -390,6 +439,19 @@ func serve() -> Dictionary:
 	var event: Dictionary = receipt.duplicate(true)
 	event["type"] = "sale"
 	events.append(event)
+	return receipt
+
+
+func punch_customer() -> Dictionary:
+	if phase != "playing": return _fail("closed", "The stand is closed.")
+	if orders.is_empty(): return _fail("no_customer", "There is nobody at the counter.")
+	var leaving: Dictionary = orders.pop_front()
+	missed += 1
+	_run_missed += 1
+	streak = 0
+	if orders.is_empty(): _arrival_clock = minf(_arrival_clock, 1.2)
+	var receipt: Dictionary = _ok("customer_punched", "That customer has had enough!", {"order_id": leaving["id"], "missed": missed})
+	events.append({"type": "customer_punched", "order_id": leaving["id"], "missed": missed})
 	return receipt
 
 
@@ -616,6 +678,8 @@ func batter_capacity() -> int:
 
 func production_status() -> String:
 	if phase != "playing": return "Stand closed"
+	if fire_active: return "FRYER FIRE - use extinguisher"
+	if fire_recovery > 0.0: return "Fryer settling after fire"
 	if jammed: return "JAMMED - hold repair"
 	if overheated: return "TOO HOT - lower heat"
 	if temperature < 145.0: return "Warming up - raise heat"
@@ -627,7 +691,7 @@ func production_status() -> String:
 
 
 func get_stats() -> Dictionary:
-	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "waste_count": waste_count, "total_wasted": _run_wasted, "pending_deliveries": _pending_deliveries.size(), "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning}
+	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "waste_count": waste_count, "total_wasted": _run_wasted, "pending_deliveries": _pending_deliveries.size(), "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning, "fire_active": fire_active, "fire_danger": fire_danger, "fire_recovery": fire_recovery, "foam_time": foam_time}
 
 
 func total_shifts() -> int:
@@ -674,6 +738,7 @@ func from_save(data: Dictionary) -> bool:
 			last_save_error = "This older save is invalid or already finished. Start a new fairground run."
 			return false
 	if data.get("version") == 2: data = _migrate_v2(data)
+	if data.get("version") == 3: data = _migrate_v3(data)
 	if not _valid_save(data):
 		last_save_error = "This save is damaged or from an unsupported version. Start a new run."
 		return false
@@ -702,7 +767,7 @@ func from_save(data: Dictionary) -> bool:
 
 
 func _saved_keys() -> Array[String]:
-	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries"]
+	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries", "fire_active", "fire_danger", "fire_recovery", "foam_time"]
 
 
 func _legacy_rules(index: int) -> Dictionary:
@@ -724,7 +789,15 @@ func _migrate_v2(old: Dictionary) -> Dictionary:
 	var migrated: Dictionary = old.duplicate(true)
 	# Previously production already added every cooked donut to supply. There is
 	# no uncredited physical food to reconstruct from either older save format.
-	migrated.merge({"version": SAVE_VERSION, "waste_count": 0, "_run_wasted": 0, "_next_delivery_id": 1, "_pending_deliveries": []}, true)
+	migrated.merge({"version": 3, "waste_count": 0, "_run_wasted": 0, "_next_delivery_id": 1, "_pending_deliveries": []}, true)
+	return migrated
+
+
+func _migrate_v3(old: Dictionary) -> Dictionary:
+	var migrated: Dictionary = old.duplicate(true)
+	# Older overheating remains recoverable; loading an old save never invents
+	# a fire or spends food, money, remaining time or pending delivery credits.
+	migrated.merge({"version": 4, "fire_active": false, "fire_danger": 0.0, "fire_recovery": 0.0, "foam_time": 0.0}, true)
 	return migrated
 
 
@@ -740,6 +813,8 @@ func _valid_save(data: Dictionary) -> bool:
 	if not _valid_int64_text(data.get("seed_value")) or not _valid_int64_text(data.get("rng_state")): return false
 	for spec in [["time_left", 0, 180], ["shift_duration", 100, 180], ["temperature", 20, 260], ["jam_progress", 0, 1], ["refill_progress", 0, 1], ["sales", 0, 1000000000], ["_production_clock", 0, 3], ["_arrival_clock", -1, 30], ["_refill_age", 0, 10], ["_service_age", 0, 10], ["_machine_elapsed", 0, 10000000], ["jam_risk", 0, 1], ["_run_sales", 0, 10000000000]]:
 		if not _number_in(data.get(spec[0]), float(spec[1]), float(spec[2])): return false
+	for spec in [["fire_danger", 0.0, 1.0], ["fire_recovery", 0.0, FIRE_RECOVERY_SECONDS], ["foam_time", 0.0, FOAM_SECONDS]]:
+		if not _number_in(data.get(spec[0]), float(spec[1]), float(spec[2])): return false
 	for spec in [["supply", 0, 60], ["supply_capacity", 36, 60], ["batter", 0, 132], ["heat_setting", 0, 4], ["production_count", 0, 100000], ["package_count", 0, 12], ["scoop_count", 0, 6], ["served", 0, 100000], ["missed", 0, 100000], ["mistakes", 0, 100000], ["streak", 0, 100000], ["credits", 0, 1000000], ["_next_jam_at", 1, 100000], ["_next_order_id", 1, 100000], ["_orders_created", 0, 100000], ["_run_served", 0, 100000], ["_run_missed", 0, 100000], ["_last_jam_production", 0, 100000], ["_best_streak", 0, 100000], ["waste_count", 0, 1000000], ["_run_wasted", 0, 100000000], ["_next_delivery_id", 1, 1000000000]]:
 		if not _integer_in(data.get(spec[0]), int(spec[1]), int(spec[2])): return false
 	if int(data["_run_wasted"]) < int(data["waste_count"]): return false
@@ -748,8 +823,11 @@ func _valid_save(data: Dictionary) -> bool:
 	for id in data["_pending_deliveries"]:
 		if not _integer_in(id, 1, int(data["_next_delivery_id"]) - 1) or delivery_ids.has(int(id)): return false
 		delivery_ids[int(id)] = true
-	for key in ["jammed", "overheated", "_offers_generated", "heat_warning", "_legacy_shift", "_jam_warned", "assisted"]:
+	for key in ["jammed", "overheated", "fire_active", "_offers_generated", "heat_warning", "_legacy_shift", "_jam_warned", "assisted"]:
 		if not data[key] is bool: return false
+	if bool(data["fire_active"]) and (not bool(data["overheated"]) or float(data["fire_danger"]) != 1.0 or float(data["fire_recovery"]) > 0.0): return false
+	if not bool(data["fire_active"]) and float(data["fire_danger"]) >= 1.0: return false
+	if float(data["fire_recovery"]) > float(data["foam_time"]): return false
 	if bool(data["_legacy_shift"]) and (str(data["mode"]) != "campaign" or int(data["shift_index"]) > 2): return false
 	var definition: Dictionary = _legacy_rules(int(data["shift_index"])) if bool(data["_legacy_shift"]) else Content.shift_info(int(data["shift_index"]), str(data["difficulty"]), str(data["mode"]))
 	if not _integer_in(data.get("target"), int(definition["target"]), int(definition["target"])): return false

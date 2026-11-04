@@ -38,7 +38,7 @@ func _run() -> void:
 		check(result.x<45,"Detailed customer stays below 45 mesh draws")
 		check(result.y<65000,"Detailed customer stays below 65k triangles")
 		check(person.get_meta("eyes").size()==2 and person.get_meta("arms").size()==2,"Both eyes and arm pivots remain independent")
-		check(person.get_meta("serve_hit").get_meta("station_id")=="serve","Existing service target retained")
+		check(person.get_meta("serve_hit").get_meta("station_id")=="customer","Customer target supports direct service and empty-hand gag")
 		person.queue_free()
 		await process_frame
 	var state: Dictionary={"phase":"playing","temperature":180,"batter":40,"supply":0,"supply_capacity":30,"held_tool":"none","package_type":"","orders":[{"id":30,"package":"bag","flavor":"cinnamon","patience":60,"max_patience":60},{"id":31,"package":"bucket","flavor":"powdered","patience":55,"max_patience":60}]}

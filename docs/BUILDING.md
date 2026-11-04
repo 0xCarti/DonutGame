@@ -17,7 +17,7 @@ pwsh -File tools/build_stand_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-st
 The active script accepts version 1.0.x and requires the first-person stand scene.
 It imports assets, runs simulation, controller, career, presentation, world,
 rigid-body food, physical inventory, chute distribution, hand motion, title-menu,
-actual-action pacing and audio verification, exports Windows and Web sequentially, packages their required files and full
+actual-action pacing, controller/world gag integration and audio verification, exports Windows and Web sequentially, packages their required files and full
 license notices, and writes separate ZIPs plus SHA256 hashes under
 `builds/releases/`. Native engine helper processes run without visible windows;
 the script does not launch an interactive game.
@@ -53,7 +53,7 @@ Counter, customer and art integration suites are also mandatory build gates.
 
 `python tools/generate_audio.py` recreates the shared reward WAV assets with Python's
 standard library. `python tools/generate_stand_audio.py` recreates the service,
-warning, ambience and 32-bar evening theme assets. `python tools/download_godot_licenses.py` refreshes vendored
+warning, ambience and 32-bar evening theme assets. `python tools/generate_gag_audio.py` recreates eight original slapstick cues. `python tools/download_godot_licenses.py` refreshes vendored
 notices from the exact official **4.7.2-stable** source tag and checks their Git
 blob hashes against the official repository API. Normal builds use those local
 notices and do not need network access.

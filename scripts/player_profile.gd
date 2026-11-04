@@ -14,7 +14,8 @@ const BADGES = {
 	"regular": {"id": "regular", "name": "Fairground Regular", "description": "Serve 100 customers across your career."},
 	"on_a_roll": {"id": "on_a_roll", "name": "On a Roll", "description": "Finish a run with a best service streak of 10."},
 	"closing_crew": {"id": "closing_crew", "name": "Closing Crew", "description": "Complete the six-shift campaign."},
-	"night_owl": {"id": "night_owl", "name": "Night Owl", "description": "Reach round 8 in Endless Service."}
+	"night_owl": {"id": "night_owl", "name": "Night Owl", "description": "Reach round 8 in Endless Service."},
+	"unscheduled_delivery": {"id": "unscheduled_delivery", "name": "Unscheduled Delivery", "description": "Feed a customer with wings.", "secret": true}
 }
 var test_mode = false
 var storage_path = PATH
@@ -52,8 +53,16 @@ func get_badges() -> Array:
 	for id in BADGES:
 		var badge: Dictionary = BADGES[id].duplicate()
 		badge["unlocked"] = badges.has(id)
+		if badge.get("secret", false) and not badge.unlocked:
+			badge.name = "???"
+			badge.description = "Discover a fairground secret."
 		result.append(badge)
 	return result
+
+func record_gag(id: String) -> bool:
+	if id != "unscheduled_delivery" or badges.has(id): return false
+	badges.append(id)
+	return true
 
 func _cosmetic_unlocked(id: String) -> bool:
 	return id == "classic" or (id == "midnight" and total_served >= 60) or (id == "cherry" and campaign_wins > 0)

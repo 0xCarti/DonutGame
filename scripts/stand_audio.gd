@@ -12,7 +12,15 @@ const STAND_STREAMS = {
     "overheat": preload("res://assets/audio/stand/overheat.wav"),
     "attention": preload("res://assets/audio/stand/attention.wav"),
     "customer": preload("res://assets/audio/stand/customer.wav"),
-    "reject": preload("res://assets/audio/stand/reject.wav")
+    "reject": preload("res://assets/audio/stand/reject.wav"),
+    "punch": preload("res://assets/audio/gags/punch.wav"),
+    "bell": preload("res://assets/audio/gags/bell.wav"),
+    "bell_reply": preload("res://assets/audio/gags/bell_reply.wav"),
+    "sneeze": preload("res://assets/audio/gags/sneeze.wav"),
+    "seagull": preload("res://assets/audio/gags/seagull.wav"),
+    "hat": preload("res://assets/audio/gags/hat.wav"),
+    "fire": preload("res://assets/audio/gags/fire.wav"),
+    "extinguish": preload("res://assets/audio/gags/extinguish.wav")
 }
 const FRYER = preload("res://assets/audio/stand/fryer_loop.wav")
 const AIR = preload("res://assets/audio/stand/evening_air.wav")
@@ -80,6 +88,8 @@ func _play_stand(key: String, level: float=-23.0) -> void:
 
 func play_action(action: String, reward_tier: int=1) -> void:
     match action.to_lower():
+        "punch", "bell", "sneeze", "hat", "extinguish": _play_stand(action,-23)
+        "bell_reply", "seagull": _play_stand(action,-27)
         "bag", "bucket", "container", "trash", "discard": _play_stand("paper",-24)
         "scoop", "supply", "tray", "pickup_scoop": _play_stand("scoop",-23)
         "package", "pour", "dump": _play_stand("pour",-24)
@@ -100,6 +110,8 @@ func play_warning(code: String) -> void:
     if now-int(_warning_times.get(key,-10000)) < 1800: return
     _warning_times[key] = now
     match key:
+        "fire": _play_stand("fire",-19)
+        "fire_warning": _play_stand("attention",-21)
         "jam": _play_stand("jam",-18)
         "overheat": _play_stand("overheat",-19)
         "low_batter", "heat_warning", "feed_warning", "low_stock", "empty_batter": _play_stand("attention",-22)
@@ -120,7 +132,7 @@ func _update_loops() -> void:
     if not is_instance_valid(_machine_loop): return
     var active = str(_machine_state.get("phase",""))=="playing" and not bool(_machine_state.get("paused",false))
     var maintaining = str(_machine_state.get("hold_station","")) in ["refill","repair"]
-    var running = active and not maintaining and not bool(_machine_state.get("jammed",false)) and not bool(_machine_state.get("overheated",false)) and int(_machine_state.get("batter",0))>0 and float(_machine_state.get("temperature",0))>=145
+    var running = active and not maintaining and not bool(_machine_state.get("fire_active",false)) and float(_machine_state.get("fire_recovery",0))<=0 and not bool(_machine_state.get("jammed",false)) and not bool(_machine_state.get("overheated",false)) and int(_machine_state.get("batter",0))>0 and float(_machine_state.get("temperature",0))>=145
     var volume = -80.0 if muted or ambience_volume<=0 else linear_to_db(ambience_volume)
     _machine_loop.volume_db = -80 if not running or volume<=-80 else -33 + volume
     _machine_loop.pitch_scale = clampf(0.9+(float(_machine_state.get("temperature",175))-145)*.002, .9,1.12)
@@ -133,5 +145,6 @@ func _process(delta: float) -> void:
     _last_reminder+=delta
     if _last_reminder>=12:
         _last_reminder=0
-        if bool(_machine_state.get("jammed",false)): play_warning("jam")
+        if bool(_machine_state.get("fire_active",false)): play_warning("fire")
+        elif bool(_machine_state.get("jammed",false)): play_warning("jam")
         elif bool(_machine_state.get("overheated",false)): play_warning("overheat")

@@ -5,7 +5,7 @@ const Model = preload("res://scripts/stand_model.gd")
 const World = preload("res://scripts/stand_world.gd")
 const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
-const VERSION = "1.0.4"
+const VERSION = "1.0.5"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -22,7 +22,8 @@ const STATION_NAMES = {
 	"supply": "Scoop fresh donuts", "package": "Your order", "cinnamon": "Coat with cinnamon",
 	"powdered": "Coat with powdered sugar", "serve": "Hand to the customer",
 	"heat_down": "Turn heat down", "heat_up": "Turn heat up",
-	"repair": "Hold to free the jam", "refill": "Hold to refill batter", "trash": "Empty the order"
+	"repair": "Hold to free the jam", "refill": "Hold to refill batter", "trash": "Empty the order",
+	"bell": "Ring the service bell", "extinguish": "Use the fire extinguisher"
 }
 
 var model = Model.new()
@@ -74,6 +75,14 @@ var _queued_action = ""
 var _last_hand_action = ""
 var _food_epoch = -1
 var _food_model: RefCounted
+var _bell_clicks = 0
+var _bell_window = 0.0
+var _bell_reply = 0.0
+var _bell_cooldown = 0.0
+var _powder_count = 0
+var _sneeze_delay = 0.0
+var _sneeze_customer = -1
+var _hat_customer = -1
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Golden Hour")
@@ -95,6 +104,7 @@ func _ready() -> void:
 	world.stock_spilled.connect(_on_stock_spilled)
 	audio = Audio.new()
 	add_child(audio)
+	world.gag_sound.connect(_on_gag_sound)
 	_apply_audio_settings()
 	var layer = CanvasLayer.new()
 	add_child(layer)
@@ -168,6 +178,7 @@ func _process(delta: float) -> void:
 		_ensure_food_session()
 		_drain_action_queue()
 		var step = minf(delta, 0.1)
+		_tick_gags(step)
 		if hold_station == "repair": _handle_hold_result(model.repair(step))
 		elif hold_station == "refill": _handle_hold_result(model.refill(step))
 		if practice and model.has_method("tick_practice"): model.tick_practice(step)
@@ -217,6 +228,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R: _start_hold("repair")
 			KEY_T: _start_hold("refill")
 			KEY_X: _act("trash")
+			KEY_G: _act("bell")
+			KEY_Q: _act("extinguish")
 			KEY_H: _show_help(false)
 			KEY_HOME: world.reset_look()
 	if event is InputEventKey and not event.pressed and event.keycode in [KEY_R, KEY_T]: _stop_hold()
@@ -240,6 +253,22 @@ func _notification(what: int) -> void:
 
 func _act(station: String) -> void:
 	if current_view != "play" or paused or model.phase != "playing": return
+	if station == "customer":
+		if held_tool == "package": station = "serve"
+		elif held_tool == "none": station = "punch"
+		elif held_tool == "scoop":
+			if not world.is_action_busy() and world.front_customer_has_donut_hat() and not model.orders.is_empty():
+				var customer_id = int(model.orders[0].id)
+				if _hat_customer != customer_id:
+					_hat_customer = customer_id
+					world.play_gag("hat")
+			return
+	# A second tray click adds energy without snapping the hands back to their
+	# starting pose. Never buffer a punch onto a different customer.
+	if world.is_action_busy() and station == "supply" and held_tool == "none" and world._action == "tray_shake":
+		if world.shake_tray(): audio.play_action("tray")
+		return
+	if station == "punch" and (world.is_action_busy() or held_tool != "none"): return
 	# A single buffered next move keeps quick clicks responsive without cutting a
 	# physical transfer halfway through or duplicating the same scoop/pour.
 	if world.is_action_busy() and station not in ["heat_down", "heat_up"]:
@@ -251,6 +280,7 @@ func _act(station: String) -> void:
 	match station:
 		"bag", "bucket":
 			result = model.choose_package(station)
+			if result.get("ok", false): _powder_count = 0
 			# Use the free hand for packaging; keep the scoop and any food in it.
 			if result.get("ok", false) and held_tool != "scoop": held_tool = "none"
 		"scoop":
@@ -282,7 +312,25 @@ func _act(station: String) -> void:
 				result = {"ok": false, "message": "Fill your scoop, then click here to pour. Coat a full order before lifting."}
 		"cinnamon", "powdered":
 			result = model.coat(station)
+			if result.get("ok", false):
+				held_tool = "none"
+				if station == "powdered":
+					_powder_count += 1
+					if _powder_count == 3 and not model.orders.is_empty():
+						_sneeze_delay = 0.8
+						_sneeze_customer = int(model.orders[0].id)
+		"punch": result = model.punch_customer()
+		"extinguish":
+			result = model.extinguish_fire()
 			if result.get("ok", false): held_tool = "none"
+		"bell":
+			result = {"ok": true}
+			_bell_clicks = _bell_clicks + 1 if _bell_window > 0 else 1
+			_bell_window = 1.6
+			if _bell_clicks >= 3 and _bell_cooldown <= 0:
+				_bell_reply = 0.65
+				_bell_cooldown = 6.0
+				_bell_clicks = 0
 		"serve":
 			if held_tool != "package":
 				_toast("Lift the filled, coated order from the counter first.", RED)
@@ -290,6 +338,7 @@ func _act(station: String) -> void:
 			result = model.serve()
 			if result.get("ok", false):
 				held_tool = "none"
+				_powder_count = 0
 				var amount = float(result.get("amount", 0))
 				best_streak = maxi(best_streak, model.streak)
 				audio.play_served(amount, model.streak)
@@ -305,9 +354,10 @@ func _act(station: String) -> void:
 		"trash":
 			result = model.discard()
 			held_tool = "none"
+			_powder_count = 0
 	if result.is_empty(): return
 	if bool(result.get("ok", false)):
-		if station != "serve": audio.play_action(station)
+		if station not in ["serve", "punch"]: audio.play_action(station)
 		world.animate_action(station)
 		if station not in ["heat_down", "heat_up"]: _last_hand_action = station
 		_save_run()
@@ -315,11 +365,34 @@ func _act(station: String) -> void:
 		audio.play_warning(str(result.get("code", "mistake")))
 	# The dashboard explains normal scoop/pour actions continuously. Reserve
 	# transient notices for errors and actions with information worth reading.
-	if not bool(result.get("ok", false)) or station in ["trash", "heat_down", "heat_up"]:
+	if not bool(result.get("ok", false)) or station in ["trash", "heat_down", "heat_up", "extinguish"]:
 		_toast(str(result.get("message", "")), MINT if bool(result.get("ok", false)) else RED)
 	_process_events()
 	_sync_world()
 	_refresh_hud()
+
+func _tick_gags(delta: float) -> void:
+	_bell_window = maxf(0, _bell_window - delta)
+	_bell_cooldown = maxf(0, _bell_cooldown - delta)
+	if _bell_reply > 0:
+		_bell_reply = maxf(0, _bell_reply - delta)
+		if _bell_reply <= 0: world.play_gag("bell_reply")
+	if _sneeze_delay > 0:
+		_sneeze_delay = maxf(0, _sneeze_delay - delta)
+		if _sneeze_delay <= 0 and not model.orders.is_empty() and int(model.orders[0].id) == _sneeze_customer:
+			world.play_gag("sneeze")
+
+func _on_gag_sound(id: String) -> void:
+	if paused or current_view != "play": return
+	if id == "donut_shower":
+		_toast("The donuts have left the building.", GOLD)
+	elif id == "seagull":
+		audio.play_action(id)
+		_toast("One very satisfied walk-up customer.", GOLD)
+		if profile != null and profile.record_gag("unscheduled_delivery"):
+			profile.save_profile()
+			_toast("SECRET BADGE · Unscheduled Delivery", MINT)
+	else: audio.play_action(id)
 
 func _drain_action_queue() -> void:
 	if _queued_action.is_empty() or world.is_action_busy(): return
@@ -360,9 +433,10 @@ func _process_events() -> void:
 		if kind == "production" and event.has("delivery_id") and int(event.get("delivery_epoch", -1)) == _food_epoch:
 			world.enqueue_production(int(event.delivery_id))
 		elif kind == "customer_arrived": audio.play_customer()
-		elif kind in ["jam", "overheat", "walkout"]:
+		elif kind in ["jam", "overheat", "walkout", "fire", "fire_warning"]:
 			audio.play_warning(kind)
 			if kind == "walkout": _toast("A customer left. Read the new front ticket.", RED)
+			elif kind == "fire": _toast("FRYER FIRE! Click the red extinguisher or press Q.", RED)
 		elif kind in ["repair", "refill"]: audio.play_action(kind)
 	model.events.clear()
 
@@ -373,6 +447,14 @@ func _ensure_food_session() -> void:
 	_food_epoch = model.delivery_epoch
 	_queued_action = ""
 	_last_hand_action = ""
+	_bell_clicks = 0
+	_bell_window = 0
+	_bell_reply = 0
+	_bell_cooldown = 0
+	_powder_count = 0
+	_sneeze_delay = 0
+	_sneeze_customer = -1
+	_hat_customer = -1
 	world.reset_food(model.supply, model.supply_capacity, model.pending_delivery_ids())
 
 func _on_delivery_settled(id: int, kept: bool) -> void:
@@ -388,6 +470,8 @@ func _view_state() -> Dictionary:
 		"orders": model.orders, "supply": model.supply, "batter": model.batter,
 		"temperature": model.temperature, "heat_setting": model.heat_setting,
 		"jammed": model.jammed, "overheated": model.overheated, "jam_progress": model.jam_progress,
+		"fire_active": model.fire_active, "fire_danger": model.fire_danger,
+		"fire_recovery": model.fire_recovery, "foam_time": model.foam_time,
 		"refill_progress": model.refill_progress, "package_type": model.package_type,
 		"package_count": model.package_count, "package_flavor": model.package_flavor,
 		"scoop_count": model.scoop_count, "held_tool": held_tool, "hold_station": hold_station, "sales": model.sales,
@@ -406,6 +490,8 @@ func _sync_world() -> void:
 
 func _new_screen() -> void:
 	_queued_action = ""
+	_bell_reply = 0
+	_sneeze_delay = 0
 	_stop_hold()
 	_close_overlay()
 	for child in toast_layer.get_children():
@@ -738,6 +824,12 @@ func _refresh_hud() -> void:
 
 func _machine_faults() -> Array:
 	var faults: Array = []
+	if model.fire_active:
+		faults.append({"code": "fire", "title": "FRYER ON FIRE!", "action": "Click the red extinguisher or press Q. One good blast!", "station": "extinguish", "critical": true})
+	elif model.fire_recovery > 0:
+		faults.append({"code": "fire_recovery", "title": "A LITTLE TOO WELL DONE", "action": "Let the foam settle, then raise heat with +.", "station": "heat_up", "critical": false})
+	elif model.fire_danger >= 0.35:
+		faults.append({"code": "fire_warning", "title": "IS THAT SMOKE?", "action": "Turn heat down with −. This fryer is about to catch fire.", "station": "heat_down", "critical": true})
 	if model.jammed:
 		faults.append({"code": "jam", "title": "FEEDER JAMMED", "action": "Production stopped. Hold R or the brass lever.", "station": "repair", "critical": true})
 	if model.overheated:
@@ -763,6 +855,8 @@ func _machine_faults() -> Array:
 	return faults
 
 func _machine_short_status() -> String:
+	if model.fire_active: return "ON FIRE!"
+	if model.fire_recovery > 0: return "FOAM BREAK"
 	if model.jammed: return "JAMMED"
 	if model.overheated: return "TOO HOT"
 	if model.batter <= 0: return "EMPTY HOPPER"
@@ -834,10 +928,15 @@ func _guide_context() -> Dictionary:
 		var progress = float(model.jam_progress if target == "repair" else model.refill_progress)
 		hint = "%d%% complete. Keep holding; release to pause." % int(progress * 100.0)
 		step = "MACHINE CARE  ·  HOLD TO COMPLETE"
-	var keys = {"bag": "B", "bucket": "V", "scoop": "S", "supply": "F", "package": "SPACE", "cinnamon": "C", "powdered": "P", "serve": "E", "repair": "HOLD R", "refill": "HOLD T", "heat_down": "−", "heat_up": "+", "trash": "X"}
+	var keys = {"bag": "B", "bucket": "V", "scoop": "S", "supply": "F", "package": "SPACE", "cinnamon": "C", "powdered": "P", "serve": "E", "repair": "HOLD R", "refill": "HOLD T", "heat_down": "−", "heat_up": "+", "trash": "X", "bell": "G", "extinguish": "Q"}
 	return {"prompt": prompt, "hint": hint, "step": step, "key": keys.get(target, "CLICK"), "station": target}
 
 func _context_prompt() -> String:
+	if hover_station == "customer":
+		if held_tool == "package": return "Hand over your order"
+		if held_tool == "scoop" and world.front_customer_has_donut_hat(): return "That is an impressive donut..."
+		return "Customer waiting"
+	if hover_station == "extinguish" and not model.fire_active: return "Extinguisher ready · just in case"
 	if hover_station == "supply" and held_tool == "none": return "Shake the tray to spread donuts"
 	if hover_station == "supply" and held_tool == "package": return "Set your order down first"
 	if hover_station == "repair":
@@ -974,13 +1073,13 @@ func _show_help(start_after: bool) -> void:
 		["1  READ THE FIRST TICKET", "Take a bag for 6 donuts or a bucket for 12. The cream ticket is the customer you are serving."],
 		["2  SCOOP, THEN POUR", "Pick up the scoop. Click the fresh tray, then your container. Keep scooping and pouring until it is full."],
 		["3  COAT, LIFT, HAND OVER", "Click the requested sugar. Lift the finished package, then click the customer or serving mat."],
-		["4  KEEP THE FRYER RUNNING", "Hold R for jams, T for batter, and − for heat. Keep serving: a full tray spills and wastes donuts."]
+		["4  KEEP THE FRYER RUNNING", "Hold R for jams, T for batter; use − for heat. Smoke means trouble! Click the extinguisher or press Q for fire."]
 	]
 	for i in range(4):
 		var card = _panel(p, Vector2(32, 138 + i * 94), Vector2(878, 81), PANEL)
 		_label(card, steps[i][0], Vector2(15, 10), Vector2(848, 23), 17, GOLD)
 		_text(card, steps[i][1], Vector2(16, 39), Vector2(846, 38), 16, MUTED)
-	_text(p, "Right-drag to look around; Home recentres. Esc pauses. Keyboard shortcuts appear in the bottom guide.\nPractice freezes time and patience, and lets you try machine faults from its pause menu.", Vector2(34, 528), Vector2(874, 56), 16, MUTED)
+	_text(p, "Right-drag to look around; Home recentres. Esc pauses. G rings the bell. Watch for fairground surprises!\nPractice freezes time and patience, and lets you try machine faults from its pause menu.", Vector2(34, 528), Vector2(874, 56), 16, MUTED)
 	_button(p, "LET'S OPEN  >" if start_after else "GOT IT", Vector2(34, 616), Vector2(566, 48), func():
 		_close_overlay()
 		if start_after:
@@ -1015,7 +1114,7 @@ func _show_settings() -> void:
 		_save_settings()
 		_show_settings(), PANEL)
 	_slider_row(p, "Look sensitivity", 412, (look_sensitivity - 0.35) / 1.65, func(value): look_sensitivity = 0.35 + value * 1.65; _save_settings(), "multiplier")
-	_text(p, "B bag / V bucket / S scoop / F fresh tray / Space pour or lift\nC cinnamon / P powdered / E serve / hold R repair / hold T refill\n− + heat / X discard / H help / Home recenter / F11 fullscreen", Vector2(30, 486), Vector2(658, 75), 16, MUTED)
+	_text(p, "B bag / V bucket / S scoop / F fresh tray / Space pour or lift\nC cinnamon / P powdered / E serve / hold R repair / hold T refill\n− + heat / X discard / Q extinguisher / G bell\nH help / Home recenter / F11 fullscreen", Vector2(30, 480), Vector2(658, 88), 15, MUTED)
 	_button(p, "DONE", Vector2(30, 613), Vector2(436, 52), _close_overlay)
 	_button(p, "Credits", Vector2(487, 613), Vector2(201, 52), _show_credits, PANEL)
 
@@ -1062,11 +1161,11 @@ func _show_collection() -> void:
 			_text(card, str(item.get("requirement", "Keep serving to unlock")), Vector2(22, 220), Vector2(334, 50), 16, GOLD)
 	_label(screen, "CAREER BADGES", Vector2(56, 548), Vector2(1160, 24), 15, GOLD)
 	var badges: Array = profile.get_badges() if profile != null and profile.has_method("get_badges") else []
-	for i in range(mini(5, badges.size())):
+	for i in range(mini(6, badges.size())):
 		var badge: Dictionary = badges[i]
-		var card = _panel(screen, Vector2(54 + i * 239, 585), Vector2(220, 82), PANEL)
-		_label(card, str(badge.name), Vector2(12, 12), Vector2(196, 23), 16, MINT if badge.get("unlocked", false) else MUTED)
-		_text(card, "EARNED" if badge.get("unlocked", false) else str(badge.description), Vector2(12, 41), Vector2(196, 33), 11, GOLD if badge.get("unlocked", false) else MUTED)
+		var card = _panel(screen, Vector2(54 + i * 197, 585), Vector2(187, 96), PANEL)
+		_label(card, str(badge.name), Vector2(10, 12), Vector2(167, 23), 13, MINT if badge.get("unlocked", false) else MUTED)
+		_text(card, "EARNED" if badge.get("unlocked", false) else str(badge.description), Vector2(10, 41), Vector2(167, 46), 11, GOLD if badge.get("unlocked", false) else MUTED)
 	_button(screen, "BACK TO THE STAND", Vector2(831, 714), Vector2(395, 51), _show_title)
 	_label(screen, "Every look is earned by playing. Your chosen palette never changes the rules.", Vector2(56, 725), Vector2(735, 29), 15, MUTED)
 

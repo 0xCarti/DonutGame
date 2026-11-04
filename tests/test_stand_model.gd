@@ -14,6 +14,9 @@ func _run() -> void:
 	_test_manual_sequence_and_stock()
 	_test_order_validation_and_recovery()
 	_test_machine_and_holds()
+	_test_customer_punches()
+	_test_fryer_fire_and_recovery()
+	_test_fire_save_migration()
 	_test_physical_deliveries_and_overflow()
 	_test_orders_and_phases()
 	_test_save_and_corruption()
@@ -162,6 +165,180 @@ func _test_machine_and_holds() -> void:
 	model.adjust_heat(-1)
 	model.tick(30.0)
 	_check(model.jammed and model.waste_count == model.production_count, "overflow still accrues machine wear and eventually jams")
+
+
+func _food_and_earnings(model) -> Dictionary:
+	var result: Dictionary = {}
+	for key in ["supply", "batter", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "credits", "waste_count", "mistakes", "_run_served", "_run_sales", "_run_wasted"]:
+		result[key] = model.get(key)
+	result["pending"] = model.pending_delivery_ids()
+	return result
+
+
+func _test_customer_punches() -> void:
+	var model = Stand.new()
+	var before: Dictionary = model.to_save()
+	_check(not model.punch_customer().ok and model.to_save() == before, "closed stand rejects a punch without changing state")
+	model.start_shift()
+	model._spawn_order()
+	model._spawn_order()
+	model.choose_package("bucket")
+	model.scoop()
+	model.dump()
+	model.scoop()
+	model.streak = 4
+	model.sales = 37.0
+	model.served = 2
+	model._run_sales = 37.0
+	model._run_served = 2
+	var remaining_orders: Array = model.orders.slice(1).duplicate(true)
+	var first_id: int = model.orders[0].id
+	var inventory: Dictionary = _food_and_earnings(model)
+	var time_before: float = model.time_left
+	model.events.clear()
+	var receipt: Dictionary = model.punch_customer()
+	_check(receipt.ok and receipt.code == "customer_punched" and receipt.order_id == first_id, "punch receipt identifies the front customer who was actually removed")
+	_check(model.orders == remaining_orders, "punch removes only the front customer and preserves queued orders and patience")
+	_check(model.missed == 1 and model.get_stats().total_missed == 1 and model.streak == 0, "punch records one missed customer and breaks the streak")
+	_check(_food_and_earnings(model) == inventory and model.time_left == time_before, "punch preserves every prepared or scooped donut, stock, earnings and clock without fines")
+	_check(model.events.size() == 1 and model.events[0].type == "customer_punched" and model.events[0].order_id == receipt.order_id and model.events[0].missed == receipt.missed, "punch event and receipt agree without a sale or duplicate walkout")
+	model.punch_customer()
+	model.punch_customer()
+	_check(model.orders.is_empty() and model.missed == 3 and model._arrival_clock <= 1.2, "clearing the queue counts each actual customer once and schedules a quick replacement")
+	before = model.to_save()
+	var event_count: int = model.events.size()
+	_check(not model.punch_customer().ok and model.to_save() == before and model.events.size() == event_count, "repeating a punch at an empty counter cannot create misses or rewards")
+	model.tick(1.3)
+	_check(model.orders.size() == 1 and int(model.orders[0].id) > first_id and model.missed == 3, "normal arrivals recover promptly after the last customer is punched")
+	_fill(model, "bag", "powdered")
+	inventory = _food_and_earnings(model)
+	model.punch_customer()
+	_check(_food_and_earnings(model) == inventory and model.package_flavor == "powdered", "punch also preserves a fully coated order ready for another customer")
+	model.tick_practice(0.1)
+	_check(model.orders.size() == 1, "practice supplies another customer after a punch")
+	model.finish_shift()
+	before = model.to_save()
+	_check(not model.punch_customer().ok and model.to_save() == before, "finished shift cannot continue punching or alter its results")
+
+
+func _test_fryer_fire_and_recovery() -> void:
+	var model = Stand.new()
+	var before: Dictionary = model.to_save()
+	_check(not model.extinguish_fire().ok and model.to_save() == before, "closed stand rejects extinguisher action without changing state")
+	model.start_shift()
+	before = model.to_save()
+	_check(not model.extinguish_fire().ok and model.to_save() == before, "unnecessary extinguisher clicks do not cool the fryer or grant recovery effects")
+	model.temperature = 204.0
+	model.heat_setting = 2
+	model.tick(4.0)
+	_check(model.fire_danger == 0.0 and not model.fire_active, "subcritical cooling oil cannot build fire danger")
+	model.new_run(981)
+	model.external_delivery = true
+	model.start_shift()
+	model.heat_setting = 2
+	model.tick(2.0)
+	model.choose_package("bag")
+	model.scoop()
+	model.dump()
+	model.scoop()
+	var inventory: Dictionary = _food_and_earnings(model)
+	model.temperature = 220.0
+	model.heat_setting = 4
+	model.events.clear()
+	model.tick(4.1)
+	_check(model.fire_danger > 0.30 and model.fire_danger < 0.35 and not model.fire_active, "unattended overheat builds gradual danger rather than igniting immediately")
+	_check(not model.events.any(func(event): return event.type == "fire_warning"), "smoke warning is not emitted before the danger threshold")
+	model.tick(0.2)
+	_check(model.events.filter(func(event): return event.type == "fire_warning").size() == 1 and not model.fire_active, "danger threshold emits one warning with several seconds left to respond")
+	var cooling = Stand.new()
+	_check(cooling.from_save(JSON.parse_string(JSON.stringify(model.to_save()))), "partial fire danger survives save and resume")
+	cooling.adjust_heat(-2)
+	cooling.tick(0.1)
+	_check(cooling.fire_danger < model.fire_danger and cooling.temperature > 205.0, "turning heat down reduces danger immediately while the oil is still hot")
+	cooling.tick(6.0)
+	_check(cooling.fire_danger == 0.0 and not cooling.fire_active, "responding during the warning safely prevents ignition")
+	model.tick(7.6)
+	_check(not model.fire_active and model.fire_danger > 0.98, "the unattended warning window lasts approximately twelve seconds")
+	model.tick(0.2)
+	_check(model.fire_active and model.overheated and model.fire_danger == 1.0 and model.phase == "playing", "continued overheating ignites a persistent recoverable fire")
+	_check(model.events.filter(func(event): return event.type == "fire").size() == 1, "ignition emits exactly one fire event")
+	_check(model.production_status().contains("FRYER FIRE") and model.get_stats().fire_active, "status and stats expose the active fire for presentation")
+	var burning_copy = Stand.new()
+	_check(burning_copy.from_save(JSON.parse_string(JSON.stringify(model.to_save()))) and burning_copy.fire_active, "an active fire remains active when reloading the shift")
+	model.adjust_heat(-4)
+	var produced: int = model.production_count
+	model.tick(20.0)
+	_check(model.fire_active and model.overheated and model.production_count == produced and model.temperature < 190.0, "a burning fryer cannot self-extinguish or resume production just by cooling")
+	_check(_food_and_earnings(model) == inventory and model.events.filter(func(event): return event.type == "fire").size() == 1, "fire preserves existing food and earnings without repeated ignition events")
+	var result: Dictionary = model.extinguish_fire()
+	_check(result.ok and result.code == "extinguished" and not model.fire_active and not model.overheated and model.fire_danger == 0.0, "one extinguisher action clears the fire and danger")
+	_check(model.heat_setting == 0 and is_equal_approx(model.temperature, 175.0) and is_equal_approx(model.fire_recovery, 2.4) and is_equal_approx(model.foam_time, 8.0), "extinguishing sets a safe heater and a short settling interval with lingering foam")
+	_check(_food_and_earnings(model) == inventory and model.events.back().type == "extinguished", "extinguishing neither deletes inventory nor fabricates food or money")
+	before = model.to_save()
+	_check(not model.extinguish_fire().ok and model.to_save() == before, "repeated extinguisher click cannot refresh recovery or foam once the fire is out")
+	model.adjust_heat(2)
+	model.tick(2.3)
+	_check(model.fire_recovery > 0.0 and model.production_count == produced and model.production_status().contains("settling"), "even a ready heater cannot produce during fire recovery")
+	model.tick(1.5)
+	_check(model.fire_recovery == 0.0 and model.production_count > produced and model.foam_time > 0.0, "production resumes after recovery while harmless foam remains visible")
+	var practice_model = Stand.new()
+	_check(practice_model.from_save(JSON.parse_string(JSON.stringify(burning_copy.to_save()))), "practice fire fixture restores normally")
+	practice_model.extinguish_fire()
+	var practice_time: float = practice_model.time_left
+	var patience: float = practice_model.orders[0].patience
+	practice_model.tick_practice(3.0)
+	_check(practice_model.fire_recovery == 0.0 and practice_model.foam_time > 4.9 and practice_model.foam_time < 5.1 and practice_model.time_left == practice_time and practice_model.orders[0].patience == patience, "practice advances recovery and foam without spending shift time or customer patience")
+	practice_model.tick_practice(6.0)
+	_check(practice_model.foam_time == 0.0, "foam eventually clears in practice")
+	practice_model.fire_danger = 0.5
+	practice_model.foam_time = 3.0
+	practice_model.sales = practice_model.target
+	practice_model.finish_shift()
+	practice_model.start_shift()
+	_check(not practice_model.fire_active and practice_model.fire_danger == 0.0 and practice_model.fire_recovery == 0.0 and practice_model.foam_time == 0.0, "next shift resets all temporary fire and foam state")
+
+
+func _test_fire_save_migration() -> void:
+	var model = Stand.new()
+	model.external_delivery = true
+	model.start_shift()
+	model.choose_package("bag")
+	model.scoop()
+	model.dump()
+	model.scoop()
+	model.tick(3.0)
+	var original: Dictionary = model.to_save()
+	var restored = Stand.new()
+	for version in [2, 3]:
+		var legacy: Dictionary = original.duplicate(true)
+		legacy.version = version
+		for key in ["fire_active", "fire_danger", "fire_recovery", "foam_time"]: legacy.erase(key)
+		if version == 2:
+			for key in ["waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries"]: legacy.erase(key)
+		var unchanged: Dictionary = legacy.duplicate(true)
+		_check(restored.from_save(JSON.parse_string(JSON.stringify(legacy))) and restored.to_save().version == 4, "version%d save migrates explicitly through the v4 fire schema" % version)
+		_check(legacy == unchanged and restored.package_count == original.package_count and restored.scoop_count == original.scoop_count and restored.supply == original.supply and is_equal_approx(restored.time_left, original.time_left), "version%d migration preserves old input and work in progress" % version)
+		_check(not restored.fire_active and restored.fire_danger == 0.0 and restored.fire_recovery == 0.0 and restored.foam_time == 0.0, "version%d migration does not invent a fire or recovery delay" % version)
+		if version == 3: _check(restored.pending_delivery_ids() == original._pending_deliveries, "v3 migration preserves every uncredited physical donut delivery")
+	for change in [{"fire_active": "true"}, {"fire_active": 1}, {"fire_danger": NAN}, {"fire_danger": -0.1}, {"fire_danger": 1.1}, {"fire_recovery": INF}, {"fire_recovery": -0.1}, {"fire_recovery": 2.5}, {"foam_time": -1.0}, {"foam_time": 8.1}, {"fire_active": true}, {"fire_danger": 1.0}, {"fire_recovery": 1.0, "foam_time": 0.5}]:
+		var corrupt: Dictionary = original.duplicate(true)
+		corrupt.merge(change, true)
+		var before: Dictionary = restored.to_save()
+		_check(not restored.from_save(corrupt) and restored.to_save() == before, "invalid fire fields reject transactionally: " + str(change))
+	for key in ["fire_active", "fire_danger", "fire_recovery", "foam_time"]:
+		var corrupt: Dictionary = original.duplicate(true)
+		corrupt.erase(key)
+		var before: Dictionary = restored.to_save()
+		_check(not restored.from_save(corrupt) and restored.to_save() == before, "v4 cannot silently default missing fire field " + key)
+	model.temperature = 220.0
+	model.heat_setting = 4
+	model.tick(12.1)
+	model.extinguish_fire()
+	model.tick(0.7)
+	_check(restored.from_save(JSON.parse_string(JSON.stringify(model.to_save()))) and is_equal_approx(restored.fire_recovery, model.fire_recovery) and is_equal_approx(restored.foam_time, model.foam_time), "partly completed recovery and foam timers resume exactly")
+	model.tick(2.0)
+	restored.tick(2.0)
+	_check(_same_state(model.to_save(), restored.to_save()), "resumed fire recovery produces deterministic subsequent machine and queue state")
 
 
 func _test_physical_deliveries_and_overflow() -> void:
@@ -458,7 +635,7 @@ func _test_preventive_service_and_legacy_save() -> void:
 	model.tick(4.0)
 	var old: Dictionary = model.to_save()
 	old.version = 1
-	for key in ["difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts"]: old.erase(key)
+	for key in ["difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries", "fire_active", "fire_danger", "fire_recovery", "foam_time"]: old.erase(key)
 	for order in old.orders:
 		order.erase("menu_premium")
 		order.erase("welcome")

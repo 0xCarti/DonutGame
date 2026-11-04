@@ -14,6 +14,25 @@ var report: Dictionary = {"scenarios": []}
 
 class FoodWorld extends Node3D:
 	var _machine_root: Node3D
+	var gags: Array[Dictionary] = []
+	var gag_visuals: Array[Node3D] = []
+	var credited_spills: Dictionary = {}
+	func play_gag(id: String, data: Dictionary = {}) -> void:
+		var record: Dictionary = {"kind":id, "credited_before_gag":credited_spills.has(data.get("id", 0))}
+		if id == "seagull":
+			var visual: Node3D = data.donut
+			record["id"] = data.id
+			record["visual_identity"] = visual.get_instance_id()
+			record["detached"] = visual.get_parent() == self
+			record["from"] = data.from
+			gag_visuals.append(visual)
+		gags.append(record)
+	func clear_gags() -> void:
+		for visual in gag_visuals:
+			if is_instance_valid(visual): visual.queue_free()
+		gag_visuals.clear()
+		gags.clear()
+		credited_spills.clear()
 	func _init() -> void:
 		_machine_root = Node3D.new()
 		_machine_root.position = Vector3(-2.35, 1.01, -0.60)
@@ -51,7 +70,8 @@ func _run() -> void:
 		settled[id] = {"kept": kept, "position": _body_position(id)})
 	food.stock_spilled.connect(func(id: int) -> void:
 		if spilled.has(id): duplicate_callbacks += 1
-		spilled[id] = _body_position(id))
+		spilled[id] = _body_position(id)
+		world.credited_spills[id] = true)
 	# Default cadence is 180 C with no motor upgrade. The maximum case uses
 	# the production formula's absolute floor with two motor upgrades, slightly
 	# faster than a player can sustain before overheating. Belt time stays real.
@@ -65,6 +85,7 @@ func _run() -> void:
 		await production_case("checkpoint_replay", 0, 36, 6, 0.0)
 		await pause_and_fault_case()
 	await tray_shake_case()
+	await rage_shake_case()
 	check(duplicate_callbacks == 0, "delivery and resident spill callbacks remain exactly once")
 	report["checks"] = checks
 	report["failures"] = failures
@@ -198,7 +219,7 @@ func tray_shake_case() -> void:
 	for index in range(120): await frame()
 	var starts: Dictionary = food_positions()
 	check(food.shake_tray(), "first deliberate tray shake is accepted")
-	check(not food.shake_tray(), "tray shake cooldown prevents repeated impulse stacking")
+	check(food.debug_snapshot().shake_strength == 1.0, "an isolated shake starts at helpful strength")
 	var maximum_shift: float = 0.0
 	var peak_speed: float = 0.0
 	for index in range(120):
@@ -257,6 +278,93 @@ func tray_shake_case() -> void:
 		report[key] = {"opening":full_count, "repetitions":5, "peak_speed":peak_speed, "movement":redistribution(starts), "resident_spills":spilled.size(), "available":food.get_available_count()}
 		food.clear_food()
 
+
+
+func rage_shake_case() -> void:
+	var cases: Array = []
+	for opening in [24, 36, 60]:
+		food.seed_stock(opening, opening)
+		world.clear_gags()
+		settled.clear()
+		spilled.clear()
+		for index in range(120): await frame()
+		var visual_ids: Dictionary = {}
+		for entry in food._entries: visual_ids[entry.id] = entry.visual.get_instance_id()
+		check(food.shake_tray(), "first shake of rapid burst is accepted")
+		for index in range(8): await frame()
+		var reached_time: float = food._shake_time
+		check(food.shake_tray() and food._shake_strength == 2.0, "rapid second click builds shake strength instead of being rejected")
+		check(food._shake_time == reached_time, "rapid click does not restart the hand reach or shake phase")
+		for index in range(8): await frame()
+		check(food.shake_tray() and food.debug_snapshot().rage_shaking, "third deliberate rapid click reaches launch strength")
+		for click in range(7):
+			for index in range(4): await frame()
+			check(food.shake_tray(), "further rapid clicks remain responsive")
+		check(food._shake_strength == Food.MAX_SHAKE_STRENGTH, "rapid-click strength has a finite upper bound")
+		var peak_speed: float = 0.0
+		var peak_horizontal_speed: float = 0.0
+		var peak_height: float = 0.0
+		var conservation_ok: bool = true
+		var finite_motion: bool = true
+		for index in range(180):
+			await frame()
+			conservation_ok = conservation_ok and food.get_available_count() + spilled.size() == opening
+			for entry in food._entries:
+				finite_motion = finite_motion and entry.body.position.is_finite() and entry.body.linear_velocity.is_finite() and entry.body.angular_velocity.is_finite()
+				peak_speed = maxf(peak_speed, entry.body.linear_velocity.length())
+				peak_horizontal_speed = maxf(peak_horizontal_speed, Vector2(entry.body.linear_velocity.x, entry.body.linear_velocity.z).length())
+				peak_height = maxf(peak_height, entry.body.position.y)
+		check(conservation_ok, "rage shaking charges each real departed donut once without duplicating inventory")
+		check(spilled.size() >= 2, "intentional rapid shaking actually spills multiple donuts")
+		check(peak_height > 2.20 and peak_horizontal_speed < 5.5 and peak_speed < 14.0 and finite_motion, "rage produces a bounded launch while allowing gravity to accelerate food below the table")
+		var catch_count: int = 0
+		var shower_count: int = 0
+		for gag in world.gags:
+			if gag.kind == "donut_shower": shower_count += 1
+			if gag.kind == "seagull":
+				catch_count += 1
+				check(gag.credited_before_gag and gag.detached, "gull receives a detached donut only after its unique stock-spill callback")
+				check(gag.visual_identity == visual_ids[gag.id], "gull catches the actual launched visual rather than spawning duplicate food")
+		check(shower_count == 1 and catch_count == 1, "one rapid burst triggers one shower payoff and one gull catch")
+		check(food._shake_strength == 0.0 and not food.debug_snapshot().shaking, "rage momentum and tray motion decay fully after input stops")
+		# A second burst inside the gull cooldown may spill more stock, but cannot
+		# summon a second bird or interfere with the first bird's owned visual.
+		var replacements: Array[Node3D] = []
+		for index in range(8):
+			var replacement: Node3D = world._plain_donut(-30000 - index, Vector3.ZERO)
+			replacement.position = Food.TRAY_CENTER + Vector3(-0.45 + float(index % 4) * 0.30, 0.16, -0.16 + float(index / 4) * 0.32)
+			replacements.append(replacement)
+		food.return_donuts(replacements)
+		var count_before: int = food.get_available_count()
+		for click in range(5):
+			food.shake_tray()
+			for index in range(5): await frame()
+		for index in range(90): await frame()
+		var catches_after: int = 0
+		for gag in world.gags:
+			if gag.kind == "seagull": catches_after += 1
+		check(catches_after == 1, "gull cooldown bounds repeated bursts to one catch within eight seconds")
+		check(food.get_available_count() + spilled.size() == opening + 8 and food.get_available_count() < count_before, "successive rage bursts spill real restocked food and preserve the durable ledger")
+		cases.append({"opening":opening, "restocked_for_second_burst":8, "retained":food.get_available_count(), "spilled":spilled.size(), "gull_catches":catches_after, "peak_speed":peak_speed, "peak_horizontal_speed":peak_horizontal_speed, "peak_height":peak_height})
+		food.clear_food()
+		world.clear_gags()
+	# Pause freezes the chain window and momentum, not just the rigid bodies.
+	food.seed_stock(24, 30)
+	food.shake_tray()
+	food.shake_tray()
+	food.shake_tray()
+	for index in range(6): await frame()
+	food.set_paused(true)
+	var strength: float = food._shake_strength
+	var chain_age: float = food._shake_chain_age
+	var gull_cooldown: float = food._gull_cooldown
+	for index in range(90): await frame()
+	check(not food.shake_tray() and food._shake_strength == strength and food._shake_chain_age == chain_age and food._gull_cooldown == gull_cooldown, "paused rage freezes momentum and all burst/catch clocks")
+	food.set_paused(false)
+	food.clear_food()
+	check(food._shake_strength == 0.0 and food._gull_cooldown == 0.0 and not food._shake_extra_pulse and not food.debug_snapshot().shaking, "reset removes all rage momentum and pending catch state")
+	world.clear_gags()
+	report["rage_shake"] = cases
 
 
 func food_positions() -> Dictionary:

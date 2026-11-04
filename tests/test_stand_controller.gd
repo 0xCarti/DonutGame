@@ -107,7 +107,7 @@ func _test_physical_counter() -> void:
 	var camera: Camera3D = app.world.get_camera()
 	_check(camera.projection == Camera3D.PROJECTION_PERSPECTIVE, "stand uses a perspective 3D camera")
 	_check(app.world._view_hands.get_parent() == camera and app.world._view_hands.visible, "operator hands occupy the player's camera space")
-	_check(app.world._stations.size() == 13, "all thirteen actions have physical stations")
+	_check(app.world._stations.size() == 15, "all fifteen actions have physical stations")
 	var bounds: Rect2 = root.get_visible_rect()
 	for station in Controller.STATION_NAMES:
 		var point: Vector2 = app.world.station_screen_position(station)

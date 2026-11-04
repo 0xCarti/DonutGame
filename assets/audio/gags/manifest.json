@@ -1,0 +1,58 @@
+{
+  "punch": {
+    "seconds": 0.38,
+    "peak": 0.54,
+    "rms": 0.16349786103965197,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "bell": {
+    "seconds": 1.2,
+    "peak": 0.54,
+    "rms": 0.10334373760828666,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "bell_reply": {
+    "seconds": 1.2,
+    "peak": 0.54,
+    "rms": 0.14019534773829065,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "sneeze": {
+    "seconds": 0.9,
+    "peak": 0.54,
+    "rms": 0.13371303464301537,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "seagull": {
+    "seconds": 0.8,
+    "peak": 0.54,
+    "rms": 0.18700609700994844,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "hat": {
+    "seconds": 0.6,
+    "peak": 0.54,
+    "rms": 0.219816509424525,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "fire": {
+    "seconds": 1.1,
+    "peak": 0.54,
+    "rms": 0.2519068036888191,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "extinguish": {
+    "seconds": 1.3,
+    "peak": 0.54,
+    "rms": 0.13593865785920747,
+    "channels": 1,
+    "sample_rate": 32000
+  }
+}

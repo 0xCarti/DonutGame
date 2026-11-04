@@ -18,7 +18,7 @@ func _run() -> void:
 	await process_frame
 	await create_timer(.05).timeout
 	var initial_nodes: int = sound.get_child_count()
-	check(initial_nodes == 25, "fixed pool owns service effects, score effects and three loops")
+	check(initial_nodes == 33, "fixed pool owns service effects, gag effects, score effects and three loops")
 	check(is_equal_approx(sound._music.stream.get_length(), 76.8), "original evening theme has complete 32-bar arrangement")
 	for player in [sound._music,sound._machine_loop,sound._air_loop]:
 		check(player.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and player.stream.loop_end == roundi(player.stream.get_length()*player.stream.mix_rate), "each loop contains all its sample frames")
@@ -34,6 +34,14 @@ func _run() -> void:
 	sound.sync_machine(state)
 	check(sound._machine_loop.volume_db == -80, "thermal cutoff stops machinery")
 	state.overheated = false
+	state.fire_active = true
+	sound.sync_machine(state)
+	check(sound._machine_loop.volume_db == -80, "fire stops machinery audio")
+	state.fire_active = false
+	state.fire_recovery = 2.4
+	sound.sync_machine(state)
+	check(sound._machine_loop.volume_db == -80, "foam recovery stops machinery audio")
+	state.fire_recovery = 0
 	state.supply = 36
 	sound.sync_machine(state)
 	check(sound._machine_loop.volume_db > -80, "full tray keeps producing with spill risk")
@@ -61,6 +69,12 @@ func _run() -> void:
 	check(sound._voice_serial == serial, "repeated fault does not flood the audio mix")
 	sound.play_warning("overheat")
 	check(sound._stand_players.overheat.playing, "a different fault still sounds immediately")
+	for cue in ["punch", "bell", "bell_reply", "sneeze", "seagull", "hat", "extinguish"]:
+		sound.play_action(cue)
+		check(sound._stand_players[cue].playing, "original gag cue plays: " + cue)
+		check(sound._active_effect_count() <= 6, "gags share bounded audio budget")
+	sound.play_warning("fire")
+	check(sound._stand_players.fire.playing, "fire has its own urgent warning")
 	for i in range(80):
 		sound._last_played.clear()
 		sound._warning_times.clear()

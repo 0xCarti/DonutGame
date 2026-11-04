@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.4 · Windows
+Version 1.0.5 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,
@@ -41,6 +41,9 @@ hands finish a movement. Pause cancels that queued click.
 Donuts climb the machine's exit ramp, ride a sweeping chute and fall into the
 tray as physical objects. The chute distributes fresh output across the tray.
 With empty hands, click the tray (or press F) to spread the donuts with a shake.
+Rapid repeated clicks compound the motion and can launch donuts out of the
+tray. Spilled donuts become actual waste, so give each shake time to settle
+when you want to keep the stock.
 The ready count increases after they land. A full tray does not stop the fryer:
 extra donuts tumble onto the counter and become waste. Watch the ready stock,
 in-flight and wasted counters, and keep serving to make room.
@@ -59,6 +62,10 @@ prevent trouble. Lower the heat if the oil gets too hot; production resumes
 after it cools. Hold the batter hopper to refill it. Released holds keep their
 partial progress. Pause stops the clock and cancels any active hold.
 
+Leaving the fryer at excessive heat can cause a fire. Click the red extinguisher
+or press Q to put it out, let the foam settle, then raise the heat to resume
+cooking. The dashboard shows both the warning and recovery state.
+
 Wrong orders do not earn money. The package stays on your counter, and the
 customer loses patience. Use the discard bin to start again. Plain donuts can
 be recovered; coated mistakes are discarded.
@@ -72,10 +79,24 @@ look sensitivity and inverted look.
 
 Optional keys: B bag; V bucket; S pick up scoop; F scoop or shake with empty hands;
 Space pour, lift or put down; C cinnamon; P powdered; E hand over;
-hold R repair or service; hold T refill; - / + heat; X discard; H help.
+hold R repair or service; hold T refill; - / + heat; X discard;
+G service bell; Q extinguisher; H help.
+
+Clicking a customer with empty hands immediately throws a cartoon punch and
+skips that customer. It earns no sale and ends your streak. A finished package
+in your hand is handed over instead.
 
 Practice's pause menu can create a jam, hot oil or an empty hopper, so you can
 learn each repair at your own pace.
+
+## Playful surprises
+
+The booth has a few optional jokes to discover. An impatient bell can get an
+answer, too much powdered sugar can provoke a sneeze, and one customer has
+unusual taste in hats. A passing seagull may catch a donut thrown from the tray.
+That is the same physical donut you lost: the bird never creates extra stock
+or charges a second piece of waste. Keep serving normally whenever you prefer;
+these discoveries are not required to finish the campaign.
 
 ## Build your rhythm
 
