@@ -1,0 +1,8 @@
+{
+  "asset": "oil_flame.png",
+  "generator": "Built-in image_gen tool",
+  "date": "2026-11-04",
+  "original_output": "exec-12b641a9-26d1-4a36-9d00-99e6b809a0c4.png",
+  "prompt": "Use case: stylized-concept. Asset type: transparent RGBA particle sprite for a 3D first-person donut stand game. Create ONE isolated natural turbulent tongue of cooking-oil flame, wide soft base tapering asymmetrically upward with 3 curling wispy tips, warm bright ivory core transitioning through yellow and orange to faint red edges. Physically plausible luminous translucent fire, smooth blended internal detail, NOT a cartoon icon, NOT geometric, NOT solid object, no smoke. Square 1024x1024 composition, flame occupies central 65% width and 80% height with generous fully transparent padding on all sides. Genuine transparent alpha background including softly fading wisps; no checkerboard painted into pixels, no black or white background, no floor, no pan, no text, no border. It will be layered as additive/alpha blended billboard particles above a fryer.",
+  "verification": "Original RGBA alpha preserved. 1254x1254 pixels, 483074 fully transparent pixels. Native Unity effect not yet verified."
+}

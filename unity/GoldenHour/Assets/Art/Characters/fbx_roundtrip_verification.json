@@ -1,0 +1,171 @@
+{
+  "BakerHands.fbx": {
+    "mesh_count": 1,
+    "armatures": 1,
+    "bones": 39,
+    "vertices": 27070,
+    "materials": 3,
+    "uv_meshes": 1,
+    "unweighted_vertices": 0,
+    "nonfinite_vertices": 0,
+    "max_weights_per_vertex": 4,
+    "bounds_blender": {
+      "min": [
+        -0.3429147005081177,
+        -0.6290101408958435,
+        -0.41953256726264954
+      ],
+      "max": [
+        0.34291476011276245,
+        0.17544960975646973,
+        -0.0967734083533287
+      ]
+    },
+    "clips": [
+      {
+        "name": "HandsRig|HandsRig|Hands_Grip",
+        "frames": [
+          1.0,
+          10.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_GripHold",
+        "frames": [
+          1.0,
+          31.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_GripHoldBoth",
+        "frames": [
+          1.0,
+          31.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_GripHoldLeft",
+        "frames": [
+          1.0,
+          31.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Handoff",
+        "frames": [
+          1.0,
+          20.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Idle",
+        "frames": [
+          1.0,
+          91.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Pour",
+        "frames": [
+          1.0,
+          21.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_PunchRapid",
+        "frames": [
+          1.0,
+          8.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Reach",
+        "frames": [
+          1.0,
+          14.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Scoop",
+        "frames": [
+          1.0,
+          20.0
+        ]
+      },
+      {
+        "name": "HandsRig|HandsRig|Hands_Shake",
+        "frames": [
+          1.0,
+          10.0
+        ]
+      }
+    ]
+  },
+  "Customer_Milo.fbx": {
+    "mesh_count": 1,
+    "armatures": 1,
+    "bones": 50,
+    "vertices": 48900,
+    "materials": 16,
+    "uv_meshes": 1,
+    "unweighted_vertices": 0,
+    "nonfinite_vertices": 0,
+    "max_weights_per_vertex": 3,
+    "bounds_blender": {
+      "min": [
+        -0.3378831744194031,
+        -0.18299996852874756,
+        0.010000042617321014
+      ],
+      "max": [
+        0.33788222074508667,
+        0.11210957914590836,
+        1.7489999532699585
+      ]
+    },
+    "clips": [
+      {
+        "name": "CustomerRig|CustomerRig|Customer_ComicRecoil",
+        "frames": [
+          1.0,
+          45.0
+        ]
+      },
+      {
+        "name": "CustomerRig|CustomerRig|Customer_Happy",
+        "frames": [
+          1.0,
+          61.0
+        ]
+      },
+      {
+        "name": "CustomerRig|CustomerRig|Customer_Idle",
+        "frames": [
+          1.0,
+          91.0
+        ]
+      },
+      {
+        "name": "CustomerRig|CustomerRig|Customer_Impatient",
+        "frames": [
+          1.0,
+          91.0
+        ]
+      },
+      {
+        "name": "CustomerRig|CustomerRig|Customer_Order",
+        "frames": [
+          1.0,
+          48.0
+        ]
+      },
+      {
+        "name": "CustomerRig|CustomerRig|Customer_Receive",
+        "frames": [
+          1.0,
+          55.0
+        ]
+      }
+    ]
+  }
+}

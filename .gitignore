@@ -7,3 +7,10 @@ playtest-reports/
 .openai/state/
 __pycache__/
 *.pyc
+unity/**/Library/
+unity/**/Temp/
+unity/**/Obj/
+unity/**/Logs/
+unity/**/UserSettings/
+unity/**/Builds/
+unity/release.json

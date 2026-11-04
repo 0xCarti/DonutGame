@@ -1,0 +1,309 @@
+{
+  "materials": [
+    {
+      "color": [
+        0.55,
+        0.61,
+        0.62,
+        1
+      ],
+      "metallic": 0.88,
+      "roughness": 0.27,
+      "albedo": "brushed_steel_color.png",
+      "normal": "brushed_steel_normal.png",
+      "roughnessMap": "brushed_steel_roughness.png",
+      "alphaClip": false,
+      "name": "GH_Steel",
+      "metallicSmoothnessMap": "GH_Steel_metallic_smoothness.png"
+    },
+    {
+      "color": [
+        0.14,
+        0.18,
+        0.18,
+        1
+      ],
+      "metallic": 0.85,
+      "roughness": 0.32,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_SteelDark"
+    },
+    {
+      "color": [
+        0.019,
+        0.025,
+        0.024,
+        1
+      ],
+      "metallic": 0.0,
+      "roughness": 0.8,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Rubber"
+    },
+    {
+      "color": [
+        0.66,
+        0.39,
+        0.12,
+        1
+      ],
+      "metallic": 0.72,
+      "roughness": 0.28,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Brass"
+    },
+    {
+      "color": [
+        0.025,
+        0.17,
+        0.18,
+        1
+      ],
+      "metallic": 0.2,
+      "roughness": 0.33,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Teal"
+    },
+    {
+      "color": [
+        0.88,
+        0.79,
+        0.57,
+        1
+      ],
+      "metallic": 0.05,
+      "roughness": 0.58,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Cream"
+    },
+    {
+      "color": [
+        0.42,
+        0.035,
+        0.035,
+        1
+      ],
+      "metallic": 0.08,
+      "roughness": 0.38,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Red"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.5,
+      "albedo": "counter_wood_color.png",
+      "normal": "counter_wood_normal.png",
+      "roughnessMap": "counter_wood_roughness.png",
+      "alphaClip": false,
+      "name": "GH_Wood",
+      "metallicSmoothnessMap": "GH_Wood_metallic_smoothness.png"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.8,
+      "albedo": "kraft_paper_color.png",
+      "normal": "kraft_paper_normal.png",
+      "roughnessMap": "kraft_paper_roughness.png",
+      "alphaClip": false,
+      "name": "GH_Paper",
+      "metallicSmoothnessMap": "GH_Paper_metallic_smoothness.png"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.62,
+      "albedo": "donut_crust_color.png",
+      "normal": "detail_dough_normal.png",
+      "roughnessMap": "donut_crust_roughness.png",
+      "alphaClip": false,
+      "name": "GH_Dough",
+      "metallicSmoothnessMap": "GH_Dough_metallic_smoothness.png"
+    },
+    {
+      "color": [
+        0.24,
+        0.1,
+        0.015,
+        1
+      ],
+      "metallic": 0.3,
+      "roughness": 0.1,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Oil"
+    },
+    {
+      "color": [
+        0.88,
+        0.65,
+        0.34,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.44,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Batter"
+    },
+    {
+      "color": [
+        0.84,
+        0.76,
+        0.56,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.85,
+      "albedo": "detail_canvas_color.png",
+      "normal": "detail_canvas_normal.png",
+      "roughnessMap": "detail_canvas_roughness.png",
+      "alphaClip": false,
+      "name": "GH_CanvasCream",
+      "metallicSmoothnessMap": "GH_CanvasCream_metallic_smoothness.png"
+    },
+    {
+      "color": [
+        0.38,
+        0.045,
+        0.04,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.86,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_CanvasRed"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.65,
+      "albedo": "shaker_cinnamon.png",
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_LabelCinnamon"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.65,
+      "albedo": "shaker_powdered.png",
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_LabelPowdered"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.75,
+      "albedo": "brand_seal.png",
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": true,
+      "name": "GH_BrandSeal"
+    },
+    {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "metallic": 0,
+      "roughness": 0.45,
+      "albedo": "counter_sign.png",
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_CounterSign"
+    },
+    {
+      "color": [
+        0.97,
+        0.48,
+        0.04,
+        1
+      ],
+      "metallic": 0.1,
+      "roughness": 0.45,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Warning"
+    },
+    {
+      "color": [
+        0.95,
+        0.65,
+        0.25,
+        1
+      ],
+      "metallic": 0.2,
+      "roughness": 0.18,
+      "albedo": null,
+      "normal": null,
+      "roughnessMap": null,
+      "alphaClip": false,
+      "name": "GH_Lamp"
+    }
+  ]
+}

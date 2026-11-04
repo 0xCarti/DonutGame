@@ -1,0 +1,6 @@
+Golden Hour character assets
+
+Original artwork authored procedurally in tools/unity/build_characters.py for this project.
+No third-party meshes, textures, animations, or characters were used.
+May be used, modified, redistributed, and commercially published with Golden Hour.
+Blender is a creation tool and does not impose its software license on generated artwork.

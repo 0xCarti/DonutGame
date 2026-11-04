@@ -1,0 +1,504 @@
+{
+  "Fryer": {
+    "description": "Continuous mini donut fryer: open channel, batter hopper, control face, flipper and rising conveyor. Metres; bottom at zero. Plunger vertical; Flipper local X axis after FBX conversion should be inspected in importer.",
+    "blenderBoundsMin": [
+      -0.8186441659927368,
+      -0.3264999985694885,
+      0.0
+    ],
+    "blenderBoundsMax": [
+      0.8885124921798706,
+      0.27883124351501465,
+      0.9350000023841858
+    ],
+    "unitySize": [
+      1.7071566581726074,
+      0.9350000023841858,
+      0.6053312420845032
+    ],
+    "vertices": 25076,
+    "triangles": 45954,
+    "materials": [
+      "GH_Batter",
+      "GH_Brass",
+      "GH_Cream",
+      "GH_Oil",
+      "GH_Red",
+      "GH_Rubber",
+      "GH_Steel",
+      "GH_SteelDark",
+      "GH_Teal"
+    ],
+    "movingParts": [
+      "HeatDial",
+      "SpeedDial",
+      "Plunger",
+      "Flipper",
+      "Conveyor"
+    ]
+  },
+  "Counter": {
+    "description": "3.6m butcher block service counter. Top Y=.908m. Teal panelled base, brass trim, drawers, recessed waste opening at local X=1.485m.",
+    "blenderBoundsMin": [
+      -1.7999999523162842,
+      -0.44850000739097595,
+      0.0
+    ],
+    "blenderBoundsMax": [
+      1.7999999523162842,
+      0.4350000023841858,
+      0.9129999876022339
+    ],
+    "unitySize": [
+      3.5999999046325684,
+      0.9129999876022339,
+      0.8835000097751617
+    ],
+    "vertices": 6568,
+    "triangles": 12880,
+    "materials": [
+      "GH_Brass",
+      "GH_Rubber",
+      "GH_Steel",
+      "GH_SteelDark",
+      "GH_Teal",
+      "GH_Wood"
+    ],
+    "movingParts": []
+  },
+  "Tray": {
+    "description": "Rolled-edge bakery tray, floor pivot; .46 x .32 metres.",
+    "blenderBoundsMin": [
+      -0.2330000102519989,
+      -0.1599999964237213,
+      0.003000000026077032
+    ],
+    "blenderBoundsMax": [
+      0.2330000102519989,
+      0.1599999964237213,
+      0.04899999871850014
+    ],
+    "unitySize": [
+      0.4660000205039978,
+      0.045999998692423105,
+      0.3199999928474426
+    ],
+    "vertices": 472,
+    "triangles": 894,
+    "materials": [
+      "GH_Steel"
+    ],
+    "movingParts": []
+  },
+  "Scoop": {
+    "description": "Concave sheet-metal scoop with rolled lip and oiled wood handle. Bowl points toward -Z in Unity; grip near +Z.",
+    "blenderBoundsMin": [
+      -0.05418118089437485,
+      -0.10220000147819519,
+      -0.003200000151991844
+    ],
+    "blenderBoundsMax": [
+      0.05418118089437485,
+      0.23228473961353302,
+      0.09512435644865036
+    ],
+    "unitySize": [
+      0.1083623617887497,
+      0.0983243566006422,
+      0.3344847410917282
+    ],
+    "vertices": 5043,
+    "triangles": 10039,
+    "materials": [
+      "GH_Brass",
+      "GH_Steel",
+      "GH_Wood"
+    ],
+    "movingParts": []
+  },
+  "Bag": {
+    "description": "Open gusseted kraft bag with folded rim, paper thickness, bottom folds and printed brand seal. Bottom pivot; .20 x .12 x .29m.",
+    "blenderBoundsMin": [
+      -0.10301236808300018,
+      -0.059994667768478394,
+      0.0
+    ],
+    "blenderBoundsMax": [
+      0.1030125766992569,
+      0.05999461188912392,
+      0.29412880539894104
+    ],
+    "unitySize": [
+      0.20602494478225708,
+      0.29412880539894104,
+      0.11998927965760231
+    ],
+    "vertices": 4350,
+    "triangles": 8636,
+    "materials": [
+      "GH_BrandSeal",
+      "GH_Paper"
+    ],
+    "movingParts": []
+  },
+  "Bucket": {
+    "description": "Open tapered paper sharing bucket with rolled lip, interior, burgundy printed bands and seal. .28m diameter x .24m high.",
+    "blenderBoundsMin": [
+      -0.14099998772144318,
+      -0.14099998772144318,
+      0.001999999862164259
+    ],
+    "blenderBoundsMax": [
+      0.14099998772144318,
+      0.14099998772144318,
+      0.23999999463558197
+    ],
+    "unitySize": [
+      0.28199997544288635,
+      0.2379999947734177,
+      0.28199997544288635
+    ],
+    "vertices": 2706,
+    "triangles": 4880,
+    "materials": [
+      "GH_BrandSeal",
+      "GH_Cream",
+      "GH_Red"
+    ],
+    "movingParts": []
+  },
+  "Shaker": {
+    "description": "Curved printed label, rolled steel canister and ridged perforated cap. .09m diameter x .172m high.",
+    "blenderBoundsMin": [
+      -0.04600000008940697,
+      -0.04600000008940697,
+      0.004000000189989805
+    ],
+    "blenderBoundsMax": [
+      0.04600000008940697,
+      0.04600000008940697,
+      0.1720000058412552
+    ],
+    "unitySize": [
+      0.09200000017881393,
+      0.16800000565126538,
+      0.09200000017881393
+    ],
+    "vertices": 5794,
+    "triangles": 11100,
+    "materials": [
+      "GH_LabelCinnamon",
+      "GH_Rubber",
+      "GH_Steel",
+      "GH_SteelDark"
+    ],
+    "movingParts": []
+  },
+  "ShakerPowdered": {
+    "description": "Curved printed label, rolled steel canister and ridged perforated cap. .09m diameter x .172m high.",
+    "blenderBoundsMin": [
+      -0.04600000008940697,
+      -0.04600000008940697,
+      0.004000000189989805
+    ],
+    "blenderBoundsMax": [
+      0.04600000008940697,
+      0.04600000008940697,
+      0.1720000058412552
+    ],
+    "unitySize": [
+      0.09200000017881393,
+      0.16800000565126538,
+      0.09200000017881393
+    ],
+    "vertices": 5794,
+    "triangles": 11100,
+    "materials": [
+      "GH_LabelPowdered",
+      "GH_Rubber",
+      "GH_Steel",
+      "GH_SteelDark"
+    ],
+    "movingParts": []
+  },
+  "MiniDonut": {
+    "description": "Domed irregular fried dough torus with small proof hole, darker crust and a light fried seam. Approximately 65mm diameter x 26mm high; centre pivot.",
+    "blenderBoundsMin": [
+      -0.03245861455798149,
+      -0.032928865402936935,
+      -0.013000000268220901
+    ],
+    "blenderBoundsMax": [
+      0.032726407051086426,
+      0.03211572766304016,
+      0.013000000268220901
+    ],
+    "unitySize": [
+      0.06518502160906792,
+      0.026000000536441803,
+      0.0650445930659771
+    ],
+    "vertices": 1280,
+    "triangles": 2560,
+    "materials": [
+      "GH_Dough"
+    ],
+    "movingParts": []
+  },
+  "Extinguisher": {
+    "description": "Red safety extinguisher with pressure gauge, trigger assembly and flexible hose.",
+    "blenderBoundsMin": [
+      -0.06599999964237213,
+      -0.06610000133514404,
+      0.004999999888241291
+    ],
+    "blenderBoundsMax": [
+      0.10510668903589249,
+      0.06599999964237213,
+      0.35137584805488586
+    ],
+    "unitySize": [
+      0.17110668867826462,
+      0.3463758481666446,
+      0.13210000097751617
+    ],
+    "vertices": 5784,
+    "triangles": 9600,
+    "materials": [
+      "GH_Brass",
+      "GH_Cream",
+      "GH_Red",
+      "GH_Rubber",
+      "GH_SteelDark",
+      "GH_Teal"
+    ],
+    "movingParts": []
+  },
+  "ServiceBell": {
+    "description": "Polished brass service bell with separate BellButton moving mesh.",
+    "blenderBoundsMin": [
+      -0.06499999761581421,
+      -0.06499999761581421,
+      0.003000000026077032
+    ],
+    "blenderBoundsMax": [
+      0.06499999761581421,
+      0.06499999761581421,
+      0.0949999988079071
+    ],
+    "unitySize": [
+      0.12999999523162842,
+      0.09199999878183007,
+      0.12999999523162842
+    ],
+    "vertices": 2530,
+    "triangles": 4796,
+    "materials": [
+      "GH_Brass",
+      "GH_Rubber",
+      "GH_Steel",
+      "GH_SteelDark"
+    ],
+    "movingParts": [
+      "BellButton"
+    ]
+  },
+  "Canopy": {
+    "description": "4m striped canvas canopy with sewn scalloped valance, poles and warm festoon bulbs. Floor origin. Roof peak 2.93m; integrate once over counter.",
+    "blenderBoundsMin": [
+      -2.0,
+      -0.7730000019073486,
+      0.0
+    ],
+    "blenderBoundsMax": [
+      2.0,
+      0.8300000429153442,
+      2.934000015258789
+    ],
+    "unitySize": [
+      4.0,
+      2.934000015258789,
+      1.6030000448226929
+    ],
+    "vertices": 17026,
+    "triangles": 33656,
+    "materials": [
+      "GH_CanvasCream",
+      "GH_CanvasRed",
+      "GH_Lamp",
+      "GH_Rubber",
+      "GH_SteelDark",
+      "GH_Teal"
+    ],
+    "movingParts": []
+  },
+  "HangingSign": {
+    "description": "Gold framed original Golden Hour sign with hanging rods. Face toward local Blender -Y / Unity front.",
+    "blenderBoundsMin": [
+      -0.7540000081062317,
+      -0.041999999433755875,
+      0.01600000262260437
+    ],
+    "blenderBoundsMax": [
+      0.7540000081062317,
+      0.029999999329447746,
+      0.8600000143051147
+    ],
+    "unitySize": [
+      1.5080000162124634,
+      0.8440000116825104,
+      0.07199999876320362
+    ],
+    "vertices": 2788,
+    "triangles": 5542,
+    "materials": [
+      "GH_Brass",
+      "GH_CounterSign",
+      "GH_SteelDark",
+      "GH_Teal"
+    ],
+    "movingParts": []
+  },
+  "PendantLamp": {
+    "description": "Spun enamel shade with cream inner reflector, brass rim, bulb and suspension cord.",
+    "blenderBoundsMin": [
+      -0.18599998950958252,
+      -0.18599998950958252,
+      0.07800000160932541
+    ],
+    "blenderBoundsMax": [
+      0.18599998950958252,
+      0.18599998950958252,
+      0.49000000953674316
+    ],
+    "unitySize": [
+      0.37199997901916504,
+      0.41200000792741776,
+      0.37199997901916504
+    ],
+    "vertices": 2414,
+    "triangles": 4544,
+    "materials": [
+      "GH_Brass",
+      "GH_Cream",
+      "GH_Lamp",
+      "GH_Rubber",
+      "GH_Teal"
+    ],
+    "movingParts": []
+  },
+  "SandwichBoard": {
+    "description": "Timber A-frame sidewalk chalkboard with legible chalk lettering and hinges.",
+    "blenderBoundsMin": [
+      -0.2824999988079071,
+      -0.2201000303030014,
+      0.0018902439624071121
+    ],
+    "blenderBoundsMax": [
+      0.2824999988079071,
+      0.18698076903820038,
+      0.812000036239624
+    ],
+    "unitySize": [
+      0.5649999976158142,
+      0.8101097922772169,
+      0.4070807993412018
+    ],
+    "vertices": 4472,
+    "triangles": 5680,
+    "materials": [
+      "GH_Brass",
+      "GH_Cream",
+      "GH_Teal",
+      "GH_Wood"
+    ],
+    "movingParts": []
+  },
+  "MarketStall": {
+    "description": "Open-window fairground stall with pitched sewn canvas roof, scalloped valance, raised timber panels, shelves, jars, name board and warm string lights. Ground pivot; about2.78m wide x1.69m deep x2.64m high.",
+    "blenderBoundsMin": [
+      -1.3899999856948853,
+      -0.7240000367164612,
+      0.010000020265579224
+    ],
+    "blenderBoundsMax": [
+      1.3899999856948853,
+      0.9700000286102295,
+      2.640000104904175
+    ],
+    "unitySize": [
+      2.7799999713897705,
+      2.6300000846385956,
+      1.6940000653266907
+    ],
+    "vertices": 7680,
+    "triangles": 14772,
+    "materials": [
+      "GH_Brass",
+      "GH_CanvasCream",
+      "GH_CanvasRed",
+      "GH_Cream",
+      "GH_Lamp",
+      "GH_Red",
+      "GH_Rubber",
+      "GH_Teal",
+      "GH_Wood"
+    ],
+    "movingParts": []
+  },
+  "ParkBench": {
+    "description": "Fairground bench with rounded oak slats, curved metal legs and back support.1.5m wide; grounded origin.",
+    "blenderBoundsMin": [
+      -0.75,
+      -0.28692203760147095,
+      0.015538590960204601
+    ],
+    "blenderBoundsMax": [
+      0.75,
+      0.35308730602264404,
+      0.9257875680923462
+    ],
+    "unitySize": [
+      1.5,
+      0.9102489771321416,
+      0.640009343624115
+    ],
+    "vertices": 3440,
+    "triangles": 6724,
+    "materials": [
+      "GH_Rubber",
+      "GH_SteelDark",
+      "GH_Wood"
+    ],
+    "movingParts": []
+  },
+  "FerrisWheel": {
+    "description": "Fairground wheel with dual tubular rims, tension spokes, A-frame supports and twelve freely hanging baskets. Ground origin, hubY6m, outer radius4.3m.",
+    "blenderBoundsMin": [
+      -4.659999847412109,
+      -1.1372661590576172,
+      0.0004567671858239919
+    ],
+    "blenderBoundsMax": [
+      4.659999847412109,
+      1.1372666358947754,
+      10.375
+    ],
+    "unitySize": [
+      9.319999694824219,
+      10.374543232814176,
+      2.2745327949523926
+    ],
+    "vertices": 36984,
+    "triangles": 73076,
+    "materials": [
+      "GH_Brass",
+      "GH_Cream",
+      "GH_Lamp",
+      "GH_Red",
+      "GH_SteelDark",
+      "GH_Teal"
+    ],
+    "movingParts": []
+  }
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>GOLDEN_HOUR_CORE_TESTS</DefineConstants>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../unity/GoldenHour/Assets/Scripts/Core/*.cs" />
+    <Compile Include="../../unity/GoldenHour/Assets/Tests/Core/*.cs" />
+  </ItemGroup>
+</Project>

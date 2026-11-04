@@ -1,0 +1,106 @@
+GOLDEN HOUR — UNITY MIGRATION CHECKPOINT
+2026-11-04
+
+STATUS
+The Unity source project and authored assets are prepared. This is NOT a compiled,
+playable, release-validated Unity game. The prior Godot release remains untouched.
+
+BLOCKER
+The signed Unity 6000.3.28f1 Windows installer was downloaded from Unity's official
+release API. Its MD5 matches Unity's published integrity value and its Authenticode
+signature is valid for Unity Technologies SF.
+
+Windows canceled the installer's elevation request. No further install attempt
+was made after that cancellation. A question is pending in the task asking whether
+to launch it again when the user can approve the Windows prompt.
+
+Installer:
+C:/Users/bryce/.cache/donutsgame/unity/UnitySetup64-6000.3.28f1.exe
+
+Requested install destination:
+C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1
+
+No Unity license was changed. Existing entitlement data was not exported. Editor
+activation and license compatibility cannot be confirmed until the editor runs.
+No reset credit, paid asset, or purchase was used.
+
+IMPLEMENTED IN SOURCE
+- Separate Unity 6.3 LTS / URP project; Windows desktop target.
+- Opening Day, Practice, and earned Endless modes.
+- Exact-ID food accounting through production, physical landing, scooping,
+  packaging, coating, serving, spills, and waste.
+- Independent animated heat/feed controls, jams, refills, overheating/fire,
+  extinguisher, rapid tray shakes, and instant customer-skipping punches.
+- Authored fryer/counter/tray/scoop/bags/buckets/shakers/donuts, fairground stalls,
+  canopy, bench, ferris wheel, and other props: 18 exported FBX models.
+- Two original skinned rigs: baker hands (11 clips) and Milo customer (6 clips).
+- Smooth action curves and bounded hand IK tracking; actual grip alignment and
+  reach remain to be verified in Unity. No claim of finished animation quality.
+- Compact order-ticket HUD, actionable fault notifications, menu, pause,
+  field guide, audio/reduced-motion settings, and end receipt.
+- Original/existing texture maps, packed URP metal/smoothness maps, 36 sounds,
+  generated transparent fire sprite, dusk sky shader, light/score feedback.
+
+VERIFIED
+- 21 pure C# acceptance scenarios pass; compiler reports zero warnings/errors.
+- 12,000 chaotic core actions conserve food.
+- A paced core simulation finishes Opening Day with $237 / 7 served.
+- 14 C# files pass Roslyn C# 7.3 syntax checks. This does NOT check Unity symbols.
+- All 18 prop FBXs roundtrip through Blender with UVs and matching dimensions.
+- Both skinned rigs roundtrip with UVs, no unweighted/non-finite vertices,
+  maximum four skin weights, and their named animation clips.
+- Asset preparation verifies required files and genuine flame alpha.
+- Offline workstation views inspected; bell/extinguisher moved for visibility.
+
+NOT VERIFIED / REQUIRED NEXT
+- Unity package resolution, C# API compilation, shader compilation and builds.
+- FBX facing/handedness, imported pivot axes, material conversion and animation
+  take names. Offline Blender previews are NOT Unity screenshots.
+- Hand/tool contact throughout scoop/pour/shake/handoff; camera and workstation
+  spacing may need further adjustment to keep actions within natural arm reach.
+- Native physics stability, food travel over the incline, physical tray overflow,
+  reach/hover selection, render clarity, performance, HUD scaling, and sound mix.
+- The player-side acceptance harness has been authored but has NOT been run.
+
+BUILD AFTER UNITY IS INSTALLED AND LICENSED
+From the DonutsGame directory:
+
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity/build_windows.ps1
+
+For another editor location, pass -UnityPath "<full path>/Editor/Unity.exe".
+The script prepares assets, runs the core checks, then invokes the scene/build
+generator. The generator writes Assets/Scenes/Fairground.unity and a Windows
+player under builds/unity/windows/GoldenHour.exe. No current file at that path
+should be assumed to exist before a successful new build.
+
+Source-only checks without Unity:
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity/build_windows.ps1 -PrepareOnly
+
+PLAYER VALIDATION AFTER A SUCCESSFUL BUILD
+Launch GoldenHour.exe --gh-smoke for an eight-second scene/physics capture.
+Launch GoldenHour.exe --gh-acceptance for a real-time automated physical serving
+run, fault/gag checks and a full timed Opening Day. It writes screenshots and
+result.json under the Unity player's persistent-data Acceptance directory.
+Require GH_ACCEPTANCE passed=true, no errors, and inspect the screenshots.
+Then manually play the loop and review animation feel before calling it ready.
+
+CONTROLS IN SOURCE
+Left click: use highlighted object. Right click a dial: increase; left: decrease.
+Hold motor/hopper: repair/refill. Click tray with empty hand: shake.
+1/2 bag/bucket; R equip scoop or scoop; Q pour/lift; C/V cinnamon/powdered;
+E customer; Esc pause; F1 field guide; F11 fullscreen.
+Choosing packaging does not unequip the scoop.
+
+EXISTING PLAYABLE FALLBACK
+builds/windows/1.0.6/GoldenHour.exe
+Its release package and existing player saves were preserved.
+
+ART PREVIEW
+playtest-reports/unity-assets/workstation-revised-nonunity.png
+This is an offline Blender composition preview, not the Unity player. The final
+source includes subsequent customer refinement and bell/extinguisher relocation.
+
+FIRE ASSET PROVENANCE
+GoldenHour/Assets/Art/Textures/oil_flame.png
+Generated with the built-in image_gen tool; exact prompt and alpha verification:
+GoldenHour/Assets/Art/Textures/oil_flame.provenance.json
