@@ -1264,6 +1264,3 @@ func _process(delta: float) -> void:
 		if age >= float(effect["lifetime"]):
 			node.queue_free()
 			_effects.remove_at(i)
-
-
-
