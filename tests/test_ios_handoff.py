@@ -267,6 +267,7 @@ class HandoffTests(unittest.TestCase):
         self.assertFalse(any(command[0] in ("xcodebuild", "codesign", "xcrun altool") for command in calls))
         report = json.loads((output / "handoff-result.json").read_text(encoding="utf-8"))
         self.assertTrue(report["xcode_project_exported"])
+        self.assertTrue(report["native_export_verified"])
         for key in ("signed", "built", "uploaded", "device_test_verified"):
             self.assertFalse(report[key])
 

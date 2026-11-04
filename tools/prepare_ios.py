@@ -356,7 +356,7 @@ def export_project(root, args, report):
                          PRESET_NAME, output / (PROJECT_NAME + ".ipa")],
                         cwd=stage, env=env, log=output / "export.log", timeout=900)
     project, pck = verify_export(output)
-    report = dict(report, xcode_project_exported=True, bundle_identifier=bundle_id,
+    report = dict(report, xcode_project_exported=True, native_export_verified=True, bundle_identifier=bundle_id,
                   export_configuration=args.configuration, godot_version=engine_version,
                   pck_sha256=hashlib.sha256(pck.read_bytes()).hexdigest(),
                   signed=False, built=False, uploaded=False)

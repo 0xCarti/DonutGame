@@ -10,9 +10,11 @@ a preserved checkpoint; its project, packaged release, and saves are retained.
 The iOS handoff uses this **Godot project at the repository root**. Follow
 [the iPhone build and signing guide](docs/IOS_HANDOFF.md) to export an Xcode
 project on a Mac, install it on your iPhone, or distribute through TestFlight.
-The shared mobile controls and an iOS export preset are included. **No signed
-iOS app has been built or tested yet.** Signing and the first iPhone check happen
-on the Mac; Apple credentials are not part of this repository.
+The shared mobile controls and an iOS export preset are included. **The first
+unsigned ARM64 iPhone build compiled successfully** with Godot 4.7.2 and Xcode
+26.6 (iPhoneOS SDK 26.5), from source commit `a3e89cd`. Its IPA still needs signing;
+the guide includes a Sideloadly option. Real iPhone installation/runtime testing
+and TestFlight remain pending. Apple credentials are not part of this repository.
 
 ## Android — 1.0.7
 

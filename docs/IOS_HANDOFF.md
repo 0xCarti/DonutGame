@@ -4,11 +4,29 @@ Hashim: use the **Godot project in the repository root**, not the preserved
 `unity/` project. This is the same game as the Android 1.0.7 edition, with native
 touch controls, a mobile HUD, landscape layout, local saves, and graphics options.
 
-**Current status:** source prepared for iOS; no iOS binary, signature, TestFlight
-upload, or physical-iPhone validation has been completed. An unsigned source
-download cannot be installed by opening it on an iPhone. The first build and
-signing happen on your Mac. You can use your own Apple team for the demo; Bryce
-does not need a separate membership for you to build it.
+**Current status:** the first unsigned ARM64 iPhone build compiled successfully
+from source commit `a3e89cd`, using Godot 4.7.2, Xcode 26.6, and iPhoneOS SDK 26.5.
+It is version **1.0.7**, build **107**, bundle ID `com.goldenhourgame.minidonuts`,
+with an iOS 15.0 minimum. The IPA needs signing before installation. Real iPhone
+installation/runtime testing and TestFlight remain pending. Source downloads
+cannot be installed by opening them on a phone.
+
+## Install the unsigned IPA with Sideloadly
+
+If you already have the unsigned IPA, you can sign and install it with
+[Sideloadly](https://sideloadly.io/) instead of rebuilding in Xcode:
+
+1. Connect and unlock your iPhone, trust the computer, and select the phone in
+   Sideloadly.
+2. Drag the unsigned IPA into Sideloadly and use its Apple ID signing option.
+   Enter your own Apple account directly in the app; no credentials belong in
+   this repository.
+3. Start signing/installing and follow any device trust or Developer Mode
+   prompts. Then complete the iPhone acceptance checks below.
+
+A free Apple account can be used; its signed installation needs refreshing
+after seven days. Sideloadly supports re-signing/refreshing. This route does not
+upload to TestFlight, and a successful compile alone does not verify phone play.
 
 ## Get the project running on your iPhone
 
@@ -133,10 +151,11 @@ Xcode version, game version/build, and source commit. Check:
 - Check sound, phone interruptions, headphones, pause/resume, and the on-screen
   Help/Settings/license pages.
 
-Existing evidence is shared automated mobile testing and an Android emulator
-playthrough, not Apple hardware testing. Report problems with a short screen
-recording and the device/build details. Leave platform acceptance pending until
-these checks are actually performed.
+Existing evidence includes shared automated mobile testing, an Android emulator
+playthrough, and the successful unsigned iPhoneOS compile on a Mac. It does not
+yet include an iPhone runtime test. Report problems with a short screen recording
+and the device/build details. Leave platform acceptance pending until these
+checks are actually performed.
 
 ## Troubleshooting and references
 
