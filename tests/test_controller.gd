@@ -24,6 +24,9 @@ func _run() -> void:
 	app.world.set_process(false)
 	app.audio.set_muted(true)
 	app.audio.set_music_volume(0.0)
+	app.reduced_motion = false
+	app._apply_effect_settings()
+	app.score_fx.set_process(false)
 	app.model.new_run(711)
 	app.saved_run.clear()
 	app.tutorial_seen = false
@@ -34,6 +37,7 @@ func _run() -> void:
 	await _test_title_and_first_run()
 	await _test_keyboard_and_pause()
 	await _test_drop_availability()
+	await _test_score_feedback_and_settings()
 	await _test_shop_and_next_shift()
 	await _test_results()
 	_check(_persistent_fingerprints() == disk_before, "integration suite leaves real save and settings bytes unchanged")
@@ -168,6 +172,56 @@ func _test_shop_and_next_shift() -> void:
 	_check(app.model.shift_index == 1 and app.model.target == 340.0 and app.model.sales == 0.0, "next shift advances quota and resets gross sales")
 	_check(app.model.level(upgrade_id) == 1 and app.model.active.is_empty(), "next shift preserves upgrade and resets production")
 	_check(app.hud.shift.text.contains("SHIFT 2 / 6"), "HUD reports new shift")
+
+
+func _test_score_feedback_and_settings() -> void:
+	app.model.new_run(715)
+	app.model.start_shift()
+	for index in range(3):
+		app.model.queue_batch("cocoa", index)
+		app.model.tick(2.0)
+	app.model.tick(12.0)
+	app.model.sales = app.model.target - 60.0
+	app._show_play()
+	app._sell(0)
+	_check(app.feedback.chain == 1 and is_equal_approx(app.model.sales, app.model.target), "one sale advances feedback once and adds only its real payout")
+	_check(bool(app.score_fx.active_receipt.get("goal", false)), "sale crossing quota triggers target celebration")
+	_check(is_equal_approx(float(app.score_fx.active_receipt.get("amount", 0.0)), 60.0), "celebration uses exact sale receipt amount")
+	app._process(0.0)
+	_check(app.feedback.chain == 1, "draining model sale event does not celebrate or count sale twice")
+	app._sell(1)
+	_check(app.feedback.chain == 2 and is_equal_approx(app.model.sales, 240.0), "consecutive sale creates visual chain without adding bonus revenue")
+	_check(not bool(app.score_fx.active_receipt.get("goal", true)), "later sales do not retrigger already-crossed target")
+	var initial_muted: bool = app.muted
+	var initial_music: bool = app.music_on
+	var before_state: Dictionary = app.model.to_save()
+	app._show_settings()
+	await process_frame
+	_check(app.paused and is_instance_valid(app.overlay), "settings pauses active gameplay")
+	for button in _buttons_with_prefix(app.overlay, ""):
+		_check(button.position.y >= 0.0 and button.position.y + button.size.y <= button.get_parent().size.y, "settings button remains inside enlarged modal: " + button.text)
+	await _click_text(app.overlay, "Motion: FULL CELEBRATIONS")
+	_check(app.reduced_motion and app.score_fx.reduced_motion and app.world._reduced_motion, "motion toggle immediately updates controller, score layer, and world")
+	_check(app.score_fx.coins.is_empty() and app.score_fx.trails.is_empty(), "motion toggle clears in-flight visual particles")
+	_check(app.muted == initial_muted and app.music_on == initial_music, "motion preference does not change sound preferences")
+	app._process(0.1)
+	_check(app.model.to_save() == before_state, "changing presentation while paused leaves run and clock unchanged")
+	await _click_text(app.overlay, "DONE")
+	_check(not app.paused and app.current_view == "play", "settings Done resumes gameplay")
+	app._sell(2)
+	_check(app.score_fx.coins.is_empty() and app.score_fx.trails.is_empty(), "real sale honors reduced-motion particle suppression")
+	_check(app.score_fx._amount.text == "+$60", "real reduced-motion sale immediately shows full amount")
+	app._show_settings()
+	await _click_text(app.overlay, "Motion: REDUCED")
+	_check(not app.reduced_motion and not app.score_fx.reduced_motion and not app.world._reduced_motion, "full celebration mode can be restored")
+	await _click_text(app.overlay, "DONE")
+	app._toast("First bounded toast")
+	app._toast("Second bounded toast")
+	_check(app.toasts.get_child_count() == 1 and _has_label(app.toasts, "Second bounded toast"), "rapid notices keep only the latest readable toast")
+	app.model.finish_shift()
+	app._process(0.0)
+	_check(app.current_view == "shop" and app.score_fx.active_receipt.is_empty(), "changing screen clears transient celebration")
+	_check(app.toasts.get_child_count() == 0, "old notifications do not bleed into shop")
 
 
 func _test_results() -> void:

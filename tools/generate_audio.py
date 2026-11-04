@@ -6,6 +6,7 @@ No downloaded samples, external instruments, or existing melodies are used.
 
 from array import array
 import math
+import json
 from pathlib import Path
 import random
 import struct
@@ -16,6 +17,7 @@ RATE = 32000
 TAU = math.tau
 OUT = Path(__file__).resolve().parents[1] / "assets" / "audio"
 RNG = random.Random(54821)
+METRICS = {}
 
 
 def hz(note):
@@ -84,6 +86,8 @@ def write_wav(name, channels, peak):
         output.setframerate(RATE)
         output.writeframes(frames)
     rms = math.sqrt(sum(v * v for v in channels[0]) / len(channels[0])) * gain
+    METRICS[name] = {"seconds": len(channels[0]) / RATE, "peak": peak, "rms": rms,
+                     "channels": len(channels), "sample_rate": RATE}
     print(f"{path.name:20} {len(channels[0])/RATE:5.2f}s  peak={peak:.2f}  rms={rms:.3f}")
 
 
@@ -166,7 +170,73 @@ def make_music():
     write_wav("fairground_loop", [left, right], 0.48)
 
 
+def make_score_sfx():
+    # Accents are layered by a bounded six-voice runtime mixer. Small sales stay
+    # gentle; big sales add harmony and a little motion, not much more loudness.
+    small = empty(0.25)
+    mix(small, tone(76, 0.23, "bell", 0.35))
+    mix(small, tone(60, 0.10, "wood", 0.10))
+    write_wav("sale_small", [small], 0.52)
+    big = empty(0.92)
+    for i, note in enumerate([72, 76, 79, 84]):
+        mix(big, tone(note, 0.60, "bell", 0.28), i * 0.075)
+    for note in [48, 60, 67]:
+        mix(big, tone(note, 0.70, "round", 0.08), 0.15)
+    write_wav("sale_big", [big], 0.60)
+    jackpot = empty(1.30)
+    for i, note in enumerate([67, 72, 76, 79, 84]):
+        mix(jackpot, tone(note, 0.65, "bell", 0.28), i * 0.065)
+    for note in [48, 60, 64, 67, 72]:
+        mix(jackpot, tone(note, 0.80, "round", 0.095), 0.33)
+    for note, at in [(84, 0.56), (79, 0.69), (88, 0.82)]:
+        mix(jackpot, tone(note, 0.42, "bell", 0.12), at)
+    write_wav("sale_jackpot", [jackpot], 0.64)
+    coins = empty(0.48)
+    for i, (note, gain) in enumerate([(88, 0.28), (79, 0.22), (91, 0.16), (84, 0.10)]):
+        mix(coins, tone(note, 0.25, "wood", gain), i * 0.055)
+        mix(coins, tone(note + 12, 0.20, "bell", gain * 0.1), i * 0.055)
+    write_wav("score_coins", [coins], 0.42)
+    # A soft rising sweep with a zero-ended envelope to prevent clicks.
+    rise = empty(0.42)
+    for i in range(len(rise)):
+        t = i / RATE
+        fraction = t / 0.42
+        phase = TAU * (260.0 * t + 0.5 * (650.0 - 260.0) / 0.42 * t * t)
+        envelope = math.sin(math.pi * fraction) ** 2
+        rise[i] = envelope * (math.sin(phase) + 0.07 * math.sin(phase * 2.0))
+    write_wav("score_rise", [rise], 0.42)
+    goal = empty(1.10)
+    for note, at in [(67, 0.0), (76, 0.18), (84, 0.36)]:
+        mix(goal, tone(note, 0.70, "bell", 0.30), at)
+    for note in [48, 60, 64]:
+        mix(goal, tone(note, 0.72, "round", 0.09), 0.36)
+    write_wav("quota_goal", [goal], 0.60)
+
+
+def validate_palette():
+    # Conservative sum of six effects plus maximum music, independent of phase.
+    maximum_effect = max(value["peak"] for name, value in METRICS.items()
+                         if name != "fairground_loop")
+    worst_mix = 6 * maximum_effect * 10 ** (-15 / 20) + 0.48 * 10 ** (-12 / 20)
+    assert worst_mix < 0.85, worst_mix
+    for name, metrics in METRICS.items():
+        with wave.open(str(OUT / f"{name}.wav"), "rb") as source:
+            samples = array("h", source.readframes(source.getnframes()))
+        assert 0 < max(abs(value) for value in samples) < 32767, name
+        if name == "fairground_loop":
+            channels = metrics["channels"]
+            assert all(abs(samples[c] - samples[-channels + c]) < 1000 for c in range(channels))
+    report = {"assets": METRICS, "runtime_max_sfx_voices": 6,
+              "runtime_max_sfx_volume_db": -15.0, "music_max_volume_db": -12.0,
+              "worst_case_linear_peak_bound": worst_mix,
+              "note": "Conservative sum of six effect peak bounds plus maximum music peak; no limiter required."}
+    (OUT / "mix_validation.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"AUDIO_ASSETS_OK: {len(METRICS)} streams, no clipped PCM; worst mix bound={worst_mix:.3f}")
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     make_sfx()
     make_music()
+    make_score_sfx()
+    validate_palette()

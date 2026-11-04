@@ -1,0 +1,107 @@
+{
+  "assets": {
+    "drop": {
+      "seconds": 0.3,
+      "peak": 0.62,
+      "rms": 0.11171972519506915,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "flip": {
+      "seconds": 0.24,
+      "peak": 0.55,
+      "rms": 0.11217445181487445,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "click": {
+      "seconds": 0.12,
+      "peak": 0.45,
+      "rms": 0.12761112849339865,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "sale": {
+      "seconds": 0.7,
+      "peak": 0.62,
+      "rms": 0.14880348633494378,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "upgrade": {
+      "seconds": 1.1,
+      "peak": 0.6,
+      "rms": 0.1418489919451538,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "failure": {
+      "seconds": 1.15,
+      "peak": 0.55,
+      "rms": 0.172276957585724,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "win": {
+      "seconds": 1.7,
+      "peak": 0.65,
+      "rms": 0.1275693835197755,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "fairground_loop": {
+      "seconds": 30.0,
+      "peak": 0.48,
+      "rms": 0.0790483710519306,
+      "channels": 2,
+      "sample_rate": 32000
+    },
+    "sale_small": {
+      "seconds": 0.25,
+      "peak": 0.52,
+      "rms": 0.18135246375148942,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "sale_big": {
+      "seconds": 0.92,
+      "peak": 0.6,
+      "rms": 0.12563035400868858,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "sale_jackpot": {
+      "seconds": 1.3,
+      "peak": 0.64,
+      "rms": 0.13100478418214542,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "score_coins": {
+      "seconds": 0.48,
+      "peak": 0.42,
+      "rms": 0.08260730581621074,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "score_rise": {
+      "seconds": 0.42,
+      "peak": 0.42,
+      "rms": 0.18061151222952856,
+      "channels": 1,
+      "sample_rate": 32000
+    },
+    "quota_goal": {
+      "seconds": 1.1,
+      "peak": 0.6,
+      "rms": 0.12198086529168368,
+      "channels": 1,
+      "sample_rate": 32000
+    }
+  },
+  "runtime_max_sfx_voices": 6,
+  "runtime_max_sfx_volume_db": -15.0,
+  "music_max_volume_db": -12.0,
+  "worst_case_linear_peak_bound": 0.8140995186276399,
+  "note": "Conservative sum of six effect peak bounds plus maximum music peak; no limiter required."
+}

@@ -9,7 +9,7 @@ the design discussion are references; the prototype uses an original fictional
 machine design.
 
 All WAV files in `assets/audio/` were synthesized specifically for this project
-with `tools/generate_audio.py`. The seven effects and the original 30-second
+with `tools/generate_audio.py`. The thirteen effects and the original 30-second
 fairground waltz use mathematical oscillators and deterministic generated noise.
 They contain no sampled recordings, downloaded sound effects, or third-party
 music. The generator is included so the assets can be reproduced and modified.

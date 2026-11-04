@@ -46,7 +46,7 @@ $versionMatch = [regex]::Match([IO.File]::ReadAllText($ProjectPath), '(?m)^confi
 if (-not $versionMatch.Success) { throw 'project.godot is missing config/version.' }
 $GameVersion = $versionMatch.Groups[1].Value -replace '[^A-Za-z0-9._-]', '-'
 $BuildsDir = Get-WorkspacePath 'builds'
-$WindowsDir = Get-WorkspacePath 'builds/windows'
+$WindowsDir = Get-WorkspacePath "builds/windows/$GameVersion"
 $WebDir = Get-WorkspacePath 'builds/web'
 $ReleaseDir = Get-WorkspacePath 'builds/releases'
 $LogDir = Get-WorkspacePath "builds/logs/$BuildId"
@@ -93,7 +93,7 @@ function Invoke-NativeLogged {
     $logPath = Get-WorkspacePath "builds/logs/$BuildId/$Step.log"
     [IO.File]::WriteAllText($logPath, $output, [Text.UTF8Encoding]::new($false))
     foreach ($line in ($output -split '\r?\n')) {
-        if ($line -match 'RUN MODEL:|CONTROLLER|AUDIO_SMOKE|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
+        if ($line -match 'RUN MODEL:|CONTROLLER|FEEDBACK|AUDIO_SMOKE|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
             Write-Host $line
         }
     }
@@ -160,7 +160,15 @@ if ($controllerTests.Count -eq 0) { Write-Warning 'No controller test file exist
 $audio = Invoke-GodotStep -Step '04-audio-tests' -Arguments @('--script', 'res://tools/check_audio.gd')
 if ($audio.Output -notmatch 'AUDIO_SMOKE_OK') { throw "Audio smoke result missing. See $($audio.LogPath)" }
 
-$WindowsExe = Get-WorkspacePath 'builds/windows/GoldenHour.exe'
+$feedbackTest = Get-WorkspacePath 'tests/test_feedback.gd'
+if (Test-Path -LiteralPath $feedbackTest) {
+    $feedback = Invoke-GodotStep -Step '04-feedback-tests' -Arguments @('--script', 'res://tests/test_feedback.gd')
+    if ($feedback.Output -notmatch '(?im)FEEDBACK[^\r\n]*0 failures') {
+        throw "Feedback suite did not report a passing summary. See $($feedback.LogPath)"
+    }
+}
+
+$WindowsExe = Get-WorkspacePath "builds/windows/$GameVersion/GoldenHour.exe"
 $WebIndex = Get-WorkspacePath 'builds/web/index.html'
 Invoke-GodotStep -Step '05-export-windows' -Arguments @('--export-release', 'Windows Desktop', $WindowsExe) | Out-Null
 Invoke-GodotStep -Step '06-export-web' -Arguments @('--export-release', 'Web', $WebIndex) | Out-Null

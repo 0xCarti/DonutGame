@@ -1,5 +1,5 @@
 GOLDEN HOUR - MINI DONUT CLUB
-Playtest 0.1.0
+Playtest 0.2.0
 
 OPEN YOUR STAND
 
@@ -47,6 +47,10 @@ native mobile packaging and phone-sized interface polish are still planned.
 
 The pause and settings buttons are available onscreen. Music can be switched
 off independently of sound effects.
+
+Larger payouts and rapid full-tray sales build into stronger celebrations.
+Settings > Motion switches between full celebrations and reduced motion.
+Reduced motion keeps readable payouts and removes camera shake and flying coins.
 
 SAVE & CONTINUE
 

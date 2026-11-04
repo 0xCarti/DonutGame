@@ -4,6 +4,9 @@ const Model = preload("res://scripts/run_model.gd")
 const World = preload("res://scripts/donut_world.gd")
 const Audio = preload("res://scripts/game_audio.gd")
 const UpgradeData = preload("res://scripts/upgrades.gd")
+const Feedback = preload("res://scripts/score_feedback.gd")
+const ScoreEffects = preload("res://scripts/score_effects.gd")
+const VERSION = "0.2.0-playtest"
 const INK = Color("172c32")
 const CREAM = Color("fff1d5")
 const GOLD = Color("ffc66d")
@@ -19,6 +22,8 @@ const RECIPE_COLORS = [Color("e5ad68"), Color("fff5dd"), Color("b87860")]
 var model = Model.new()
 var world
 var audio
+var feedback = Feedback.new()
+var score_fx
 var ui: Control
 var screen: Control
 var overlay: Control
@@ -44,6 +49,7 @@ var screenshot_mode = false
 var smoke_mode = false
 var capture_done = false
 var capture_view = "gameplay"
+var showcase_started = false
 
 func _ready() -> void:
 	_load_settings()
@@ -68,6 +74,9 @@ func _ready() -> void:
 	toasts = Control.new()
 	toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(toasts)
+	score_fx = ScoreEffects.new()
+	ui.add_child(score_fx)
+	_apply_effect_settings()
 	_show_title()
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--smoke": smoke_mode = true
@@ -76,6 +85,8 @@ func _ready() -> void:
 			screenshot_mode = true
 			capture_view = arg.trim_prefix("--capture-view=")
 	if smoke_mode or screenshot_mode:
+		reduced_motion = capture_view == "reduced"
+		_apply_effect_settings()
 		model.new_run(4182)
 		model.start_shift()
 		_show_play()
@@ -84,6 +95,7 @@ func _ready() -> void:
 		model.queue_batch("powdered", 1)
 		if capture_view == "title": _show_title()
 		elif capture_view == "help": _show_help(false)
+		elif capture_view == "settings": _show_settings()
 		elif capture_view == "shop":
 			model.sales = model.target + 150
 			model.finish_shift()
@@ -94,7 +106,7 @@ func _ready() -> void:
 			model.target = Model.TARGETS[5]
 			model.sales = model.target + 228
 			_finish_run()
-	print("GOLDEN_HOUR_READY version=0.1.0")
+	print("GOLDEN_HOUR_READY version=" + VERSION)
 
 func _resize_ui() -> void:
 	var view_size = get_viewport().get_visible_rect().size
@@ -119,6 +131,20 @@ func _process(delta: float) -> void:
 			_show_shop()
 		elif model.phase == "won" or model.phase == "lost":
 			_finish_run()
+	if screenshot_mode and capture_view in ["jackpot", "reduced"] and total_time > 1.3 and not showcase_started:
+		showcase_started = true
+		model.owned = {"sugar_dust": 3, "matching_bonus": 3, "tray_liner": 3, "cinnamon_king": 3}
+		model.tick(12.0)
+		world.sync_state(model.active, model.trays, model.selected_tray, model.owned)
+		_sell(0)
+	if screenshot_mode and capture_view == "stress" and total_time > 1.3 and not showcase_started:
+		showcase_started = true
+		var receipt = {"amount": 12345.67, "full": true, "combo": "Perfect six + Rush x6 + Last call + Echo! + Golden", "multiplier": 9.6}
+		var reward = feedback.describe_sale(receipt, 1.0, true)
+		for index in range(3):
+			var origin: Vector2 = ui.get_global_transform().affine_inverse() * world.get_tray_screen_position(index)
+			score_fx.celebrate(reward, origin)
+			world.burst_sale(index, 12345.67, 3)
 	if screenshot_mode and total_time > (10.0 if capture_view == "gameplay" else 2.0) and not capture_done:
 		capture_done = true
 		_capture_frame()
@@ -169,6 +195,10 @@ func _notification(what: int) -> void:
 
 func _new_screen() -> Control:
 	_close_overlay()
+	if is_instance_valid(score_fx): score_fx.reset()
+	for toast in toasts.get_children():
+		toasts.remove_child(toast)
+		toast.queue_free()
 	if is_instance_valid(screen):
 		ui.remove_child(screen)
 		screen.queue_free()
@@ -176,6 +206,7 @@ func _new_screen() -> Control:
 	screen.size = Vector2(1280, 800)
 	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(screen)
+	if is_instance_valid(score_fx): ui.move_child(score_fx, ui.get_child_count() - 1)
 	ui.move_child(toasts, ui.get_child_count() - 1)
 	return screen
 
@@ -269,7 +300,7 @@ func _show_title() -> void:
 		_label(p, "6 shifts  ·  20 upgrades  ·  one tiny fryer", Vector2(30, 453), Vector2(394, 40), 17, MUTED)
 	_button(p, "How to play", Vector2(30, 522), Vector2(190, 44), func(): _show_help(false), Color("2d4548"), CREAM)
 	_button(p, "Settings", Vector2(232, 522), Vector2(192, 44), _show_settings, Color("2d4548"), CREAM)
-	_label(p, "PLAYTEST 0.1  /  MADE TO BE PLAYED", Vector2(30, 584), Vector2(394, 24), 13, MUTED)
+	_label(p, "PLAYTEST 0.2  /  MAKE IT GOLDEN", Vector2(30, 584), Vector2(394, 24), 13, MUTED)
 	_label(screen, "Headphones on. Fresh donuts ahead.", Vector2(800, 735), Vector2(440, 28), 18, CREAM)
 
 func _request_new_run() -> void:
@@ -312,6 +343,7 @@ func _continue_run() -> void:
 
 func _show_play() -> void:
 	current_view = "play"
+	feedback.reset()
 	paused = false
 	_new_screen()
 	world.set_title_view(false)
@@ -350,7 +382,7 @@ func _show_play() -> void:
 		var route = _button(card, "TRAY %d  [ %d ]" % [i + 1, i + 1], Vector2(10, 8), Vector2(208, 36), _select_tray.bind(i), Color("3b5451"), CREAM)
 		route.add_theme_font_size_override("font_size", 16)
 		route_buttons.append(route)
-		var info = _label(card, "Empty", Vector2(12, 49), Vector2(204, 43), 17, MUTED)
+		var info = _paragraph(card, "Empty", Vector2(12, 49), Vector2(204, 43), 17, MUTED)
 		tray_labels.append(info)
 		var sell = _button(card, "SELL", Vector2(10, 99), Vector2(208, 43), _sell.bind(i), CREAM)
 		sell_buttons.append(sell)
@@ -385,6 +417,7 @@ func _refresh_hud() -> void:
 		route_buttons[i].add_theme_color_override("font_color", INK if selected else CREAM)
 		var combo = str(quote.get("combo", ""))
 		tray_labels[i].text = "%d / 6  ·  %s" % [tray.size(), combo if not combo.is_empty() else "Collect a batch"]
+		tray_labels[i].tooltip_text = combo
 		tray_labels[i].add_theme_color_override("font_color", GOLD if tray.size() == 6 else MUTED)
 		sell_buttons[i].text = "SELL  $%d  [ %s ]" % [quote.get("amount", 0), ["Q", "W", "E"][i]]
 		sell_buttons[i].disabled = tray.is_empty()
@@ -430,11 +463,18 @@ func _drop_batch() -> void:
 
 func _sell(index: int) -> void:
 	if current_view != "play" or paused: return
+	var before_sales: float = model.sales
 	var result: Dictionary = model.sell_tray(index)
 	if float(result.get("amount", 0)) > 0:
-		world.burst_sale(index, float(result.amount))
-		audio.play_event("sale")
-		_toast("+$%d  ·  %s" % [result.amount, str(result.get("combo", "Freshly served"))], GOLD)
+		var crossed_target: bool = before_sales < model.target and model.sales >= model.target
+		var reward: Dictionary = feedback.describe_sale(result, model.shift_time - model.time_left, crossed_target)
+		world.burst_sale(index, float(result.amount), int(reward.tier))
+		audio.play_sale(int(reward.tier), int(reward.chain))
+		if crossed_target:
+			audio.play_goal()
+			world.celebrate_goal()
+		var origin: Vector2 = ui.get_global_transform().affine_inverse() * world.get_tray_screen_position(index)
+		score_fx.celebrate(reward, origin)
 		_save_run()
 	_refresh_hud()
 
@@ -571,7 +611,7 @@ func _show_help(start_after: bool) -> void:
 			_begin_shift())
 
 func _show_settings() -> void:
-	var p = _open_modal(Vector2(540, 440))
+	var p = _open_modal(Vector2(540, 506))
 	_label(p, "Make yourself comfortable.", Vector2(30, 24), Vector2(480, 55), 30)
 	_button(p, "Sound: " + ("OFF" if muted else "ON"), Vector2(30, 108), Vector2(480, 50), func():
 		_toggle_mute()
@@ -583,8 +623,17 @@ func _show_settings() -> void:
 		_show_settings(), Color("385350"), CREAM)
 	_button(p, "Window / Fullscreen  [ F11 ]", Vector2(30, 240), Vector2(480, 50), func():
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN), Color("385350"), CREAM)
-	_label(p, "Mouse or touch. Keyboard shortcuts are optional.", Vector2(30, 310), Vector2(480, 30), 17, MUTED)
-	_button(p, "DONE", Vector2(30, 365), Vector2(480, 48), _close_overlay)
+	_button(p, "Motion: " + ("REDUCED" if reduced_motion else "FULL CELEBRATIONS"), Vector2(30, 306), Vector2(480, 50), func():
+		reduced_motion = not reduced_motion
+		_apply_effect_settings()
+		_save_settings()
+		_show_settings(), Color("385350"), CREAM)
+	_label(p, "Reduced motion keeps scores and removes camera shake.", Vector2(30, 372), Vector2(480, 30), 16, MUTED)
+	_button(p, "DONE", Vector2(30, 431), Vector2(480, 48), _close_overlay)
+
+func _apply_effect_settings() -> void:
+	world.set_reduced_motion(reduced_motion)
+	score_fx.set_reduced_motion(reduced_motion)
 
 func _toggle_mute() -> void:
 	muted = not muted
@@ -593,11 +642,14 @@ func _toggle_mute() -> void:
 
 func _toast(message: String, color: Color = CREAM) -> void:
 	toast_serial += 1
+	for previous in toasts.get_children():
+		toasts.remove_child(previous)
+		previous.queue_free()
 	var p = _panel(toasts, Vector2(340, 178), Vector2(600, 48), Color(0.08, 0.16, 0.18, 0.96), 12)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var text = _label(p, message, Vector2(12, 7), Vector2(576, 34), 19, color)
 	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var tween = create_tween()
+	var tween = p.create_tween()
 	tween.tween_interval(2.2)
 	tween.tween_property(p, "modulate:a", 0.0, 0.35)
 	tween.tween_callback(p.queue_free)
@@ -617,7 +669,7 @@ func _load_saved_run() -> void:
 func _save_settings() -> void:
 	if smoke_mode or screenshot_mode: return
 	var file = FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
-	if file: file.store_string(JSON.stringify({"muted": muted, "music_on": music_on, "tutorial_seen": tutorial_seen, "stats": stats}))
+	if file: file.store_string(JSON.stringify({"muted": muted, "music_on": music_on, "reduced_motion": reduced_motion, "tutorial_seen": tutorial_seen, "stats": stats}))
 
 func _load_settings() -> void:
 	if not FileAccess.file_exists(SETTINGS_PATH): return
@@ -625,10 +677,11 @@ func _load_settings() -> void:
 	if not data is Dictionary: return
 	muted = bool(data.get("muted", false))
 	music_on = bool(data.get("music_on", true))
+	reduced_motion = bool(data.get("reduced_motion", false))
 	tutorial_seen = bool(data.get("tutorial_seen", false))
 	if data.get("stats") is Dictionary: stats.merge(data.stats, true)
 
 func _copy_report() -> void:
-	var report = {"game": "Golden Hour", "version": "0.1.0-playtest", "platform": OS.get_name(), "outcome": model.phase, "shift": model.shift_index + 1, "sales": model.sales, "target": model.target, "seed": model.seed_value, "upgrades": model.owned, "fps": Engine.get_frames_per_second(), "feedback": "What felt good? What confused you? Any bugs?"}
+	var report = {"game": "Golden Hour", "version": VERSION, "platform": OS.get_name(), "outcome": model.phase, "shift": model.shift_index + 1, "sales": model.sales, "target": model.target, "seed": model.seed_value, "upgrades": model.owned, "fps": Engine.get_frames_per_second(), "feedback": "What felt good? What confused you? Any bugs?"}
 	DisplayServer.clipboard_set(JSON.stringify(report, "  "))
 	_toast("Playtest report copied. Paste it with your feedback.", MINT)

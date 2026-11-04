@@ -4,7 +4,7 @@ A real-time 3D mini-donut roguelite based on **Game Idea #1**. One physical frye
 
 ## Playtest
 
-The Windows build lives in `builds/windows/GoldenHour.exe` after export. Run the executable, choose **Open the stand**, and follow the first-run instructions. No account or internet connection is needed for the Windows build.
+The current Windows build lives in `builds/windows/0.2.0-playtest/GoldenHour.exe` after export. Run the executable, choose **Open the stand**, and follow the first-run instructions. No account or internet connection is needed for the Windows build.
 
 The browser export is in `builds/web/`. Serve that directory over HTTP; opening `index.html` directly from disk will not work. Web play requires WebGL 2 and WebAssembly. Modern desktop Chromium or Firefox is the preferred first browser test target.
 
@@ -44,7 +44,7 @@ Engine: Godot **4.7.2**, GDScript, Compatibility renderer. Open `project.godot` 
 ```powershell
 godot --headless --path . --import
 godot --headless --path . --script tests/test_run_model.gd
-godot --headless --path . --export-release "Windows Desktop" builds/windows/GoldenHour.exe
+godot --headless --path . --export-release "Windows Desktop" builds/windows/0.2.0-playtest/GoldenHour.exe
 godot --headless --path . --export-release "Web" builds/web/index.html
 ```
 
@@ -52,12 +52,14 @@ The export directories must exist and matching Godot export templates must be in
 
 For a complete rebuild with tests, exports, licenses, and shareable ZIP files, run `pwsh -File tools/build_playtest.ps1`. See [BUILDING.md](docs/BUILDING.md). Timestamped Windows and Web archives and their SHA256 checksums are written to `builds/releases/`.
 
-## Verified playtest 0.1.0
+## Verified playtest 0.2.0
 
-- 134 simulation and save-validation checks passed, plus 71 controller/UI integration checks and the audio smoke suite.
+- 134 simulation/save checks, 102 controller/UI checks, 78 score-feedback checks, and 167 audio checks passed.
+- Sales now use four escalating presentation tiers: payout count-up, flying coins, light chases, physical bursts, capped camera shake, and layered original sounds. Rapid full-tray sales intensify the presentation without changing earnings. Reduced motion keeps the score readable while removing camera shake and UI coin flights.
+- The world now uses original generated material maps, bevelled machine parts, service-panel hardware, cables, work lamps, more dimensional donuts, and stronger separation between warm light and cool shadows.
 - The Windows release ZIP was extracted into a separate folder and its executable rendered and completed the production smoke sequence: two six-donut batches reached their trays, with no engine errors.
 - The browser build was played through its first shift. Upgrade purchases, next-shift progression, pause, sound controls, and save/resume through reload were verified in a Chromium browser; no browser runtime errors were reported.
-- Native title, gameplay, help, shop, and victory screens were rendered and visually inspected at 1280 by 800. The browser interface was also checked in a narrower, taller window.
+- Native title, gameplay, settings, jackpot, reduced-motion, and stress-test score screens were rendered and visually inspected at 1280 by 800. The browser interface was also checked in a narrower, taller window. Large score text and effects leave the HUD and bottom controls accessible.
 
 These are functional checks, not a substitute for human balance and enjoyment feedback. The six-shift campaign and upgrades are complete for this first playtest. Additional venues and their unlock progression, Steam features, controller input, and native iOS/Android packages remain future work. The Windows executable is an unsigned playtest build.
 
@@ -68,11 +70,15 @@ These are functional checks, not a substitute for human balance and enjoyment fe
 - `scripts/donut_world.gd`: original procedural 3D machine, donuts, stand, lighting and fairground.
 - `scripts/main.gd`: controls, tutorial, HUD, shop, pause, results and local persistence.
 - `scripts/game_audio.gd`: music and polyphonic sound events.
+- `scripts/score_feedback.gd`: presentation tiers and rapid-sale chains, independent of the economy.
+- `scripts/score_effects.gd`: score count-up, coin flights, celebration badges and reduced motion.
 - `tools/generate_audio.py`: reproduces the original sound assets.
 - `tests/test_run_model.gd`: gameplay regression and simulation tests.
 - `docs/ASSET_LICENSES.md`: asset provenance and licenses.
 
 Venue scenery is separate from gameplay. Future concert and sports venues can reuse the fryer, run model, and interface while changing scenery, presentation, targets, and demand rules. Those venues are not included in this playtest.
+
+[Product direction](docs/PRODUCT_DIRECTION.md) records the visual goals and the open purchase-design decision. The playtest contains no real-money store or payment system.
 
 ## Playtest feedback
 

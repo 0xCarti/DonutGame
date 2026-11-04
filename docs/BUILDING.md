@@ -16,14 +16,14 @@ pwsh -File tools/build_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-stable_w
 
 It imports assets, runs the core regression suite (at least 134 checks), runs
 any `tests/*controller*.gd` checks present, and checks the audio module. It then
-exports Windows and Web sequentially, packages their required files and full
+checks score feedback when present, exports Windows and Web sequentially, packages their required files and full
 license notices, and writes separate ZIPs plus SHA256 hashes under
 `builds/releases/`. Native engine helper processes run without visible windows;
 the script does not launch an interactive game.
 
 Build logs are under `builds/logs/`. Each packaging operation uses a fresh staging
 directory; existing builds, release archives, and saves are never deleted. All
-output paths are resolved and checked to stay within this workspace. A
+output paths are resolved and checked to stay within this workspace. Windows exports live under `builds/windows/<version>/` so a new release can be built while an earlier version is open. A
 `builds/.gdignore` file keeps generated artifacts out of Godot's import scan.
 
 The script stops on failed checks, missing files, an engine version mismatch,
