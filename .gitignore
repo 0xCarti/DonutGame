@@ -14,3 +14,12 @@ unity/**/Logs/
 unity/**/UserSettings/
 unity/**/Builds/
 unity/release.json
+# Keep Apple/Android signing material and local configuration out of source.
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.keystore
+*.jks
+.env
+.env.*

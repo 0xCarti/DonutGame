@@ -5,6 +5,15 @@ Godot **4.7.2 stable**. The current release target is **Android 1.0.7**, buildin
 on the Godot 1.0.6 campaign. The separate **Unity Windows 1.1.0** edition remains
 a preserved checkpoint; its project, packaged release, and saves are retained.
 
+## iPhone demo — start here, Hashim
+
+The iOS handoff uses this **Godot project at the repository root**. Follow
+[the iPhone build and signing guide](docs/IOS_HANDOFF.md) to export an Xcode
+project on a Mac, install it on your iPhone, or distribute through TestFlight.
+The shared mobile controls and an iOS export preset are included. **No signed
+iOS app has been built or tested yet.** Signing and the first iPhone check happen
+on the Mac; Apple credentials are not part of this repository.
+
 ## Android — 1.0.7
 
 The Android work adds landscape touch controls, a larger mobile HUD, an optional

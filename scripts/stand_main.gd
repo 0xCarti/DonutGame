@@ -1386,7 +1386,7 @@ func _show_mobile_pause() -> void:
 			_refresh_hud(), PANEL)
 		_text(p, "Try a machine fault, then use the large Tools controls to recover.", Vector2(34, 528), Vector2(912, 55), 23, MUTED)
 	else:
-		_text(p, "Android Back returns here from settings or help.\nChoose Back to the counter when you are ready.", Vector2(34, 423), Vector2(912, 100), 24, MUTED)
+		_text(p, "Choose Back to the counter when you are ready.\nSave & return to title keeps your shift for later.", Vector2(34, 423), Vector2(912, 100), 24, MUTED)
 	_mobile_menu_button(p, "LEAVE PRACTICE" if practice else "SAVE & RETURN TO TITLE", Vector2(32, 608), Vector2(916, 88), func():
 		_save_run()
 		_show_title(), PANEL)
@@ -1437,7 +1437,7 @@ func _show_mobile_help(start_after: bool) -> void:
 		var card = _panel(p, Vector2(30, 91 + i * 119), Vector2(1000, 107), PANEL)
 		_label(card, steps[i][0], Vector2(17, 9), Vector2(966, 30), 22, GOLD)
 		_text(card, steps[i][1], Vector2(17, 43), Vector2(966, 58), 21, MUTED)
-	_text(p, "Drag the counter to look. Center resets your view. Pause or Android Back saves your shift.\nPractice lets you learn without a timer or impatient customers.", Vector2(32, 575), Vector2(996, 66), 21, MINT)
+	_text(p, "Drag the counter to look. Center resets your view. Tap Pause to save your shift.\nPractice lets you learn without a timer or impatient customers.", Vector2(32, 575), Vector2(996, 66), 21, MINT)
 	_button(p, "OPEN THE STAND" if start_after else "GOT IT", Vector2(30, 658), Vector2(640, 62), func():
 		_close_overlay()
 		if start_after:

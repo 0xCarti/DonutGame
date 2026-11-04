@@ -8,11 +8,16 @@ python tools/setup_android_toolchain.py
 python tools/build_android.py
 ```
 
-That path produces a signed ARMv7 + ARM64 APK using a private signing key outside
+That path produces a signed ARMv7 + ARM64 + x86_64 APK using a private signing key outside
 the repository. APK/package checks and physical-phone validation are separate;
 phone installation, touch usability, performance, and lifecycle validation are
 still pending. The Unity Windows **1.1.0** project and package remain preserved;
 their independent build entry point is `tools/unity/build_windows.ps1`.
+
+For an iPhone demo, use [IOS_HANDOFF.md](IOS_HANDOFF.md). The iOS helper exports
+an Xcode project on macOS using signing identifiers supplied locally. Xcode
+builds, signs, and installs it; TestFlight upload remains a separate manual step.
+Run `python3 tools/prepare_ios.py --check` for source checks on any platform.
 
 ## Godot Windows and Web
 
@@ -46,7 +51,8 @@ output paths are resolved and checked to stay within this workspace. Windows exp
 The script stops on failed checks, missing files, an engine version mismatch,
 or export errors. Passing automated checks does not replace visual and browser
 playtesting. Android is handled by `tools/build_android.py`, not this PowerShell
-pipeline. iOS builds and store submissions are not part of either pipeline.
+pipeline. iOS project export uses `tools/prepare_ios.py`; no pipeline submits to
+an app store or performs Apple signing automatically.
 
 The original `build_playtest.ps1` belongs to the historical Idea 1 prototype.
 Use the source from that release when rebuilding it; the current project and
@@ -94,17 +100,15 @@ textures use mipmaps for stable rendering in the 3D scene.
 The Windows and Web presets explicitly select runtime resources, including all
 28 required WAV files. Godot's selected-resource export did not discover the WAV
 dependencies of selected GDScript files in this project, so add new runtime audio
-to the relevant preset root lists, including Android when shared. The Windows/Web
+to the relevant preset root lists, including Android and iOS when shared. The Windows/Web
 build mounts each exported pack from an isolated empty project
 and verifies required resources exist and historical game/test resources do not.
 
-The Web preset uses single-threaded WebAssembly. Its mobile VRAM compression is off
-because this procedural-art build does not enable ETC2/ASTC texture importing.
-Godot 4.7.2 rejects a Web export with an empty configuration-error message if the
-mobile compression preset is enabled while that project import setting is off.
-Enable both settings together when adding mobile VRAM-compressed textures. This
-Web export setting does not describe Android APK support; see the Android guide
-for that preset, bundled notices, and signing requirements.
+The Web preset uses single-threaded WebAssembly and retains desktop texture
+compression. The project now enables ETC2/ASTC importing for native mobile
+exports. See the Android and iOS guides for those presets, bundled notices,
+and signing requirements; native mobile support does not imply browser testing
+on phones.
 
 ## Native package verification
 

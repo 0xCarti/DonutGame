@@ -23,6 +23,10 @@ are included separately in the Unity Windows distribution.
 
 ## Original project assets
 
+The opaque iOS app icon (`assets/ios/app_icon.png`) is rasterized from the
+original `assets/icon.svg` by `tools/generate_ios_icon.gd`. It introduces no
+third-party imagery.
+
 The donut machine, donuts, counter, trays, customers, first-person hands, scoop,
 packaging geometry, background props, materials, and animations were authored
 for this project. The game uses original procedural geometry, surface textures
