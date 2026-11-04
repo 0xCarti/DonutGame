@@ -55,14 +55,15 @@ func _run() -> void:
 	# Default cadence is 180 C with no motor upgrade. The maximum case uses
 	# the production formula's absolute floor with two motor upgrades, slightly
 	# faster than a player can sustain before overheating. Belt time stays real.
-	await production_case("default_partial", 0, 36, 24, 1.15)
-	await production_case("maximum_partial", 0, 36, 24, 0.614125)
-	await production_case("default_near_capacity", 0, 36, 35, 1.15)
-	await production_case("maximum_near_capacity", 0, 36, 35, 0.614125)
-	await production_case("full_36", 36, 36, 6, 0.614125)
-	await production_case("full_60", 60, 60, 6, 0.614125)
-	await production_case("checkpoint_replay", 0, 36, 6, 0.0)
-	await pause_and_fault_case()
+	if not OS.get_cmdline_user_args().has("--shake-only"):
+		await production_case("default_partial", 0, 36, 24, 1.15)
+		await production_case("maximum_partial", 0, 36, 24, 0.614125)
+		await production_case("default_near_capacity", 0, 36, 35, 1.15)
+		await production_case("maximum_near_capacity", 0, 36, 35, 0.614125)
+		await production_case("full_36", 36, 36, 6, 0.614125)
+		await production_case("full_60", 60, 60, 6, 0.614125)
+		await production_case("checkpoint_replay", 0, 36, 6, 0.0)
+		await pause_and_fault_case()
 	await tray_shake_case()
 	check(duplicate_callbacks == 0, "delivery and resident spill callbacks remain exactly once")
 	report["checks"] = checks
@@ -195,8 +196,7 @@ func tray_shake_case() -> void:
 	settled.clear()
 	spilled.clear()
 	for index in range(120): await frame()
-	var starts: Dictionary = {}
-	for entry in food._entries: starts[entry.id] = entry.body.position
+	var starts: Dictionary = food_positions()
 	check(food.shake_tray(), "first deliberate tray shake is accepted")
 	check(not food.shake_tray(), "tray shake cooldown prevents repeated impulse stacking")
 	var maximum_shift: float = 0.0
@@ -206,32 +206,84 @@ func tray_shake_case() -> void:
 		for entry in food._entries:
 			maximum_shift = maxf(maximum_shift, entry.body.position.distance_to(starts[entry.id]))
 			peak_speed = maxf(peak_speed, entry.body.linear_velocity.length())
-	check(maximum_shift > 0.01, "shaking actually moves and resettles rigid donuts")
-	check(food.get_available_count() == 24 and spilled.is_empty() and int(food.debug_snapshot().waste) == 0, "gentle shake retains every donut in a partial tray")
-	check(peak_speed < 2.0, "gentle shake does not violently launch donuts")
+	var movement: Dictionary = redistribution(starts)
+	check(float(movement.mean_horizontal_displacement) > 0.045, "shake moves the average donut far enough to visibly change the pile")
+	check(float(movement.mean_relative_displacement) > 0.040, "donuts redistribute relative to one another, not merely translate with the tray")
+	check(int(movement.moved_over_3cm) >= 16, "at least two thirds of partial-tray donuts visibly resettle")
+	check(maximum_shift > 0.10, "stronger shake creates a clearly visible rolling movement")
+	check(food.get_available_count() == 24 and spilled.is_empty() and int(food.debug_snapshot().waste) == 0, "stronger shake retains every donut in a partial tray")
+	check(peak_speed < 1.5, "stronger shake stays controlled rather than launching food")
+	report["tray_shake"] = {"opening":24, "maximum_displacement":maximum_shift, "peak_speed":peak_speed, "movement":movement, "resident_spills":spilled.size(), "available":food.get_available_count()}
+	check(food.shake_tray(), "shake becomes available again after cooldown")
+	for index in range(19): await frame()
 	food.set_paused(true)
 	check(not food.shake_tray(), "paused game rejects tray shake")
 	var paused_positions: Array = food.debug_snapshot().positions.duplicate()
+	var paused_time: float = food._shake_time
+	var paused_cooldown: float = food._shake_cooldown
+	var paused_tray: Vector3 = food._tray_surfaces[0].position
 	for index in range(60): await frame()
-	check(food.debug_snapshot().positions == paused_positions, "paused shake scenario preserves every body position")
+	check(food.debug_snapshot().positions == paused_positions, "pausing mid-shake preserves every body position")
+	check(food._shake_time == paused_time and food._shake_cooldown == paused_cooldown and food._tray_surfaces[0].position == paused_tray, "pause freezes the gesture, moving colliders and cooldown together")
 	food.set_paused(false)
-	check(food.shake_tray(), "tray shake is available again after cooldown and resume")
-	report["tray_shake"] = {"opening": 24, "maximum_displacement": maximum_shift, "peak_speed": peak_speed, "resident_spills": spilled.size(), "available": food.get_available_count()}
-	food.clear_food()
-	food.seed_stock(60, 60)
-	settled.clear()
-	spilled.clear()
 	for index in range(120): await frame()
-	check(food.get_available_count() == 60, "fully upgraded tray remains stable before shaking")
-	check(food.shake_tray(), "fully upgraded tray accepts a deliberate shake")
-	peak_speed = 0.0
-	for index in range(180):
-		await frame()
-		for entry in food._entries: peak_speed = maxf(peak_speed, entry.body.linear_velocity.length())
-	check(food.get_available_count() + spilled.size() == 60, "full-tray shake accounts for every retained or physically spilled donut")
-	check(peak_speed < 2.0, "full-tray shake remains a gentle bounded impulse")
-	report["full_tray_shake"] = {"opening": 60, "peak_speed": peak_speed, "resident_spills": spilled.size(), "available": food.get_available_count()}
+	check(not food.debug_snapshot().shaking and food.get_available_count() == 24, "resume finishes the interrupted shake without losing food")
+	for repetition in range(5):
+		check(food.shake_tray(), "successive partial-tray shake is accepted after cooldown")
+		for index in range(90): await frame()
+		check(food.get_available_count() == 24 and spilled.is_empty(), "repeated shaking keeps all partial-tray stock")
+	check(food.shake_tray(), "reset scenario starts a real shake")
+	for index in range(19): await frame()
 	food.clear_food()
+	check(food._shake_time == Food.SHAKE_SECONDS and food._shake_cooldown == 0.0 and food._entries.is_empty(), "reset clears active pulses, cooldown and food")
+	for surface in food._tray_surfaces:
+		check(surface.position.is_equal_approx(surface.get_meta("rest_position")), "reset returns each tray collider to its fixed rest position")
+	for full_count in [30, 36, 60]:
+		food.seed_stock(full_count, full_count)
+		settled.clear()
+		spilled.clear()
+		for index in range(120): await frame()
+		check(food.get_available_count() == full_count, "full%d tray remains stable before shaking" % full_count)
+		starts = food_positions()
+		peak_speed = 0.0
+		for repetition in range(5):
+			check(food.shake_tray(), "full%d tray accepts a deliberate repeated shake" % full_count)
+			for index in range(120):
+				await frame()
+				for entry in food._entries: peak_speed = maxf(peak_speed, entry.body.linear_velocity.length())
+			check(food.get_available_count() == full_count and spilled.is_empty(), "repeated full-tray shaking retains all%d donuts" % full_count)
+		check(peak_speed < 1.5, "full%d tray shake remains a bounded impulse" % full_count)
+		var key: String = "full_tray_shake" if full_count == 60 else "full_%d_tray_shake" % full_count
+		report[key] = {"opening":full_count, "repetitions":5, "peak_speed":peak_speed, "movement":redistribution(starts), "resident_spills":spilled.size(), "available":food.get_available_count()}
+		food.clear_food()
+
+
+
+func food_positions() -> Dictionary:
+	var positions: Dictionary = {}
+	for entry in food._entries: positions[entry.id] = entry.body.position
+	return positions
+
+
+func redistribution(starts: Dictionary) -> Dictionary:
+	var changes: Array[Vector2] = []
+	var mean_change: Vector2 = Vector2.ZERO
+	var moved: int = 0
+	var total: float = 0.0
+	var maximum: float = 0.0
+	for entry in food._entries:
+		if not starts.has(entry.id): continue
+		var change3: Vector3 = entry.body.position - Vector3(starts[entry.id])
+		var change: Vector2 = Vector2(change3.x, change3.z)
+		changes.append(change)
+		mean_change += change
+		total += change.length()
+		maximum = maxf(maximum, change.length())
+		if change.length() > 0.03: moved += 1
+	mean_change /= maxf(1.0, float(changes.size()))
+	var relative: float = 0.0
+	for change in changes: relative += change.distance_to(mean_change)
+	return {"mean_horizontal_displacement":total / maxf(1.0, float(changes.size())), "mean_relative_displacement":relative / maxf(1.0, float(changes.size())), "maximum_horizontal_displacement":maximum, "centroid_shift":mean_change.length(), "moved_over_3cm":moved, "measured_donuts":changes.size()}
 
 
 func position_span(positions: Array[Vector3]) -> Vector3:

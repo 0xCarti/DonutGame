@@ -177,6 +177,7 @@ func _run() -> void:
 	world.sync_state(state)
 	advance(0.8)
 	check(world._maintenance_prop.global_transform.is_equal_approx(world._pitcher_home), "Pitcher returns after the hold ends")
+	_test_offhand_container_pickups()
 	check(maximum_bone_error < 0.00001, "Every sampled upper arm and forearm retains its fixed length")
 	check(maximum_scale_error < 0.00001, "No sampled arm bone stretches or scales during reach")
 	world._view_hands.visible = false
@@ -188,3 +189,65 @@ func _run() -> void:
 	await process_frame
 	print("HAND MOTION QA: %d checks, %d failures" % [checks,failures])
 	quit(1 if failures else 0)
+
+func _test_offhand_container_pickups() -> void:
+	for reduced in [false, true]:
+		for kind in ["bag", "bucket"]:
+			for loaded in [false, true]:
+				world.reset_food(12, 30)
+				world.set_reduced_motion(reduced)
+				state = {"phase":"playing", "temperature":180.0, "heat_setting":2, "batter":40, "supply":12, "supply_capacity":30, "package_type":"", "package_count":0, "package_flavor":"", "held_tool":"none", "scoop_count":0, "orders":[]}
+				world.sync_state(state)
+				advance(0.3)
+				if loaded:
+					var other: String = "bucket" if kind == "bag" else "bag"
+					act(other, {"package_type":other})
+					settle()
+				act("scoop", {"held_tool":"scoop"})
+				settle()
+				if loaded:
+					act("supply", {"supply":9, "scoop_count":3})
+					settle()
+				var scoop_id: int = world._held_scoop.get_instance_id()
+				var food: Array = world._held_scoop_donuts.duplicate()
+				var local_poses: Array[Transform3D] = []
+				for donut in food: local_poses.append(donut.transform)
+				act(kind, {"package_type":kind})
+				var container: Node3D = world._prep
+				var start: Transform3D = container.global_transform
+				var duration: float = elapsed
+				var right_grip_error: float = 0.0
+				var scoop_stays_held: bool = true
+				for frame in range(26):
+					advance(1.0 / 120.0)
+					right_grip_error = maxf(right_grip_error, world._hands[1].global_position.distance_to(world._held_scoop.to_global(Vector3(0, -0.005, 0.53))))
+					scoop_stays_held = scoop_stays_held and world._held_type == "scoop" and not world._node_is_moving(world._held_scoop)
+				check(world._hand_goal(0).node == container and world._hand_goal(1).node == world._held_scoop, "Off-hand owns " + kind + " while dominant hand stays assigned to the scoop")
+				check(world._hands[0].global_position.distance_to(world._hand_goal(0).pose.origin) < 0.015, "Left glove reaches the " + kind + " grip before its transport begins")
+				for frame in range(23):
+					advance(1.0 / 120.0)
+					right_grip_error = maxf(right_grip_error, world._hands[1].global_position.distance_to(world._held_scoop.to_global(Vector3(0, -0.005, 0.53))))
+					scoop_stays_held = scoop_stays_held and world._held_type == "scoop" and not world._node_is_moving(world._held_scoop)
+				check(container.global_position.distance_to(start.origin) > 0.1, "Off-hand " + kind + " passes through a lifted intermediate pose")
+				var paused_container: Transform3D = container.global_transform
+				var paused_scoop: Transform3D = world._held_scoop.global_transform
+				var paused_left: Transform3D = world._hands[0].global_transform
+				var paused_right: Transform3D = world._hands[1].global_transform
+				state.paused = true
+				world.sync_state(state)
+				advance(0.25)
+				check(container.global_transform.is_equal_approx(paused_container) and world._held_scoop.global_transform.is_equal_approx(paused_scoop) and world._hands[0].global_transform.is_equal_approx(paused_left) and world._hands[1].global_transform.is_equal_approx(paused_right), "Pause freezes both hands, " + kind + " and retained scoop together")
+				state.paused = false
+				world.sync_state(state)
+				for frame in range(150):
+					advance(1.0 / 120.0)
+					right_grip_error = maxf(right_grip_error, world._hands[1].global_position.distance_to(world._held_scoop.to_global(Vector3(0, -0.005, 0.53))))
+					scoop_stays_held = scoop_stays_held and world._held_type == "scoop" and not world._node_is_moving(world._held_scoop)
+					if not world.is_action_busy(): break
+				check(not world.is_action_busy() and elapsed - duration - 0.25 <= 0.95, "Off-hand " + kind + " transfer keeps the existing sub-second action timing")
+				check(scoop_stays_held and right_grip_error < 0.001 and world._held_scoop.get_instance_id() == scoop_id, "Right glove continuously holds the same scoop throughout " + kind + " pickup")
+				check(container.position.is_equal_approx(world._package_anchor), "Off-hand sets " + kind + " onto the preparation mat")
+				var contents_preserved: bool = world._held_scoop_donuts == food
+				for index in range(food.size()):
+					contents_preserved = contents_preserved and is_instance_valid(food[index]) and food[index].get_parent() == world._held_scoop and food[index].transform.is_equal_approx(local_poses[index])
+				check(contents_preserved, "Loaded food remains in the same scoop throughout " + kind + " pickup, including reduced motion")

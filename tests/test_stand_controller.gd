@@ -64,6 +64,7 @@ func _run() -> void:
 	await _test_first_run()
 	await _test_physical_counter()
 	await _test_buffered_actions()
+	await _test_container_with_scoop()
 	await _test_empty_hand_tray_shake()
 	await _test_bag_service()
 	await _test_bucket_and_mistakes()
@@ -133,7 +134,7 @@ func _test_physical_counter() -> void:
 func _test_empty_hand_tray_shake() -> void:
 	_reset_shift(1902)
 	app.hover_station = "supply"
-	_check(app._guide_context().prompt == "Give the tray a gentle shake", "empty-hand tray hover explains settling instead of scooping")
+	_check(app._guide_context().prompt == "Shake the tray to spread donuts", "empty-hand tray hover explains spreading instead of scooping")
 	var stock: int = app.model.supply
 	app._act("supply")
 	_check(app.world._food.debug_snapshot().shaking and app.world._action == "tray_shake", "empty-hand tray click starts physical settling and hand animation together")
@@ -149,6 +150,79 @@ func _test_empty_hand_tray_shake() -> void:
 	app._act("supply")
 	_check(not app.world._food.debug_snapshot().shaking, "a hand holding an order cannot shake the tray")
 	app.held_tool = "none"
+
+func _test_container_with_scoop() -> void:
+	# Exercise actual shortcuts in both orders: tool before an empty container,
+	# and a loaded tool retained while swapping the still-empty container.
+	for kind in ["bag", "bucket"]:
+		for loaded in [false, true]:
+			_reset_shift(1950 + int(loaded) + (10 if kind == "bucket" else 0))
+			app.model.orders[0]["package"] = kind
+			app.hover_station = ""
+			if loaded:
+				await _key(KEY_V if kind == "bag" else KEY_B)
+				var empty_guide: Dictionary = app._guide_context()
+				_check(empty_guide.station == kind and empty_guide.prompt == "Switch to a " + kind and empty_guide.hint.contains("swap it directly"), "empty wrong container points to the matching " + kind + " stack instead of discard")
+			await _key(KEY_S)
+			_check(app.held_tool == "scoop" and (loaded or app.model.package_type.is_empty()), "scoop can be picked up before choosing " + kind)
+			var scoop_guide: Dictionary = app._guide_context()
+			_check(scoop_guide.station == kind and scoop_guide.hint.contains("scoop stays"), "container guide explains the retained scoop when choosing " + kind)
+			if not loaded: _check(scoop_guide.hint.contains("free hand"), "initial " + kind + " guide explains the free-hand pickup")
+			if loaded: await _key(KEY_F)
+			if loaded:
+				var loaded_guide: Dictionary = app._guide_context()
+				_check(loaded_guide.station == kind and loaded_guide.prompt == "Switch to a " + kind and loaded_guide.key == ("B" if kind == "bag" else "V"), "loaded scoop with an empty wrong container directs an immediate " + kind + " swap")
+				app._refresh_hud()
+				_check(app.hud.prompt.text == loaded_guide.prompt, "visible HUD shows the direct " + kind + " swap instead of discarding the loaded scoop")
+			var count: int = app.model.scoop_count
+			var stock: int = app.model.supply
+			var scoop_id: int = app.world._held_scoop.get_instance_id()
+			var food_ids: Array[int] = []
+			for donut in app.world._held_scoop_donuts: food_ids.append(donut.get_instance_id())
+			app._act(kind)
+			_check(app.model.package_type == kind and app.held_tool == "scoop" and app.world._held_type == "scoop", "choosing " + kind + " retains the held scoop immediately")
+			_check(app.model.scoop_count == count and app.model.supply == stock and app.model.package_count == 0, "choosing " + kind + " preserves all stock and any loaded scoop contents")
+			_check(not app.world._node_is_moving(app.world._held_scoop), "choosing " + kind + " does not schedule a scoop put-down")
+			if not loaded:
+				app._act("supply")
+				_check(app._queued_action == "supply" and app.model.scoop_count == 0, "tray input waits behind the off-hand " + kind + " pickup")
+			await _settle_hand_motion()
+			_check(app.world._held_scoop.get_instance_id() == scoop_id and app.held_tool == "scoop", "the same scoop remains held after " + kind + " lands")
+			if loaded:
+				var retained_ids: Array[int] = []
+				for donut in app.world._held_scoop_donuts: retained_ids.append(donut.get_instance_id())
+				_check(retained_ids == food_ids and app.model.scoop_count == count, "swapping to " + kind + " retains the original loaded food objects")
+			else:
+				_check(app._queued_action.is_empty() and app.model.scoop_count == 3 and app.model.supply == stock - 3 and not app.world._food.debug_snapshot().shaking, "buffered supply scoops once after " + kind + " instead of shaking the tray")
+			await _key(KEY_SPACE)
+			_check(app.model.package_count == 3 and app.model.scoop_count == 0 and app.held_tool == "scoop", "retained scoop pours directly into the selected " + kind)
+	# An occupied package must reject a replacement without disturbing either
+	# its food or the freshly loaded scoop that the operator is still holding.
+	for kind in ["bag", "bucket"]:
+		_reset_shift(1970 + (1 if kind == "bucket" else 0))
+		await _key(KEY_B if kind == "bag" else KEY_V)
+		await _key(KEY_S)
+		await _key(KEY_F)
+		await _key(KEY_SPACE)
+		await _key(KEY_F)
+		app.model.orders[0]["package"] = "bucket" if kind == "bag" else "bag"
+		app.hover_station = app.model.orders[0]["package"]
+		var occupied_guide: Dictionary = app._guide_context()
+		_check(occupied_guide.station == "trash" and occupied_guide.key == "X" and occupied_guide.hint.contains("recover plain donuts"), "filled wrong " + kind + " still requires safe recovery even when hovering the desired stack")
+		var package_id: int = app.world._prep.get_instance_id()
+		var hand_pose: Transform3D = app.world._hands[1].global_transform
+		var scoop_pose: Transform3D = app.world._held_scoop.global_transform
+		var serial: int = app.world._action_serial
+		var stock: int = app.model.supply
+		var food_ids: Array[int] = []
+		for donut in app.world._held_scoop_donuts: food_ids.append(donut.get_instance_id())
+		app._act("bucket" if kind == "bag" else "bag")
+		_check(app.model.package_type == kind and app.model.package_count == 3 and app.model.scoop_count == 3 and app.model.supply == stock, "rejected replacement preserves the occupied " + kind + " and both portions of food")
+		_check(app.held_tool == "scoop" and app.world._prep.get_instance_id() == package_id and app.world._action_serial == serial and not app.world.is_action_busy(), "rejected replacement preserves package identity and starts no hand action")
+		_check(app.world._hands[1].global_transform.is_equal_approx(hand_pose) and app.world._held_scoop.global_transform.is_equal_approx(scoop_pose), "rejected replacement leaves the gripping hand and scoop pose untouched")
+		var retained_ids: Array[int] = []
+		for donut in app.world._held_scoop_donuts: retained_ids.append(donut.get_instance_id())
+		_check(retained_ids == food_ids, "rejected replacement preserves the same loaded donut objects")
 
 func _test_bag_service() -> void:
 	_reset_shift(732)

@@ -2774,7 +2774,12 @@ func _hand_goal(index: int) -> Dictionary:
 		node = _tray_visual
 		offset = _supply_anchor + Vector3(side * 0.69, 0.13, 0.81)
 	elif index == 0:
-		if _action == "package" and _held_type == "scoop" and is_instance_valid(_prep) and is_action_busy():
+		if _action in ["bag", "bucket"] and _held_type == "scoop" and is_instance_valid(_prep) and _node_is_moving(_prep):
+			# The free hand takes the container while the right keeps its scoop grip.
+			node = _prep
+			offset = Vector3(-0.35, 0.28, 0.10)
+			grip_basis = Basis.from_euler(Vector3(0, -PI * 0.5, 0))
+		elif _action == "package" and _held_type == "scoop" and is_instance_valid(_prep) and is_action_busy():
 			node = _prep
 			offset = Vector3(-0.35, 0.28, 0.10)
 			grip_basis = Basis.from_euler(Vector3(0, -PI * 0.5, 0))
@@ -2797,7 +2802,7 @@ func _hand_goal(index: int) -> Dictionary:
 			node = _handoff
 			offset = Vector3(0.35, 0.28, 0.10)
 			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
-		elif _action in ["bag", "bucket"] and is_instance_valid(_prep) and _node_is_moving(_prep):
+		elif _action in ["bag", "bucket"] and _held_type != "scoop" and is_instance_valid(_prep) and _node_is_moving(_prep):
 			node = _prep
 			offset = Vector3(0.35, 0.28, 0.10)
 			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))

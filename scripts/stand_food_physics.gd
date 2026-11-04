@@ -146,29 +146,47 @@ func shake_tray() -> bool:
 	return true
 
 
-func _loosen_tray() -> void:
-	# A small impulse loosens contacts, so the pile actually settles differently.
-	# Pull near-rim rings inward instead of throwing usable stock off a half tray.
+func _loosen_tray(pulse: int = 0) -> void:
+	# Three short lateral pulses overcome static friction and visibly redistribute
+	# the pile. Target speed is bounded, so pulses and repeat clicks cannot stack
+	# into a launch. Steer edge pieces inward and ease the force on deep piles.
+	var crowding: float = clampf(float(get_available_count() - 30) / 30.0, 0.0, 1.0)
+	var speed: float = 0.94 * (1.0 - crowding * 0.34) * (1.0 - float(pulse) * 0.11)
+	var stroke: Vector3 = Vector3(1.0 if pulse % 2 == 0 else -1.0, 0, 0.32 if pulse == 1 else -0.18)
 	for entry in _entries:
 		if str(entry.stage) != "resident": continue
 		var body: RigidBody3D = entry.body
 		var offset: Vector3 = body.position - TRAY_CENTER
-		var direction: Vector3 = Vector3(_rng.randf_range(-1.0, 1.0), 0, _rng.randf_range(-1.0, 1.0)).normalized()
-		if absf(offset.x) > 0.78 or absf(offset.z) > 0.43:
-			direction = Vector3(-offset.x, 0, -offset.z).normalized()
+		var direction: Vector3 = Vector3(_rng.randf_range(-1.0, 1.0), 0, _rng.randf_range(-1.0, 1.0)) + stroke * 0.65
+		# Local contact pressure biases movement into gaps, rather than moving an
+		# intact clump back and forth or forcing every donut toward the center.
+		for other in _entries:
+			if other == entry or str(other.stage) != "resident": continue
+			var separation: Vector3 = body.position - other.body.position
+			if absf(separation.y) > 0.14: continue
+			separation.y = 0.0
+			var distance: float = separation.length()
+			if distance > 0.001 and distance < 0.40:
+				direction += separation / distance * (1.0 - distance / 0.40) * 1.5
+		if absf(offset.x) > 0.74: direction.x = -signf(offset.x) * maxf(0.85, absf(direction.x))
+		if absf(offset.z) > 0.39: direction.z = -signf(offset.z) * maxf(0.85, absf(direction.z))
+		direction = direction.normalized()
+		var horizontal: Vector3 = Vector3(body.linear_velocity.x, 0, body.linear_velocity.z)
 		body.sleeping = false
-		body.apply_central_impulse((direction * 0.36 + Vector3(0, 0.12, 0)) * body.mass)
-		body.apply_torque_impulse(Vector3(_rng.randf_range(-0.00008, 0.00008), 0, _rng.randf_range(-0.00008, 0.00008)))
+		body.apply_central_impulse((direction * speed - horizontal + Vector3(0, 0.20 * (1.0 - crowding * 0.4), 0)) * body.mass)
+		body.apply_torque_impulse(Vector3(_rng.randf_range(-0.00012, 0.00012), 0, _rng.randf_range(-0.00012, 0.00012)))
 
 
 func _update_tray_shake(delta: float) -> void:
 	_shake_cooldown = maxf(0.0, _shake_cooldown - delta)
 	var before: float = _shake_time
 	_shake_time = minf(SHAKE_SECONDS, _shake_time + delta)
-	if before < 0.0 and _shake_time >= 0.0:
-		_loosen_tray()
+	for pulse in range(3):
+		var pulse_time: float = float(pulse) * 0.20
+		if before < pulse_time and _shake_time >= pulse_time:
+			_loosen_tray(pulse)
 	var t: float = maxf(0.0, _shake_time) / SHAKE_SECONDS
-	var offset: Vector3 = Vector3(sin(t * TAU * 2.0) * sin(t * PI) * 0.035, 0, sin(t * TAU) * sin(t * PI) * 0.015) if t < 1.0 else Vector3.ZERO
+	var offset: Vector3 = Vector3(sin(t * TAU * 2.0) * sin(t * PI) * 0.055, 0, sin(t * TAU) * sin(t * PI) * 0.028) if t < 1.0 else Vector3.ZERO
 	for body in _tray_surfaces:
 		body.position = Vector3(body.get_meta("rest_position")) + offset
 	if _world.has_method("set_tray_shake_offset"):

@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.3 · Windows
+Version 1.0.4 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,
@@ -26,6 +26,10 @@ The starting scoop carries three donuts. Bags take two scoops; buckets take
 four. Equipment can raise capacity to four or six. A nearly empty tray gives
 you a partial scoop, so watch the contents shown on the dashboard.
 
+Already holding the scoop? Click a bag or bucket and your free hand brings it
+over. The scoop stays ready, including any donuts it is already carrying. You
+can swap an empty container this way; finish or clear a filled one first.
+
 The bottom guide explains your next useful action. Point at an object to see
 its interaction and keyboard shortcut. You can put a lifted order down by
 clicking the packing area again.
@@ -36,7 +40,7 @@ hands finish a movement. Pause cancels that queued click.
 
 Donuts climb the machine's exit ramp, ride a sweeping chute and fall into the
 tray as physical objects. The chute distributes fresh output across the tray.
-With empty hands, click the tray (or press F) to give it a gentle settling shake.
+With empty hands, click the tray (or press F) to spread the donuts with a shake.
 The ready count increases after they land. A full tray does not stop the fryer:
 extra donuts tumble onto the counter and become waste. Watch the ready stock,
 in-flight and wasted counters, and keep serving to make room.

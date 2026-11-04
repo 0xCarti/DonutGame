@@ -5,7 +5,7 @@ const Model = preload("res://scripts/stand_model.gd")
 const World = preload("res://scripts/stand_world.gd")
 const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
-const VERSION = "1.0.3"
+const VERSION = "1.0.4"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -251,7 +251,8 @@ func _act(station: String) -> void:
 	match station:
 		"bag", "bucket":
 			result = model.choose_package(station)
-			if result.get("ok", false): held_tool = "none"
+			# Use the free hand for packaging; keep the scoop and any food in it.
+			if result.get("ok", false) and held_tool != "scoop": held_tool = "none"
 		"scoop":
 			held_tool = "scoop"
 			result = {"ok": true, "message": "Scoop ready. Click the fresh donut tray."}
@@ -261,7 +262,7 @@ func _act(station: String) -> void:
 					world.animate_action("tray_shake")
 					audio.play_action("tray")
 					_last_hand_action = "supply"
-					_toast("A gentle shake settles the fresh donuts.", MINT)
+					_toast("A shake spreads the donuts across the tray.", MINT)
 				_refresh_hud()
 				return
 			if held_tool != "scoop":
@@ -775,16 +776,22 @@ func _guide_context() -> Dictionary:
 	var target = "bag"
 	var prompt = "Take the right container"
 	var hint = "Read the front customer's ticket, then click its bag or bucket."
+	if held_tool == "scoop": hint = "Choose the bag or bucket with your free hand. Your scoop stays ready."
 	var step = "1 / 5  ·  CHOOSE A CONTAINER"
 	if not model.orders.is_empty(): target = str(model.orders[0].package)
 	var wrong_package: bool = not model.orders.is_empty() and not model.package_type.is_empty() and model.package_type != str(model.orders[0].package)
 	var wrong_coating: bool = not model.orders.is_empty() and not model.package_flavor.is_empty() and model.package_flavor != str(model.orders[0].flavor)
-	var needs_recovery: bool = wrong_package or wrong_coating
+	var can_swap_empty: bool = wrong_package and model.package_count == 0 and model.package_flavor.is_empty()
+	var needs_recovery: bool = (wrong_package or wrong_coating) and not can_swap_empty
 	if needs_recovery:
 		target = "trash"
 		prompt = "Discard this order" if not model.package_flavor.is_empty() else "Clear the wrong container"
 		hint = "Press X to discard it, then match the front ticket." if not model.package_flavor.is_empty() else "Press X to recover plain donuts and choose a %s." % str(model.orders[0].package)
 		step = "RECOVER THE ORDER  ·  X TO CLEAR"
+	elif can_swap_empty:
+		target = str(model.orders[0].package)
+		prompt = "Switch to a " + target
+		hint = "Click the matching stack. Your scoop stays in hand." if held_tool == "scoop" else "This container is empty, so you can swap it directly."
 	elif held_tool == "package":
 		target = "serve"
 		prompt = "Hand over your order"
@@ -831,7 +838,7 @@ func _guide_context() -> Dictionary:
 	return {"prompt": prompt, "hint": hint, "step": step, "key": keys.get(target, "CLICK"), "station": target}
 
 func _context_prompt() -> String:
-	if hover_station == "supply" and held_tool == "none": return "Give the tray a gentle shake"
+	if hover_station == "supply" and held_tool == "none": return "Shake the tray to spread donuts"
 	if hover_station == "supply" and held_tool == "package": return "Set your order down first"
 	if hover_station == "repair":
 		if model.jammed: return "Hold to clear the jam"
