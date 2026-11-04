@@ -13,6 +13,33 @@ func _capture(label: String) -> void:
 	root.get_texture().get_image().save_png(ProjectSettings.globalize_path(path))
 	print("RELEASE_CAPTURE " + path)
 
+func _perform(station: String) -> void:
+	app._act(station)
+	# Actions now finish on visible hand/prop movement, including low frame rates.
+	var deadline: int = Time.get_ticks_msec() + 4000
+	while app.world.is_action_busy() or not app._queued_action.is_empty():
+		await process_frame
+		if Time.get_ticks_msec() > deadline:
+			push_error("Capture action did not complete: " + station)
+			quit(1)
+			return
+	await process_frame
+
+func _wait_for_stock() -> void:
+	var deadline: int = Time.get_ticks_msec() + 60000
+	while app.model.orders.is_empty() or app.model.supply < 12:
+		if not app.world.is_action_busy() and app.hold_station.is_empty():
+			if app.model.jammed: app._start_hold("repair")
+			elif app.model.batter < 20: app._start_hold("refill")
+		await create_timer(0.1).timeout
+		if Time.get_ticks_msec() > deadline:
+			push_error("Capture could not prepare the next physical order")
+			quit(1)
+			return
+	# Finish an already-started maintenance action before touching food.
+	while not app.hold_station.is_empty():
+		await process_frame
+
 func _run() -> void:
 	root.size = Vector2i(1280,800)
 	app = Controller.new()
@@ -32,32 +59,25 @@ func _run() -> void:
 	# Practice uses the same order handling and receipts, with a frozen clock so
 	# every celebration tier can be rendered without skipping campaign rules.
 	app._start_practice()
+	# Keep the real controller event pump and rigid-body simulation active. Model
+	# stock is credited only after these actual conveyor bodies land in the tray.
+	app.set_process(true)
+	await _perform("heat_down")
 	for customer in range(10):
-		var safety = 0
-		while app.model.orders.is_empty() or app.model.supply < 12:
-			app.model.tick_practice(.1)
-			if app.model.jammed: app.model.repair(.1)
-			if app.model.batter < 20: app.model.refill(.1)
-			if app.model.temperature > 185: app.model.adjust_heat(-1)
-			if app.model.temperature < 160: app.model.adjust_heat(1)
-			safety += 1
-			if safety > 2000:
-				push_error("Capture could not prepare next real order")
-				quit(1)
-				return
+		await _wait_for_stock()
 		var order: Dictionary = app.model.orders[0]
-		app._act(str(order.package))
-		app._act("scoop")
+		await _perform(str(order.package))
+		await _perform("scoop")
 		while app.model.package_count < app.model.package_capacity():
-			app._act("supply")
-			app._act("package")
-		app._act(str(order.flavor))
-		app._act("package")
+			await _perform("supply")
+			await _perform("package")
+		await _perform(str(order.flavor))
+		await _perform("package")
 		if customer == 0: await _capture("handoff")
-		app._act("serve")
+		await _perform("serve")
 		if customer in [0,2,5,9]:
-			await create_timer(.46).timeout
 			await _capture("sale-%d" % (customer+1))
+	app.set_process(false)
 	app.model.jammed = true
 	app._sync_world()
 	app._refresh_hud()

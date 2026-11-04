@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.0 · Windows
+Version 1.0.1 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,
@@ -29,6 +29,15 @@ you a partial scoop, so watch the contents shown on the dashboard.
 The bottom guide explains your next useful action. Point at an object to see
 its interaction and keyboard shortcut. You can put a lifted order down by
 clicking the packing area again.
+
+Objects glow gently under your pointer. Bags, buckets and tools travel from
+their actual counter positions; one next click can be buffered while your
+hands finish a movement. Pause cancels that queued click.
+
+Donuts climb the machine's exit ramp and fall into the tray as physical objects.
+The ready count increases after they land. A full tray does not stop the fryer:
+extra donuts tumble onto the counter and become waste. Watch the ready stock,
+in-flight and wasted counters, and keep serving to make room.
 
 ## Read your dashboard
 

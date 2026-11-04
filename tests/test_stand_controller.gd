@@ -63,6 +63,7 @@ func _run() -> void:
 	await physics_frame
 	await _test_first_run()
 	await _test_physical_counter()
+	await _test_buffered_actions()
 	await _test_bag_service()
 	await _test_bucket_and_mistakes()
 	await _test_maintenance_and_pause()
@@ -291,9 +292,9 @@ func _test_settings_and_continuation() -> void:
 	await _click_text(app.overlay, "DONE")
 	_check(not app.paused and not is_instance_valid(app.overlay), "settings Done returns to play")
 	_reset_shift(735)
-	app._act("bag")
-	app._act("scoop")
-	app._act("supply")
+	await _key(KEY_B)
+	await _key(KEY_S)
+	await _key(KEY_F)
 	var snapshot: Dictionary = app.model.to_save()
 	app.saved_run = {"model": snapshot.duplicate(true), "held_tool": "scoop"}
 	app._show_title()
@@ -551,6 +552,7 @@ func _check(condition: bool, message: String) -> void:
 func _key(keycode: int) -> void:
 	await _key_event(keycode, true)
 	await _key_event(keycode, false)
+	await _settle_hand_motion()
 
 
 func _key_event(keycode: int, pressed: bool) -> void:
@@ -564,6 +566,42 @@ func _key_event(keycode: int, pressed: bool) -> void:
 func _click_station(station: String) -> void:
 	await _mouse_station(station, true)
 	await _mouse_station(station, false)
+	await _settle_hand_motion()
+
+func _settle_hand_motion() -> void:
+	# The normal controller is intentionally paused by this suite. Advance its
+	# real world animation and input buffer instead of bypassing action locks.
+	for tick in range(120):
+		app.world._process(1.0 / 60.0)
+		app._drain_action_queue()
+		if not app.world.is_action_busy() and app._queued_action.is_empty(): break
+	await process_frame
+
+func _test_buffered_actions() -> void:
+	_reset_shift(1901)
+	app._act("bag")
+	_check(app.world.is_action_busy(), "taking a bag keeps a physical transfer in flight")
+	app._act("scoop")
+	_check(app._queued_action == "scoop" and app.held_tool == "none", "quick next input waits for the bag to land")
+	app._act("supply")
+	_check(app._queued_action == "scoop", "buffer retains one intended next move instead of accumulating clicks")
+	await _settle_hand_motion()
+	_check(app.held_tool == "scoop" and app._queued_action.is_empty(), "buffered scoop pickup executes after bag animation")
+	var stock: int = app.model.supply
+	app._act("supply")
+	app._act("supply")
+	_check(app.model.scoop_count == 3 and app.model.supply == stock - 3, "double click cannot duplicate physical donuts during pickup")
+	_check(app._queued_action.is_empty(), "same-action spam does not queue a duplicate scoop")
+	app._act("package")
+	_check(app._queued_action == "package", "pour can be buffered behind the scoop movement")
+	app._show_pause()
+	_check(app._queued_action.is_empty(), "opening pause cancels buffered actions")
+	app._close_overlay()
+	await _settle_hand_motion()
+	_check(app.model.package_count == 0, "cancelled pour does not fire after unpausing")
+	app._act("package")
+	await _settle_hand_motion()
+	_check(app.model.package_count == 3, "pour remains available after cancelling a buffered move")
 
 
 func _mouse_station(station: String, pressed: bool) -> void:

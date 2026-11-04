@@ -5,7 +5,7 @@ const Model = preload("res://scripts/stand_model.gd")
 const World = preload("res://scripts/stand_world.gd")
 const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
-const VERSION = "1.0.0"
+const VERSION = "1.0.1"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -70,6 +70,10 @@ var _result_badges: Array = []
 var _legacy_migration_done = false
 var _save_failed = false
 var _run_load_notice = ""
+var _queued_action = ""
+var _last_hand_action = ""
+var _food_epoch = -1
+var _food_model: RefCounted
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Golden Hour")
@@ -86,6 +90,9 @@ func _ready() -> void:
 		profile.load_profile()
 	world = World.new()
 	add_child(world)
+	model.external_delivery = true
+	world.delivery_settled.connect(_on_delivery_settled)
+	world.stock_spilled.connect(_on_stock_spilled)
 	audio = Audio.new()
 	add_child(audio)
 	_apply_audio_settings()
@@ -158,6 +165,8 @@ func _resize() -> void:
 func _process(delta: float) -> void:
 	elapsed += delta
 	if current_view == "play" and not paused:
+		_ensure_food_session()
+		_drain_action_queue()
 		var step = minf(delta, 0.1)
 		if hold_station == "repair": _handle_hold_result(model.repair(step))
 		elif hold_station == "refill": _handle_hold_result(model.refill(step))
@@ -231,6 +240,12 @@ func _notification(what: int) -> void:
 
 func _act(station: String) -> void:
 	if current_view != "play" or paused or model.phase != "playing": return
+	# A single buffered next move keeps quick clicks responsive without cutting a
+	# physical transfer halfway through or duplicating the same scoop/pour.
+	if world.is_action_busy() and station not in ["heat_down", "heat_up"]:
+		if _queued_action.is_empty() and station != _last_hand_action:
+			_queued_action = station
+		return
 	_stop_hold()
 	var result: Dictionary = {}
 	match station:
@@ -285,6 +300,7 @@ func _act(station: String) -> void:
 	if bool(result.get("ok", false)):
 		if station != "serve": audio.play_action(station)
 		world.animate_action(station)
+		if station not in ["heat_down", "heat_up"]: _last_hand_action = station
 		_save_run()
 	else:
 		audio.play_warning(str(result.get("code", "mistake")))
@@ -296,8 +312,17 @@ func _act(station: String) -> void:
 	_sync_world()
 	_refresh_hud()
 
+func _drain_action_queue() -> void:
+	if _queued_action.is_empty() or world.is_action_busy(): return
+	var next = _queued_action
+	_queued_action = ""
+	_act(next)
+
 func _start_hold(station: String) -> void:
 	if current_view != "play" or paused or station not in ["repair", "refill"]: return
+	# Holds require the button to remain down; never queue a released maintenance
+	# gesture behind a hand animation.
+	if world.is_action_busy(): return
 	if station == "repair" and not model.jammed and float(model.get("jam_risk")) < 0.5:
 		_toast("The feeder is healthy. Service it when wear rises.", MINT)
 		return
@@ -320,14 +345,34 @@ func _handle_hold_result(result: Dictionary) -> void:
 		_toast(str(result.get("message", "")), GOLD)
 
 func _process_events() -> void:
+	_ensure_food_session()
 	for event in model.events:
 		var kind = str(event.get("type", ""))
-		if kind == "customer_arrived": audio.play_customer()
+		if kind == "production" and event.has("delivery_id") and int(event.get("delivery_epoch", -1)) == _food_epoch:
+			world.enqueue_production(int(event.delivery_id))
+		elif kind == "customer_arrived": audio.play_customer()
 		elif kind in ["jam", "overheat", "walkout"]:
 			audio.play_warning(kind)
 			if kind == "walkout": _toast("A customer left. Read the new front ticket.", RED)
 		elif kind in ["repair", "refill"]: audio.play_action(kind)
 	model.events.clear()
+
+func _ensure_food_session() -> void:
+	model.external_delivery = true
+	if _food_model == model and _food_epoch == model.delivery_epoch: return
+	_food_model = model
+	_food_epoch = model.delivery_epoch
+	_queued_action = ""
+	_last_hand_action = ""
+	world.reset_food(model.supply, model.supply_capacity, model.pending_delivery_ids())
+
+func _on_delivery_settled(id: int, kept: bool) -> void:
+	if _food_model != model: return
+	model.settle_delivery(id, kept, _food_epoch)
+
+func _on_stock_spilled(_id: int) -> void:
+	if _food_model != model or _food_epoch != model.delivery_epoch: return
+	model.spill_stock(1)
 
 func _view_state() -> Dictionary:
 	return {"phase": model.phase, "shift_index": model.shift_index, "time_left": model.time_left,
@@ -340,15 +385,18 @@ func _view_state() -> Dictionary:
 		"served": model.served, "missed": model.missed, "mistakes": model.mistakes,
 		"streak": model.streak, "target": model.target, "credits": model.credits,
 		"owned": model.owned, "production_count": model.production_count,
+		"waste_count": model.waste_count, "in_flight": model.pending_delivery_ids().size(),
 		"shift_duration": model.shift_duration, "supply_capacity": model.supply_capacity,
 		"paused": paused or current_view != "play", "jam_risk": model.get("jam_risk"), "practice": practice}
 
 func _sync_world() -> void:
+	_ensure_food_session()
 	var state = _view_state()
 	world.sync_state(state)
 	if audio.has_method("sync_machine"): audio.sync_machine(state)
 
 func _new_screen() -> void:
+	_queued_action = ""
 	_stop_hold()
 	_close_overlay()
 	for child in toast_layer.get_children():
@@ -514,7 +562,7 @@ func _refresh_hud() -> void:
 	_active_faults = codes
 	var info: Dictionary = model.get_campaign_info() if model.has_method("get_campaign_info") else {}
 	var context: Dictionary = _guide_context()
-	context.merge({"practice": practice, "endless": selected_mode == "endless", "total_shifts": _shift_count(), "shift_name": info.get("name", "Opening time"), "difficulty": selected_difficulty, "batter_capacity": model.batter_capacity(), "machine_status": _machine_short_status(), "faults": faults, "notice": "PRACTICE  ·  Time and patience are frozen. Esc to leave." if practice else ("QUOTA REACHED  ·  Every extra order earns upgrade coins." if model.sales >= model.target else "")})
+	context.merge({"practice": practice, "endless": selected_mode == "endless", "total_shifts": _shift_count(), "shift_name": info.get("name", "Opening time"), "difficulty": selected_difficulty, "batter_capacity": model.batter_capacity(), "machine_status": _machine_short_status(), "faults": faults, "queued_action": STATION_NAMES.get(_queued_action, ""), "notice": "PRACTICE  ·  Time and patience are frozen. Esc to leave." if practice else ("QUOTA REACHED  ·  Every extra order earns upgrade coins." if model.sales >= model.target else "")})
 	dashboard.refresh(_view_state(), context)
 	if not faults.is_empty():
 		var target: Vector2 = world.station_screen_position(str(faults[0].station))
@@ -546,6 +594,8 @@ func _machine_faults() -> Array:
 		faults.append({"code": "cold", "title": "OIL NEEDS TO WARM UP", "action": "Raise heat with +. Donuts cook above 145°.", "station": "heat_up", "critical": false})
 	if model.supply <= 3:
 		faults.append({"code": "low_stock", "title": "FRESH TRAY LOW" if model.supply > 0 else "FRESH TRAY EMPTY", "action": "Let the fryer replenish the tray. Check its status.", "station": "supply", "critical": false})
+	elif model.supply >= model.supply_capacity:
+		faults.append({"code": "tray_full", "title": "TRAY FULL — SPILL RISK", "action": "Serve some donuts. Extra output spills and is wasted.", "station": "supply", "critical": false})
 	return faults
 
 func _machine_short_status() -> String:
@@ -555,7 +605,7 @@ func _machine_short_status() -> String:
 	if model.temperature < 145: return "WARMING UP"
 	if hold_station == "refill": return "REFILLING"
 	if hold_station == "repair": return "SERVICING"
-	if model.supply >= model.supply_capacity: return "TRAY FULL"
+	if model.supply >= model.supply_capacity: return "SPILL RISK"
 	return "MAKING DONUTS"
 
 func _guide_context() -> Dictionary:
@@ -752,7 +802,7 @@ func _show_help(start_after: bool) -> void:
 		["1  READ THE FIRST TICKET", "Take a bag for 6 donuts or a bucket for 12. The cream ticket is the customer you are serving."],
 		["2  SCOOP, THEN POUR", "Pick up the scoop. Click the fresh tray, then your container. Keep scooping and pouring until it is full."],
 		["3  COAT, LIFT, HAND OVER", "Click the requested sugar. Lift the finished package, then click the customer or serving mat."],
-		["4  KEEP THE FRYER RUNNING", "A clear alert points to trouble. Hold R to clear a jam, lower heat with −, and hold T to refill batter."]
+		["4  KEEP THE FRYER RUNNING", "Hold R for jams, T for batter, and − for heat. Keep serving: a full tray spills and wastes donuts."]
 	]
 	for i in range(4):
 		var card = _panel(p, Vector2(32, 138 + i * 94), Vector2(878, 81), PANEL)
@@ -884,6 +934,7 @@ func _apply_effect_settings() -> void:
 func _modal(dimensions: Vector2) -> Panel:
 	_close_overlay()
 	_stop_hold()
+	_queued_action = ""
 	paused = current_view == "play"
 	right_dragging = false
 	overlay = Control.new()

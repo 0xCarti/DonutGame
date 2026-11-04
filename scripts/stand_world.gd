@@ -1,4 +1,7 @@
 extends Node3D
+signal delivery_settled(delivery_id: int, kept: bool)
+signal stock_spilled(delivery_id: int)
+signal action_finished
 ## First-person Golden Hour stand. Original meshes and material generators reused
 ## from the original art library; all interaction staging is specific to this game.
 var camera: Camera3D
@@ -23,11 +26,28 @@ var _markers: Dictionary = {}
 var _machine_root: Node3D
 var _machine_donuts: Array[Node3D] = []
 var _bulk_donuts: Array[Node3D] = []
+var _food: Node3D
+var _station_meshes: Dictionary = {}
+var _station_overlays: Dictionary = {}
+var _highlight_strengths: Dictionary = {}
+var _heat_knobs: Array[Node3D] = []
+var _motions: Array[Dictionary] = []
+var _tool_home: Transform3D
+var _shakers: Dictionary = {}
+var _shaker_homes: Dictionary = {}
+var _package_stacks: Dictionary = {}
+var _action_duration: float = 0.45
+var _action_reach: Vector3 = Vector3.ZERO
+var _scoop_pose: Transform3D
+var _package_pose: Transform3D
+var _action_before: Dictionary = {}
 var _prep_donuts: Array[Node3D] = []
 var _prep: Node3D
 var _prep_type: String = ""
 var _prep_flavor: String = ""
 var _people: Dictionary = {}
+var _departing: Array[Node3D] = []
+var _served_person: Node3D
 var _view_hands: Node3D
 var _held_scoop: Node3D
 var _held_package: Node3D
@@ -59,6 +79,7 @@ var _hands: Array[Node3D] = []
 var _detail_lights: Array[Light3D] = []
 var _bg_walkers: Array[Dictionary] = []
 var _quality: int = 2
+var _static_batch_report: Dictionary = {}
 var _coating_active: bool = false
 var _action_serial: int = 0
 var _world_font: Font
@@ -67,6 +88,11 @@ var _fair_bulbs: Array[MeshInstance3D] = []
 var _handoff: Node3D
 var _action_prop: Node3D
 var _maintenance_prop: Node3D
+var _pitcher_home: Transform3D
+var _batter_stream: Node3D
+var _refilling: bool = false
+var _repair_motion: float = 0.0
+var _hand_reach_weight: float = 0.0
 var _repair_handle: MeshInstance3D
 var _work_light: OmniLight3D
 var _heat_fill: MeshInstance3D
@@ -80,6 +106,7 @@ var _serve_anchor: Vector3 = Vector3(0.50, 1.71, -0.95)
 const MAX_EFFECTS: int = 64
 
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_rng.seed = 7132026
 	if ResourceLoader.exists("res://assets/fonts/Fredoka-Medium.ttf"):
 		_world_font = load("res://assets/fonts/Fredoka-Medium.ttf")
@@ -94,6 +121,12 @@ func _ready() -> void:
 	_build_view()
 	_build_hands()
 	_build_authored_details()
+	_batch_static_venue()
+	_food = load("res://scripts/stand_food_physics.gd").new()
+	add_child(_food)
+	_food.configure(self)
+	_food.delivery_settled.connect(func(delivery_id: int, kept: bool): delivery_settled.emit(delivery_id, kept))
+	_food.stock_spilled.connect(func(delivery_id: int): stock_spilled.emit(delivery_id))
 	_loaded = true
 	sync_state({})
 func _material(key: String, color: Color, metallic: float = 0.0, rough: float = 0.7, emission: float = 0.0) -> StandardMaterial3D:
@@ -839,11 +872,15 @@ func _build_compact_machine() -> void:
 		if child != _machine_root and not previous.has(child):
 			child.reparent(_machine_root, false)
 	_box(Vector3(-2.35, 1.765, -0.72), Vector3(4.5, 0.16, 1.14), "dark_enamel")
-	# Sheet-steel discharge extension visibly feeds the shared bulk tray.
-	var chute: MeshInstance3D = _box(Vector3(-0.25, 1.97, 0.12), Vector3(0.47, 0.035, 0.77), "steel_light")
-	chute.rotation_degrees.x = 18.0
-	_box(Vector3(-0.50, 2.0, 0.12), Vector3(0.035, 0.12, 0.77), "steel")
-	_box(Vector3(0.0, 2.0, 0.12), Vector3(0.035, 0.12, 0.77), "steel")
+	# The discharge dogleg ends over the inside of the tray, not its rim.
+	var chute_start: Vector3 = Vector3(-0.22, 2.105, -0.10)
+	var chute_end: Vector3 = Vector3(-0.62, 2.03, 0.43)
+	var direction: Vector3 = (chute_end - chute_start).normalized()
+	var chute: MeshInstance3D = _box((chute_start + chute_end) * 0.5, Vector3(0.43, 0.035, chute_start.distance_to(chute_end) + 0.10), "steel_light")
+	chute.look_at(chute.position - direction, Vector3.UP)
+	for side in [-1.0, 1.0]:
+		var offset: Vector3 = direction.cross(Vector3.UP).normalized() * side * 0.22 + Vector3(0, 0.065, 0)
+		_tube(chute_start + offset, chute_end + offset, 0.025, "steel")
 
 func _build_stations() -> void:
 	# Bulk tray contains visible individual donuts, with a scoop resting beside it.
@@ -857,14 +894,19 @@ func _build_stations() -> void:
 	_station("serve", _serve_anchor + Vector3(0, 0.13, 0), Vector3(1.35, 0.30, 0.92), "SERVE")
 	_station("package", _package_anchor + Vector3(0, 0.23, 0), Vector3(0.88, 0.52, 0.72), "PACK HERE")
 	var resting_scoop: Node3D = _make_scoop(self)
+	_held_scoop = resting_scoop
 	resting_scoop.position = Vector3(-0.83, 1.80, 2.48)
 	resting_scoop.rotation_degrees.y = -20.0
+	_tool_home = resting_scoop.global_transform
 	_station("scoop", Vector3(-0.83, 1.93, 2.44), Vector3(0.66, 0.30, 0.90), "SCOOP")
+	_package_stacks["bag"] = []
+	_package_stacks["bucket"] = []
 	for i in range(5):
 		var bag: Node3D = Node3D.new()
 		add_child(bag)
 		bag.position = Vector3(2.25, 1.74 + float(i) * 0.032, 2.24)
 		bag.rotation_degrees.y = -8.0 + float(i) * 3.0
+		_package_stacks["bag"].append(bag)
 		_box(Vector3.ZERO, Vector3(0.67, 0.026, 0.85), "paper_bag", bag)
 		_box(Vector3(0, 0.016, 0.03), Vector3(0.39, 0.009, 0.40), "red", bag)
 		_box(Vector3(0, 0.016, 0.36), Vector3(0.62, 0.009, 0.06), "cream", bag)
@@ -872,6 +914,7 @@ func _build_stations() -> void:
 	for i in range(3):
 		var bucket: Node3D = _make_package("bucket", self)
 		bucket.position = Vector3(3.32, 1.72 + float(i) * 0.15, 1.67)
+		_package_stacks["bucket"].append(bucket)
 		if i > 0:
 			for child in bucket.get_children():
 				if child is Label3D or child.has_meta("branding"):
@@ -881,6 +924,8 @@ func _build_stations() -> void:
 		var flavor: String = "cinnamon" if i == 0 else "powdered"
 		var shaker: Node3D = _make_shaker(flavor, self)
 		shaker.position = Vector3(1.55 + float(i) * 0.85, 1.72, 0.63)
+		_shakers[flavor] = shaker
+		_shaker_homes[flavor] = shaker.global_transform
 		_station(flavor, shaker.position + Vector3(0, 0.35, 0), Vector3(0.64, 0.78, 0.67), "CINNAMON" if i == 0 else "POWDERED")
 	# A front-facing operating panel makes heat adjustments physically legible.
 	var panel: Node3D = Node3D.new()
@@ -899,11 +944,20 @@ func _build_stations() -> void:
 	_box(Vector3.ZERO, Vector3(0.035, 0.17, 0.025), "white", _heat_needle)
 	for i in range(2):
 		var button_x: float = -0.40 if i == 0 else 0.40
-		var control: MeshInstance3D = _cylinder(Vector3(button_x, -0.22, 0.15), 0.15, 0.07, "brass", panel)
+		var dial: Node3D = Node3D.new()
+		panel.add_child(dial)
+		dial.position = Vector3(button_x, -0.22, 0.17)
+		var control: MeshInstance3D = _cylinder(Vector3.ZERO, 0.15, 0.09, "brass", dial)
 		control.rotation_degrees.x = 90.0
-		_label("−" if i == 0 else "+", Vector3(button_x, -0.21, 0.20), 34, Color("322d28"), panel)
+		var cap: MeshInstance3D = _cylinder(Vector3(0, 0, 0.052), 0.12, 0.025, "black", dial)
+		cap.rotation_degrees.x = 90.0
+		_box(Vector3(0, 0.068, 0.070), Vector3(0.027, 0.075, 0.015), "cream", dial)
+		_heat_knobs.append(dial)
+		_label("-" if i == 0 else "+", Vector3(button_x + (-0.22 if i == 0 else 0.22), -0.21, 0.20), 24, Color("ffe3af"), panel)
 		var world_position: Vector3 = panel.to_global(Vector3(button_x, -0.20, 0.20))
-		_station("heat_down" if i == 0 else "heat_up", world_position, Vector3(0.35, 0.35, 0.30), "LESS HEAT" if i == 0 else "MORE HEAT", false)
+		var station_id: String = "heat_down" if i == 0 else "heat_up"
+		_station(station_id, world_position, Vector3(0.35, 0.35, 0.30), "LESS HEAT" if i == 0 else "MORE HEAT", false)
+		_register_highlight(station_id, dial)
 	# Repair cover is a conspicuous orange handhold on the machine's near edge.
 	_box(Vector3(-2.64, 2.08, 0.16), Vector3(0.66, 0.35, 0.22), "red_dark")
 	_repair_handle = _tube(Vector3(-2.88, 2.16, 0.32), Vector3(-2.40, 2.16, 0.32), 0.055, "brass")
@@ -912,6 +966,18 @@ func _build_stations() -> void:
 	_station("repair", Vector3(-2.64, 2.12, 0.25), Vector3(0.72, 0.55, 0.55), "HOLD TO CLEAR JAM", false)
 	var hopper_target: Vector3 = _machine_root.to_global(Vector3(-3.65, 4.2, -0.25))
 	_station("refill", hopper_target + Vector3(0, 0.12, 0), Vector3(0.90, 0.75, 0.90), "REFILL BATTER")
+	# A persistent pitcher is lifted from its own resting place for every refill.
+	_maintenance_prop = Node3D.new()
+	add_child(_maintenance_prop)
+	_maintenance_prop.position = Vector3(-4.20, 1.72, 1.72)
+	_cylinder(Vector3(0, 0.24, 0), 0.23, 0.48, "cream", _maintenance_prop, 0.27)
+	_tube(Vector3(0.20, 0.37, 0), Vector3(0.38, 0.37, 0), 0.027, "dark_enamel", _maintenance_prop)
+	_tube(Vector3(0.38, 0.37, 0), Vector3(0.38, 0.10, 0), 0.027, "dark_enamel", _maintenance_prop)
+	_tube(Vector3(0.38, 0.10, 0), Vector3(0.20, 0.10, 0), 0.027, "dark_enamel", _maintenance_prop)
+	_tube(Vector3(-0.20, 0.45, 0), Vector3(-0.37, 0.46, 0), 0.045, "cream", _maintenance_prop)
+	_pitcher_home = _maintenance_prop.global_transform
+	_batter_stream = _tube(hopper_target + Vector3(0, 0.50, 0), hopper_target + Vector3(0, 0.02, 0), 0.028, "dough")
+	_batter_stream.visible = false
 	# A real bin at the operator's left; it never overlaps the food tray.
 	_cylinder(Vector3(-3.15, 1.94, 2.35), 0.39, 0.53, "red_dark", self, 0.47)
 	_cylinder(Vector3(-3.15, 2.22, 2.35), 0.48, 0.045, "steel_light")
@@ -932,21 +998,16 @@ func _station(id: String, at: Vector3, dimensions: Vector3, label_text: String, 
 	area.add_child(shape)
 	add_child(area)
 	_stations[id] = area
-	var marker: MeshInstance3D = _box(at - Vector3(0, dimensions.y * 0.48, -dimensions.z * 0.49), Vector3(dimensions.x * 0.88, 0.032, 0.035), "brass")
-	marker.visible = false
-	_markers[id] = marker
-	var frame: Node3D = Node3D.new()
-	frame.position = at
-	add_child(frame)
-	var fw: float = dimensions.x * 0.48
-	var fh: float = dimensions.y * 0.48
-	var fz: float = dimensions.z * 0.51
-	for x in [-fw, fw]:
-		_tube(Vector3(x, -fh, fz), Vector3(x, fh, fz), 0.012, "station_hover", frame)
-	for y in [-fh, fh]:
-		_tube(Vector3(-fw, y, fz), Vector3(fw, y, fz), 0.012, "station_hover", frame)
-	frame.visible = false
-	_station_frames[id] = frame
+	var overlay: StandardMaterial3D = StandardMaterial3D.new()
+	overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	overlay.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	overlay.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	overlay.albedo_color = Color(1.0, 0.78, 0.35, 0.0)
+	overlay.no_depth_test = false
+	_station_overlays[id] = overlay
+	_station_meshes[id] = []
+	_highlight_strengths[id] = 0.0
+	_collect_station_meshes(self, id, at, dimensions * 0.54)
 	if show_label:
 		var label_at: Vector3 = Vector3(at.x, maxf(1.77, at.y - dimensions.y * 0.5), at.z + dimensions.z * 0.5 + 0.04)
 		if id == "trash":
@@ -1164,6 +1225,60 @@ func _build_authored_details() -> void:
 	for i in range(_customers.size()):
 		_bg_walkers.append({"node": _customers[i], "origin": _customers[i].position, "speed": 0.20 + float(i % 3) * 0.08, "phase": float(i) * 1.7})
 
+func _batch_static_venue() -> void:
+	# Scenery keeps the same triangles, normals, UVs, materials and shadow mode.
+	# Only its submission changes: stationary pieces sharing a material become
+	# one mesh. Walking fairgoers, lights and labels remain independent nodes.
+	var groups: Dictionary = {}
+	var sources: Array[MeshInstance3D] = []
+	for child in _venue_root.get_children():
+		if child is MeshInstance3D and child.visible and child.mesh != null:
+			sources.append(child)
+	var original_bounds: AABB = AABB()
+	var has_bounds: bool = false
+	var original_indices: int = 0
+	for node in sources:
+		var transform_to_venue: Transform3D = _venue_root.global_transform.affine_inverse() * node.global_transform
+		var bounds: AABB = transform_to_venue * node.get_aabb()
+		original_bounds = original_bounds.merge(bounds) if has_bounds else bounds
+		has_bounds = true
+		for surface in range(node.mesh.get_surface_count()):
+			var material: Material = node.material_override if node.material_override != null else node.get_active_material(surface)
+			var key: String = "%d:%d:%d" % [material.get_instance_id() if material != null else 0, node.cast_shadow, node.layers]
+			if not groups.has(key):
+				var builder: SurfaceTool = SurfaceTool.new()
+				builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+				groups[key] = {"builder": builder, "material": material, "shadows": node.cast_shadow, "layers": node.layers}
+			# Mixing indexed primitives with unindexed authored triangles silently
+			# drops unindexed faces on append. Normalize each source, then re-index
+			# the completed material batch to retain both geometry and GPU reuse.
+			var normalized: SurfaceTool = SurfaceTool.new()
+			normalized.create_from(node.mesh, surface)
+			normalized.deindex()
+			groups[key].builder.append_from(normalized.commit(), 0, transform_to_venue)
+			var arrays: Array = node.mesh.surface_get_arrays(surface)
+			original_indices += arrays[Mesh.ARRAY_INDEX].size() if arrays[Mesh.ARRAY_INDEX] != null and arrays[Mesh.ARRAY_INDEX].size() > 0 else arrays[Mesh.ARRAY_VERTEX].size()
+	var merged_bounds: AABB = AABB()
+	var first: bool = true
+	var merged_indices: int = 0
+	for key in groups:
+		var group: Dictionary = groups[key]
+		group.builder.index()
+		var mesh: ArrayMesh = group.builder.commit()
+		var batch: MeshInstance3D = _mesh_node(mesh, Vector3.ZERO, group.material, _venue_root)
+		batch.name = "StaticVenue_" + key.replace(":", "_")
+		batch.cast_shadow = group.shadows
+		batch.layers = group.layers
+		batch.set_meta("static_venue_batch", true)
+		merged_bounds = mesh.get_aabb() if first else merged_bounds.merge(mesh.get_aabb())
+		first = false
+		var arrays: Array = mesh.surface_get_arrays(0)
+		merged_indices += arrays[Mesh.ARRAY_INDEX].size() if arrays[Mesh.ARRAY_INDEX] != null and arrays[Mesh.ARRAY_INDEX].size() > 0 else arrays[Mesh.ARRAY_VERTEX].size()
+	for node in sources:
+		_venue_root.remove_child(node)
+		node.queue_free()
+	_static_batch_report = {"source_meshes": sources.size(), "batches": groups.size(), "source_indices": original_indices, "batch_indices": merged_indices, "source_bounds": original_bounds, "batch_bounds": merged_bounds, "walkers": _bg_walkers.size()}
+
 func _build_hands() -> void:
 	_view_hands = Node3D.new()
 	camera.add_child(_view_hands)
@@ -1195,17 +1310,8 @@ func _build_hands() -> void:
 		_sphere(Vector3(-side * 0.08, 0.043, -0.125), 0.028, "glove", hand)
 		for stitch in range(5):
 			_box(Vector3(-0.066 + float(stitch) * 0.033, 0.063, -0.004), Vector3(0.014, 0.003, 0.009), "paper_fold", hand)
-	_held_scoop = _make_scoop(_view_hands)
-	_held_scoop.position = Vector3(0.32, -0.40, -1.17)
-	_held_scoop.scale = Vector3.ONE * 0.62
-	_held_scoop.rotation_degrees = Vector3(12, -10, 0)
-	for i in range(3):
-		var donut: Node3D = _plain_donut(-200 - i, Vector3.ZERO)
-		donut.reparent(_held_scoop, false)
-		donut.position = Vector3(-0.10 + float(i % 2) * 0.19, 0.085 + float(i / 2) * 0.10, -0.15 + float(i / 2) * 0.12)
-		donut.scale = Vector3.ONE * 0.57
-		_held_scoop_donuts.append(donut)
-	_held_scoop.visible = false
+	_scoop_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(12), deg_to_rad(-10), 0)).scaled(Vector3.ONE * 0.82), Vector3(0.32, -0.40, -1.17))
+	_package_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(9), deg_to_rad(-14), 0)).scaled(Vector3.ONE * 0.65), Vector3(0.28, -0.49, -1.13))
 
 func get_camera() -> Camera3D:
 	return camera
@@ -1260,12 +1366,45 @@ func set_cosmetic(id: String) -> void:
 
 func set_hover_station(id: String) -> void:
 	_hover = id
-	for key in _markers:
-		_markers[key].visible = key == id
-		if key == id:
-			_markers[key].material_override = _mat["station_hover"]
-	for key in _station_frames:
-		_station_frames[key].visible = key == id or key == _context_station
+
+func _collect_station_meshes(node: Node, id: String, center: Vector3, half: Vector3) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var difference: Vector3 = (child.global_position - center).abs()
+			if difference.x <= half.x and difference.y <= half.y and difference.z <= half.z:
+				_register_highlight(id, child)
+		_collect_station_meshes(child, id, center, half)
+
+func _register_highlight(id: String, node: Node) -> void:
+	if not _station_meshes.has(id):
+		return
+	_station_meshes[id] = _station_meshes[id].filter(func(item): return is_instance_valid(item))
+	if node is MeshInstance3D and not _station_meshes[id].has(node):
+		if float(_highlight_strengths.get(id, 0.0)) > 0.001:
+			node.material_overlay = _station_overlays[id]
+		_station_meshes[id].append(node)
+	for child in node.get_children():
+		_register_highlight(id, child)
+
+func _update_highlights(delta: float) -> void:
+	for id in _station_overlays:
+		var target: float = 0.12 if id == _hover else 0.0
+		var color: Color = Color(1.0, 0.79, 0.36, 1)
+		if id == _context_station:
+			target = maxf(target, 0.12 if _reduced_motion else 0.09 + sin(_time * 3.6) * 0.025)
+			color = Color(1.0, 0.30, 0.13, 1)
+		_highlight_strengths[id] = move_toward(float(_highlight_strengths[id]), target, delta * 0.85)
+		color.a = _highlight_strengths[id]
+		var overlay: StandardMaterial3D = _station_overlays[id]
+		overlay.albedo_color = color
+		# An alpha-zero overlay can still cost a transparent draw pass. Remove
+		# that pass only after the smooth fade finishes; reattach on first light.
+		for mesh in _station_meshes[id]:
+			if not is_instance_valid(mesh): continue
+			if color.a > 0.001:
+				if mesh.material_overlay != overlay: mesh.material_overlay = overlay
+			elif mesh.material_overlay == overlay:
+				mesh.material_overlay = null
 
 func look_offset(delta: Vector2) -> void:
 	_look.x = clampf(_look.x - delta.x * 0.0018, -0.157, 0.157)
@@ -1282,9 +1421,10 @@ func set_reduced_motion(enabled: bool) -> void:
 func sync_state(state: Dictionary) -> void:
 	if not _loaded:
 		return
-	_state = state
+	var previous: Dictionary = _state
+	_state = state.duplicate(true)
 	_paused = bool(state.get("paused", false))
-	_sync_food()
+	_sync_food(previous)
 	_sync_package()
 	_sync_people()
 	_sync_held_tool()
@@ -1330,43 +1470,73 @@ func sync_state(state: Dictionary) -> void:
 	_error_glow.light_color = _mat[indicator].albedo_color
 	_batter_fill.visible = int(state.get("batter", 1)) > 0
 	set_hover_station(_hover)
-	for key in _station_frames:
-		for segment in _station_frames[key].get_children():
-			segment.material_override = _mat[indicator] if key == _context_station else _mat["station_hover"]
 	var pouring_batter: bool = str(state.get("hold_station", "")) == "refill"
-	if pouring_batter and not is_instance_valid(_maintenance_prop):
-		_maintenance_prop = Node3D.new()
-		add_child(_maintenance_prop)
-		_maintenance_prop.position = _stations["refill"].position + Vector3(0.42, 0.52, 0.12)
-		_cylinder(Vector3(0.13, 0.12, 0), 0.24, 0.48, "cream", _maintenance_prop, 0.27).rotation_degrees.z = -65
-		_tube(Vector3(0.20, 0.15, 0.13), Vector3(0.35, 0.15, 0.13), 0.025, "dark_enamel", _maintenance_prop)
-		_tube(Vector3(0.35, 0.15, 0.13), Vector3(0.35, -0.04, 0.13), 0.025, "dark_enamel", _maintenance_prop)
-		_tube(Vector3(-0.16, 0.12, 0), Vector3(-0.38, -0.40, -0.09), 0.038, "dough", _maintenance_prop)
-	elif not pouring_batter and is_instance_valid(_maintenance_prop):
-		_maintenance_prop.queue_free()
-		_maintenance_prop = null
+	if pouring_batter != _refilling:
+		_refilling = pouring_batter
+		var target: Transform3D = Transform3D(Basis.from_euler(Vector3(0, 0, deg_to_rad(65))), _stations["refill"].position + Vector3(0.34, 0.35, 0)) if pouring_batter else _pitcher_home
+		_move_node(_maintenance_prop, target, 0.28, 0.15)
+	_batter_stream.visible = pouring_batter and not _node_is_moving(_maintenance_prop)
 
-func _sync_food() -> void:
-	var wanted: int = mini(30, int(_state.get("supply", 0)))
-	while _bulk_donuts.size() < wanted:
-		var index: int = _bulk_donuts.size()
-		var donut: Node3D = _plain_donut(index, Vector3.ZERO)
-		_bulk_donuts.append(donut)
-	while _bulk_donuts.size() > wanted:
-		_bulk_donuts.pop_back().queue_free()
-	for i in range(_bulk_donuts.size()):
-		var layer: int = i / 20
-		var index: int = i % 20
-		var node: Node3D = _bulk_donuts[i]
-		node.position = _supply_anchor + Vector3(-0.84 + float(index % 5) * 0.42 + sin(float(i) * 7.1) * 0.030, 0.10 + float(layer) * 0.145, -0.48 + float(index / 5) * 0.32 + cos(float(i) * 3.1) * 0.018)
-		node.scale = Vector3.ONE * (0.71 + float(i % 3) * 0.02)
-		node.rotation = Vector3(-0.06 + sin(float(i) * 2.2) * 0.07, float(i) * 0.65, cos(float(i) * 5.3) * 0.08)
-	# Persistent automatic production flow. It stops visibly when jammed or empty.
-	while _machine_donuts.size() < 7:
-		var i: int = _machine_donuts.size()
-		var donut: Node3D = _plain_donut(-100 - i, Vector3.ZERO)
-		donut.scale = Vector3.ONE * 0.54
-		_machine_donuts.append(donut)
+func reset_food(supply: int, capacity: int, pending_ids: Array = []) -> void:
+	if not is_instance_valid(_food):
+		return
+	for motion in _motions:
+		var node: Node3D = motion.node
+		if is_instance_valid(node) and node != _held_scoop and not _shakers.values().has(node) and node != _prep and node != _maintenance_prop:
+			node.queue_free()
+	_motions.clear()
+	for person in _people.values():
+		if is_instance_valid(person): person.queue_free()
+	_people.clear()
+	for person in _departing:
+		if is_instance_valid(person): person.queue_free()
+	_departing.clear()
+	_served_person = null
+	_action_time = 0.0
+	_action = ""
+	_action_prop = null
+	_refilling = false
+	_maintenance_prop.global_transform = _pitcher_home
+	_batter_stream.visible = false
+	for flavor in _shakers: _shakers[flavor].global_transform = _shaker_homes[flavor]
+	for kind in _package_stacks:
+		for package in _package_stacks[kind]: package.visible = true
+	for donut in _held_scoop_donuts:
+		if is_instance_valid(donut): donut.queue_free()
+	_held_scoop_donuts.clear()
+	if is_instance_valid(_prep): _prep.queue_free()
+	_prep = null
+	_held_package = null
+	_prep_donuts.clear()
+	_prep_type = ""
+	_prep_flavor = ""
+	_held_type = "none"
+	_held_scoop.global_transform = _tool_home
+	_state = {}
+	_food.clear_food()
+	_food.seed_stock(supply, capacity)
+	for delivery_id in pending_ids:
+		_food.enqueue_production(int(delivery_id))
+
+func enqueue_production(delivery_id: int) -> void:
+	_food.enqueue_production(delivery_id)
+
+func _sync_food(previous: Dictionary) -> void:
+	_food.set_capacity(int(_state.get("supply_capacity", 30)))
+	_food.set_paused(_paused or str(_state.get("phase", "playing")) != "playing")
+	var gained: int = int(_state.get("scoop_count", 0)) - int(previous.get("scoop_count", 0))
+	if gained > 0 and _action == "supply":
+		var donuts: Array = _food.take_donuts(gained)
+		for donut in donuts:
+			_held_scoop_donuts.append(donut)
+			var index: int = _held_scoop_donuts.size() - 1
+			var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), Vector3(-0.10 + float(index % 2) * 0.19, 0.085 + float(index / 2) * 0.10, -0.15 + float(index / 2) * 0.12))
+			_move_node(donut, _held_scoop.global_transform * local, 0.24, 0.11, func():
+				if is_instance_valid(donut):
+					donut.reparent(_held_scoop, true)
+					donut.transform = local)
+			_motions.back()["target_node"] = _held_scoop
+			_motions.back()["target_local"] = local
 
 func _plain_donut(id: int, at: Vector3) -> Node3D:
 	var donut: Node3D = _create_donut({"id": id, "recipe": "cinnamon"}, at)
@@ -1378,78 +1548,87 @@ func _plain_donut(id: int, at: Vector3) -> Node3D:
 func _sync_package() -> void:
 	var kind: String = str(_state.get("package_type", ""))
 	var flavor: String = str(_state.get("package_flavor", ""))
-	if kind == "none":
-		kind = ""
+	if kind == "none": kind = ""
 	if kind != _prep_type:
 		if is_instance_valid(_prep):
 			_prep.queue_free()
 		_prep_donuts.clear()
 		_prep = null
+		_held_package = null
 		_prep_type = kind
 		if not kind.is_empty():
 			_prep = _make_package(kind, self)
 			_prep.position = _package_anchor
-	if not is_instance_valid(_prep):
-		return
-	_prep.visible = str(_state.get("held_tool", "none")) != "package"
-	var count: int = int(_state.get("package_count", 0))
-	var recipe: String = "powdered" if flavor == "powdered" else "cinnamon"
-	if flavor != _prep_flavor:
-		for donut in _prep_donuts:
-			donut.queue_free()
-		_prep_donuts.clear()
-		_prep_flavor = flavor
-	while _prep_donuts.size() < mini(count, 12):
-		var donut: Node3D = _plain_donut(500 + _prep_donuts.size(), Vector3.ZERO) if flavor.is_empty() else _create_donut({"id": 500 + _prep_donuts.size(), "recipe": recipe}, Vector3.ZERO)
-		donut.reparent(_prep, false)
+			_register_highlight("package", _prep)
+			if _action == kind and is_action_busy():
+				var stack: Array = _package_stacks[kind]
+				var top: Node3D = stack.back()
+				_prep.global_transform = top.global_transform
+				if kind == "bag": _prep.scale = Vector3(1.05, 0.06, 1.7)
+				top.visible = false
+				var target: Transform3D = Transform3D(Basis.IDENTITY, _package_anchor)
+				_move_node(_prep, target, 0.43, 0.48, func(): top.visible = true)
+	if not is_instance_valid(_prep): return
+	_prep.visible = true
+	var count: int = mini(int(_state.get("package_count", 0)), 12)
+	while _prep_donuts.size() < count:
+		var index: int = _prep_donuts.size()
+		var donut: Node3D
+		var transferred: bool = not _held_scoop_donuts.is_empty()
+		var scoop_origin: Transform3D = Transform3D.IDENTITY
+		if transferred:
+			donut = _held_scoop_donuts.pop_front()
+			scoop_origin = donut.transform
+			donut.reparent(self, true)
+		else:
+			donut = _plain_donut(500 + index, Vector3.ZERO)
 		_prep_donuts.append(donut)
+		var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.60), _package_donut_position(index, kind))
+		var package: Node3D = _prep
+		if transferred:
+			_move_node(donut, package.global_transform * local, 0.27 + float(index % 3) * 0.04, 0.15, func():
+				if is_instance_valid(donut) and is_instance_valid(package):
+					donut.reparent(package, true)
+					donut.transform = local)
+			_motions.back()["delay"] = 0.13
+			_motions.back()["follow_source"] = _held_scoop
+			_motions.back()["source_local"] = scoop_origin
+		else:
+			donut.reparent(package, false)
+			donut.transform = local
 	while _prep_donuts.size() > count:
 		_prep_donuts.pop_back().queue_free()
-	for i in range(_prep_donuts.size()):
-		var node: Node3D = _prep_donuts[i]
-		var y: float = 0.13 + float(i / 3) * 0.12
-		if kind == "bucket":
-			node.position = Vector3(-0.16 + float(i % 3) * 0.16, y, sin(float(i) * 2.0) * 0.13)
-		else:
-			node.position = Vector3(-0.13 + float(i % 2) * 0.26, 0.12 + float(i / 2) * 0.15, 0)
-		node.scale = Vector3.ONE * 0.60
+	if flavor != _prep_flavor:
+		_prep_flavor = flavor
+		if not (_action in ["cinnamon", "powdered"] and is_action_busy()): _coat_package(flavor)
+
+func _coat_package(flavor: String) -> void:
+	for donut in _prep_donuts:
+		if is_instance_valid(donut) and donut.get_child_count() > 1:
+			var icing: MeshInstance3D = donut.get_child(1)
+			icing.visible = not flavor.is_empty()
+			icing.material_override = _powder_sugar if flavor == "powdered" else _mat["cinnamon"]
+
+func _package_donut_position(index: int, kind: String) -> Vector3:
+	if kind == "bucket":
+		return Vector3(-0.16 + float(index % 3) * 0.16, 0.13 + float(index / 3) * 0.12, sin(float(index) * 2.0) * 0.13)
+	return Vector3(-0.13 + float(index % 2) * 0.26, 0.12 + float(index / 2) * 0.15, 0)
 
 func _sync_held_tool() -> void:
 	var tool: String = str(_state.get("held_tool", "none"))
-	_held_scoop.visible = tool == "scoop"
-	for i in range(_held_scoop_donuts.size()):
-		_held_scoop_donuts[i].visible = i < int(_state.get("scoop_count", 0))
-	if tool == _held_type:
-		return
+	if tool == _held_type: return
+	var prior: String = _held_type
 	_held_type = tool
-	if is_instance_valid(_held_package):
-		_held_package.queue_free()
+	if tool == "scoop":
+		_move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.32, 0.15)
+	elif prior == "scoop":
+		_move_node(_held_scoop, _tool_home, 0.30, 0.12)
+	if tool == "package" and is_instance_valid(_prep):
+		_held_package = _prep
+		_move_node(_prep, _view_hands.global_transform * _package_pose, 0.36, 0.20)
+	elif prior == "package" and is_instance_valid(_prep):
 		_held_package = null
-	if is_instance_valid(_held_shaker):
-		_held_shaker.queue_free()
-		_held_shaker = null
-	if tool == "package":
-		var kind: String = str(_state.get("package_type", "bag"))
-		_held_package = _make_package(kind, _view_hands)
-		_held_package.position = Vector3(0.28, -0.49, -1.13)
-		_held_package.scale = Vector3.ONE * 0.65
-		_held_package.rotation_degrees = Vector3(9.0, -14.0, 0)
-		var count: int = mini(12, int(_state.get("package_count", 0)))
-		var flavor: String = str(_state.get("package_flavor", "cinnamon"))
-		for i in range(count):
-			var donut: Node3D = _create_donut({"id": 800 + i, "recipe": "powdered" if flavor == "powdered" else "cinnamon"}, Vector3.ZERO)
-			donut.reparent(_held_package, false)
-			if kind == "bucket":
-				var angle: float = float(i % 4) * TAU / 4.0 + float(i / 4) * 0.45
-				donut.position = Vector3(sin(angle) * 0.16, 0.16 + float(i / 4) * 0.17, cos(angle) * 0.16)
-			else:
-				donut.position = Vector3(-0.13 + float(i % 2) * 0.26, 0.25 + float(i / 2) * 0.14, -0.06 + float(i % 3) * 0.06)
-			donut.scale = Vector3.ONE * 0.55
-	elif tool in ["cinnamon", "powdered"]:
-		_held_shaker = _make_shaker(tool, _view_hands)
-		_held_shaker.position = Vector3(0.35, -0.50, -1.09)
-		_held_shaker.scale = Vector3.ONE * 0.58
-		_held_shaker.rotation_degrees = Vector3(-24.0, 0, -12.0)
+		_move_node(_prep, Transform3D(Basis.IDENTITY, _package_anchor), 0.30, 0.12)
 
 func _sync_people() -> void:
 	var orders: Array = _state.get("orders", [])
@@ -1458,11 +1637,17 @@ func _sync_people() -> void:
 		var order: Dictionary = orders[i]
 		var id: int = int(order.get("id", i))
 		seen[id] = true
-		if not _people.has(id):
+		var target: Vector3 = Vector3(0.4 + float(i) * 1.35, 0.15, -2.15 - float(i) * 0.95)
+		var arriving: bool = not _people.has(id)
+		if arriving:
 			_people[id] = _make_customer(id)
+			_people[id].position = target + Vector3(1.7, 0, -1.2)
 		var person: Node3D = _people[id]
-		person.position = Vector3(0.4 + float(i) * 1.35, 0.15, -2.15 - float(i) * 0.95)
-		person.rotation_degrees.y = -float(i) * 7.0
+		if int(person.get_meta("queue_index", -1)) != i:
+			person.set_meta("queue_index", i)
+			var pose: Transform3D = Transform3D(Basis.from_euler(Vector3(0, deg_to_rad(-float(i) * 7.0), 0)), target)
+			_move_node(person, pose, 0.64 if arriving else 0.42)
+			if is_instance_valid(_served_person) and not arriving: _motions.back()["delay"] = 0.43
 		var serve_hit: Area3D = person.get_meta("serve_hit")
 		serve_hit.collision_layer = 1 if i == 0 else 0
 		var label: Label3D = person.get_meta("order_label")
@@ -1475,8 +1660,25 @@ func _sync_people() -> void:
 		patience_bar.material_override = _mat["gauge_green" if patience > 0.4 else "gauge_red"]
 	for id in _people.keys():
 		if not seen.has(id):
-			_people[id].queue_free()
+			var leaving: Node3D = _people[id]
+			var hit: Area3D = leaving.get_meta("serve_hit")
+			hit.collision_layer = 0
+			leaving.get_meta("order_label").visible = false
+			leaving.get_meta("patience").visible = false
+			_departing.append(leaving)
+			if leaving == _served_person:
+				_move_node(leaving, leaving.global_transform, 0.48, 0.0, func(): _depart_customer(leaving))
+			else:
+				_depart_customer(leaving)
 			_people.erase(id)
+
+func _depart_customer(person: Node3D) -> void:
+	if not is_instance_valid(person): return
+	var target: Transform3D = Transform3D(Basis.from_euler(Vector3(0, -1.2, 0)), Vector3(-6.8, 0.15, -3.5))
+	_move_node(person, target, 1.45, 0.0, func():
+		_departing.erase(person)
+		if _served_person == person: _served_person = null
+		person.queue_free())
 
 func _make_customer(id: int) -> Node3D:
 	var person: Node3D = Node3D.new()
@@ -1566,35 +1768,115 @@ func _make_customer(id: int) -> Node3D:
 	person.set_meta("serve_hit", serve_hit)
 	return person
 
+func is_action_busy() -> bool:
+	if _action in ["repair", "refill"]: return false
+	if _action_time > 0.001: return true
+	for motion in _motions:
+		var node: Node3D = motion.node
+		if is_instance_valid(node) and node != _maintenance_prop and not node.has_meta("serve_hit"):
+			return true
+	return false
+
 func animate_action(id: String) -> void:
+	# Heat clicks may arrive during a transfer; never cancel a hand movement.
+	if id in ["heat_down", "heat_up"]: return
 	_action = id
-	_action_time = 0.58
+	_action_before = _state.duplicate(true)
+	_action_duration = 0.44 if id != "serve" else 0.50
+	_action_time = _action_duration
 	_action_serial += 1
-	if is_instance_valid(_action_prop):
-		_action_prop.queue_free()
-		_action_prop = null
-	if id == "package" and str(_state.get("held_tool", "")) == "scoop":
-		for i in range(3):
-			var donut: Node3D = _plain_donut(900 + i, Vector3.ZERO)
-			donut.scale = Vector3.ONE * 0.6
-			var start: Vector3 = _held_scoop.global_position + Vector3(float(i - 1) * 0.09, 0.12, -0.16)
-			var destination: Vector3 = _package_anchor + Vector3(float(i - 1) * 0.10, 0.39, 0)
-			_add_path_effect(donut, start, destination, 0.38 + float(i) * 0.07, 0.22, true)
-	if id in ["cinnamon", "powdered"] or (id == "package" and str(_state.get("held_tool", "")) in ["cinnamon", "powdered"]):
-		var flavor: String = id if id != "package" else str(_state.get("held_tool"))
-		_action_prop = _make_shaker(flavor, self)
-		_action_prop.position = _package_anchor + Vector3(0.15, 1.0, 0)
-		_action_prop.rotation_degrees = Vector3(0, 0, -140)
-		for i in range(24 if not _reduced_motion else 6):
-			var start: Vector3 = _package_anchor + Vector3(_rng.randf_range(-0.08, 0.08), 0.9 + _rng.randf_range(0, 0.17), _rng.randf_range(-0.07, 0.07))
-			var grain: MeshInstance3D = _sphere(start, 0.009 if flavor == "cinnamon" else 0.014, flavor)
-			_add_effect(grain, Vector3(_rng.randf_range(-0.22, 0.22), -1.4, _rng.randf_range(-0.20, 0.20)), 0.38 + float(i % 5) * 0.045)
-	if id == "serve":
-		var package: Node3D = _make_package(str(_state.get("package_type", "bag")), self)
-		var start: Vector3 = _held_package.global_position if is_instance_valid(_held_package) else _package_anchor
-		_add_path_effect(package, start, _serve_anchor + Vector3(0, 0.10, -0.60), 0.70, 0.35, false)
-		for person_id in _people:
-			_people[person_id].set_meta("cheer", 0.95)
+	_action_reach = get_station_world_position(id)
+	if id == "supply":
+		var dipped: Transform3D = Transform3D(Basis.from_euler(Vector3(0, -0.3, -0.15)), _supply_anchor + Vector3(0.30, 0.21, 0.12))
+		_move_node(_held_scoop, dipped, 0.18, 0.15, func(): _move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.24, 0.22))
+	elif id == "package" and str(_state.get("held_tool", "")) == "scoop":
+		var tipped: Transform3D = Transform3D(Basis.from_euler(Vector3(deg_to_rad(55), 0, 0)).scaled(Vector3.ONE * 0.82), _package_anchor + Vector3(0.03, 0.8, 0.12))
+		_move_node(_held_scoop, tipped, 0.18, 0.15, func(): _move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.24, 0.10))
+	elif id in ["cinnamon", "powdered"]:
+		_action_prop = _shakers[id]
+		var shaker: Node3D = _action_prop
+		var home: Transform3D = _shaker_homes[id]
+		var tilted: Transform3D = Transform3D(Basis.from_euler(Vector3(0, 0, deg_to_rad(-135))), _package_anchor + Vector3(0.16, 1.0, 0))
+		_move_node(shaker, tilted, 0.18, 0.18, func():
+			_coat_package(id)
+			_move_node(shaker, home, 0.24, 0.14, func(): _action_prop = null))
+		for i in range(18 if not _reduced_motion else 6):
+			var grain: MeshInstance3D = _sphere(_package_anchor + Vector3(_rng.randf_range(-0.13, 0.13), 0.85, _rng.randf_range(-0.12, 0.12)), 0.011, id)
+			_add_effect(grain, Vector3(_rng.randf_range(-0.10, 0.10), -1.15, _rng.randf_range(-0.10, 0.10)), 0.22 + float(i % 5) * 0.025)
+			grain.visible = false
+			_effects.back()["delay"] = 0.14
+	if id == "trash":
+		var recoverable: Array[Node3D] = []
+		recoverable.append_array(_held_scoop_donuts)
+		if str(_state.get("package_flavor", "")).is_empty(): recoverable.append_array(_prep_donuts)
+		var returned: int = mini(recoverable.size(), int(_state.get("supply_capacity", 30)) - int(_state.get("supply", 0)))
+		for index in range(recoverable.size()):
+			var donut: Node3D = recoverable[index]
+			_held_scoop_donuts.erase(donut)
+			_prep_donuts.erase(donut)
+			donut.reparent(self, true)
+			if index < returned:
+				var target: Vector3 = _supply_anchor + Vector3(_rng.randf_range(-0.65, 0.65), 0.38, _rng.randf_range(-0.35, 0.35))
+				_move_node(donut, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), target), 0.30, 0.30, func():
+					var recovered: Array[Node3D] = [donut]
+					_food.return_donuts(recovered))
+			else:
+				_move_node(donut, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), get_station_world_position("trash")), 0.3, 0.25, func(): donut.queue_free())
+	if id in ["serve", "trash"] and is_instance_valid(_prep):
+		var package: Node3D = _prep
+		_prep = null
+		_held_package = null
+		_prep_donuts.clear()
+		_prep_type = ""
+		var destination: Vector3 = get_station_world_position("trash") + Vector3(0, -0.1, 0)
+		if id == "serve":
+			var orders: Array = _state.get("orders", [])
+			_served_person = _people.get(int(orders[0].get("id", -1))) if not orders.is_empty() else null
+			destination = _served_person.to_global(Vector3(0.12, 1.78, 0.48)) if is_instance_valid(_served_person) else _serve_anchor + Vector3(0, 0.16, -0.62)
+		_handoff = package if id == "serve" else null
+		var recipient: Node3D = _served_person if id == "serve" else null
+		_move_node(package, Transform3D(Basis.IDENTITY, destination), 0.48, 0.30, func():
+			if is_instance_valid(recipient): package.reparent(recipient, true)
+			else: package.queue_free())
+		for person_id in _people: _people[person_id].set_meta("cheer", 0.95)
+
+func _move_node(node: Node3D, destination: Transform3D, duration: float, arc: float = 0.0, finished: Callable = Callable()) -> void:
+	for index in range(_motions.size() - 1, -1, -1):
+		if _motions[index].node == node: _motions.remove_at(index)
+	_motions.append({"node": node, "from": node.global_transform, "to": destination, "duration": duration, "age": 0.0, "arc": arc, "finished": finished})
+
+func _node_is_moving(node: Node3D) -> bool:
+	for motion in _motions:
+		if motion.node == node: return true
+	return false
+
+func _advance_motions(delta: float) -> void:
+	var completed: Array[Callable] = []
+	for index in range(_motions.size() - 1, -1, -1):
+		var motion: Dictionary = _motions[index]
+		var node: Node3D = motion.node
+		if not is_instance_valid(node):
+			_motions.remove_at(index)
+			continue
+		if float(motion.get("delay", 0.0)) > 0.0:
+			if motion.has("follow_source") and is_instance_valid(motion.follow_source):
+				node.global_transform = motion.follow_source.global_transform * Transform3D(motion.source_local)
+				motion.from = node.global_transform
+			motion.delay = maxf(0.0, float(motion.delay) - delta)
+			continue
+		motion.age = minf(float(motion.duration), float(motion.age) + delta)
+		var t: float = float(motion.age) / float(motion.duration)
+		var eased: float = t * t * (3.0 - 2.0 * t)
+		if motion.has("target_node") and is_instance_valid(motion.target_node):
+			motion.to = motion.target_node.global_transform * Transform3D(motion.target_local)
+		var pose: Transform3D = Transform3D(motion.from).interpolate_with(motion.to, eased)
+		pose.origin.y += sin(t * PI) * float(motion.arc)
+		node.global_transform = pose
+		if t >= 1.0:
+			var callback: Callable = motion.finished
+			if callback.is_valid(): completed.append(callback)
+			_motions.remove_at(index)
+	for callback in completed: callback.call()
 
 func _add_path_effect(node: Node3D, start: Vector3, destination: Vector3, duration: float, arc: float, spin: bool) -> void:
 	node.position = start
@@ -1629,20 +1911,18 @@ func _process(delta: float) -> void:
 	if _paused:
 		return
 	_time += delta
+	var was_busy: bool = is_action_busy()
 	_action_time = maxf(0.0, _action_time - delta)
 	_reward_pulse = maxf(0.0, _reward_pulse - delta)
 	_camera_kick = maxf(0.0, _camera_kick - delta * 0.55)
 	_work_light.light_energy = 0.42 + _reward_pulse * _reward_strength
 	_error_glow.light_energy = (0.12 + (0.35 if _reduced_motion else pow(sin(_time * 5.0) * 0.5 + 0.5, 3.0) * 0.7)) if not _context_station.is_empty() else 0.0
-	for key in _station_frames:
-		if key == _context_station and key != _hover:
-			_station_frames[key].scale = Vector3.ONE * (1.0 if _reduced_motion else 1.0 + sin(_time * 4.0) * 0.025)
-		else:
-			_station_frames[key].scale = Vector3.ONE
-	if str(_state.get("hold_station", "")) == "repair" and not _reduced_motion:
-		_repair_handle.position.y = 2.16 + sin(_time * 18.0) * 0.022
-	else:
-		_repair_handle.position.y = 2.16
+	_update_highlights(delta)
+	for knob in _heat_knobs:
+		knob.rotation.z = lerp_angle(knob.rotation.z, deg_to_rad(120.0 - float(_state.get("heat_setting", 3)) * 60.0), 1.0 - exp(-delta * 15.0))
+	_repair_motion = move_toward(_repair_motion, 1.0 if str(_state.get("hold_station", "")) == "repair" else 0.0, delta * 7.0)
+	_repair_handle.position.y = 2.16 + (sin(_time * 13.0) * 0.018 * _repair_motion if not _reduced_motion else 0.0)
+	_batter_stream.visible = _refilling and not _node_is_moving(_maintenance_prop)
 	for i in range(_fair_bulbs.size()):
 		var chase: int = 0 if _reduced_motion else int(_time * 24.0)
 		_fair_bulbs[i].material_override = _mat["bulb_hot" if _reward_pulse > 0.0 and (i + chase) % 4 < 2 else "bulb_dim"]
@@ -1654,37 +1934,61 @@ func _process(delta: float) -> void:
 		camera.position.y += sin(_time * 71.0) * _camera_kick * 0.20
 		camera.position.x += cos(_time * 83.0) * _camera_kick * 0.12
 		camera.rotation.z += sin(_time * 67.0) * _camera_kick * 0.018
-	var action_phase: float = sin(clampf(_action_time / 0.58, 0.0, 1.0) * PI)
+	var action_phase: float = sin(clampf(_action_time / _action_duration, 0.0, 1.0) * PI)
 	_view_hands.position = Vector3(0, 0.0 if _reduced_motion else sin(_time * 1.2) * 0.008, 0)
-	if _action_time > 0.0 and not _reduced_motion:
-		_view_hands.position += Vector3(0, action_phase * 0.07, -action_phase * 0.10)
-	_held_scoop.rotation_degrees.x = 12.0 + (action_phase * 55.0 if _action == "package" else -action_phase * 12.0)
+	_advance_motions(delta)
+	if was_busy and not is_action_busy(): action_finished.emit()
+	if _held_type == "scoop" and not _node_is_moving(_held_scoop):
+		_held_scoop.global_transform = _view_hands.global_transform * _scoop_pose
+	if is_instance_valid(_held_package) and not _node_is_moving(_held_package):
+		_held_package.global_transform = _view_hands.global_transform * _package_pose
 	if _hands.size() == 2:
-		_hands[1].rotation.x = action_phase * 0.25 if _action in ["package", "supply"] else 0.0
+		var right_home: Vector3 = Vector3(0.34, -0.48, -0.88)
+		var reaching_to: Vector3 = _action_reach + Vector3(0, 0.20, 0.24)
+		var reach_amount: float = action_phase * 0.90
+		# Keep the glove on the moving object rather than pointing at its old station.
+		if _action in ["bag", "bucket"] and is_instance_valid(_prep) and is_action_busy():
+			reaching_to = _prep.to_global(Vector3(0.27, 0.24, 0.10))
+			reach_amount = 1.0
+		elif is_instance_valid(_handoff) and _action == "serve" and is_action_busy():
+			reaching_to = _handoff.to_global(Vector3(0.27, 0.21, 0.08))
+			reach_amount = 1.0
+		elif is_instance_valid(_action_prop):
+			reaching_to = _action_prop.to_global(Vector3(0.18, 0.25, 0))
+			reach_amount = 1.0
+		elif is_instance_valid(_held_package):
+			reaching_to = _held_package.to_global(Vector3(0.27, 0.21, 0.08))
+			reach_amount = 1.0
+		elif _held_type == "scoop":
+			reaching_to = _held_scoop.to_global(Vector3(0, -0.005, 0.42))
+			reach_amount = 1.0
+		if str(_state.get("hold_station", "")) == "refill":
+			reaching_to = _maintenance_prop.to_global(Vector3(0.34, 0.24, 0))
+			reach_amount = 1.0
+		elif str(_state.get("hold_station", "")) == "repair":
+			reaching_to = _repair_handle.global_position
+			reach_amount = 1.0
+		_hand_reach_weight = lerpf(_hand_reach_weight, reach_amount, 1.0 - exp(-delta * 24.0))
+		var reach: Vector3 = _view_hands.to_local(reaching_to)
+		_hands[1].position = right_home.lerp(reach, _hand_reach_weight)
+		_hands[1].rotation.x = action_phase * -0.30
 		_hands[0].rotation.z = action_phase * -0.16 if _action == "serve" else 0.0
-	if is_instance_valid(_action_prop):
-		_action_prop.rotation_degrees.z = -140.0 + (sin(_time * 30.0) * 14.0 if not _reduced_motion else 0.0)
-		if _action_time <= 0.0:
-			_action_prop.queue_free()
-			_action_prop = null
-	if is_instance_valid(_held_shaker):
-		_held_shaker.rotation_degrees.z = -12.0 + (sin(_time * 27.0) * 20.0 * action_phase if not _reduced_motion else 0.0)
-	var running: bool = str(_state.get("phase", "playing")) == "playing" and not bool(_state.get("jammed", false)) and int(_state.get("batter", 1)) > 0 and not bool(_state.get("overheated", false)) and float(_state.get("temperature", 180.0)) >= 145.0 and int(_state.get("supply", 0)) < int(_state.get("supply_capacity", 30)) and str(_state.get("hold_station", "")) != "refill"
+		for side_index in range(2):
+			var hand: Node3D = _hands[side_index]
+			var sleeve: MeshInstance3D = hand.get_child(0)
+			var elbow: Vector3 = _view_hands.to_global(Vector3(-0.55 if side_index == 0 else 0.55, -0.79, -0.55))
+			var wrist: Vector3 = hand.to_global(Vector3(0, -0.025, 0.028))
+			var direction: Vector3 = (wrist - elbow).normalized()
+			sleeve.global_position = (elbow + wrist) * 0.5
+			sleeve.global_basis = Basis(Quaternion(Vector3.UP, direction))
+			sleeve.scale.y = elbow.distance_to(wrist) / maxf(0.001, float(sleeve.mesh.height))
+	var running: bool = str(_state.get("phase", "playing")) == "playing" and not bool(_state.get("jammed", false)) and int(_state.get("batter", 1)) > 0 and not bool(_state.get("overheated", false)) and float(_state.get("temperature", 180.0)) >= 145.0 and str(_state.get("hold_station", "")) != "refill"
 	if running:
 		_production_time += delta
 		_fan.rotation.z += delta * 3.5
 		_flipper.rotation.z += delta * 1.8
 		_hopper_piston.position.y = 4.30 + sin(_time * 3.4) * 0.055
-	for i in range(_machine_donuts.size()):
-		var node: Node3D = _machine_donuts[i]
-		node.visible = int(_state.get("batter", 1)) > 0
-		var progress: float = fmod(_production_time * 0.07 + float(i) / 7.0, 1.0)
-		if running or not node.has_meta("position_set"):
-			var local: Vector3 = Vector3(-3.65 + progress * 7.7, 2.31, -0.28 + (0.22 if i % 2 else -0.22))
-			node.position = _machine_root.to_global(local)
-			node.set_meta("position_set", true)
-			var flip: float = clampf((progress - 0.45) / 0.12, 0.0, 1.0)
-			node.rotation.z = flip * TAU
+	_food.set_machine_running(running)
 	for bubble in _bubble_nodes:
 		var phase: float = float(bubble.get_meta("phase"))
 		var size: float = 0.6 + sin(_time * 3.0 + phase) * 0.35
@@ -1708,6 +2012,10 @@ func _process(delta: float) -> void:
 		node.rotation.z = sin(_time * 2.1 + float(walker["phase"])) * 0.025 if not _reduced_motion else 0.0
 	for i in range(_effects.size() - 1, -1, -1):
 		var effect: Dictionary = _effects[i]
+		if float(effect.get("delay", 0.0)) > 0.0:
+			effect.delay = maxf(0.0, float(effect.delay) - delta)
+			continue
+		effect["node"].visible = true
 		var age: float = float(effect["age"]) + delta
 		effect["age"] = age
 		var node: Node3D = effect["node"]

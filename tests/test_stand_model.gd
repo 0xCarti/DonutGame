@@ -14,6 +14,7 @@ func _run() -> void:
 	_test_manual_sequence_and_stock()
 	_test_order_validation_and_recovery()
 	_test_machine_and_holds()
+	_test_physical_deliveries_and_overflow()
 	_test_orders_and_phases()
 	_test_save_and_corruption()
 	_test_campaign_content_and_practice()
@@ -79,6 +80,7 @@ func _test_order_validation_and_recovery() -> void:
 	_check(not model.coat("cinnamon").ok and model.package_flavor == "powdered", "existing coating cannot be silently replaced")
 	cleared = model.discard()
 	_check(cleared.returned == 0 and cleared.wasted == 6, "coated donuts are discarded instead of returning to plain supply")
+	_check(model.waste_count == 6 and model.get_stats().total_wasted == 6, "discarded coated food is included in the same waste accounting as physical spills")
 	_fill(model, "bag", "cinnamon")
 	_check(model.serve().ok, "mistake can be recovered with the correct order")
 	model.new_run(9)
@@ -154,7 +156,100 @@ func _test_machine_and_holds() -> void:
 	model.supply = model.supply_capacity
 	var old_batter: int = model.batter
 	model.tick(3.0)
-	_check(model.supply == model.supply_capacity and model.batter == old_batter, "full catch tray stops production without losing stock")
+	_check(model.supply == model.supply_capacity and model.batter < old_batter and model.production_count > 0, "full catch tray keeps producing and consuming batter without inventing extra capacity")
+	_check(model.waste_count == model.production_count and model.batter + model.waste_count == old_batter, "overflow converts every excess cooked donut to waste")
+	_check(model.production_status() == "TRAY FULL - donuts will overflow", "full tray status explains ongoing overflow")
+	model.adjust_heat(-1)
+	model.tick(30.0)
+	_check(model.jammed and model.waste_count == model.production_count, "overflow still accrues machine wear and eventually jams")
+
+
+func _test_physical_deliveries_and_overflow() -> void:
+	var model = Stand.new()
+	model.external_delivery = true
+	model.start_shift()
+	var epoch: int = model.delivery_epoch
+	var opening_supply: int = model.supply
+	model.tick(4.0)
+	var pending: Array = model.pending_delivery_ids()
+	_check(model.production_count >= 3 and pending.size() == model.production_count and model.supply == opening_supply, "physical output consumes batter but is unavailable until it actually lands")
+	_check(model.batter + pending.size() == model.batter_capacity(), "in-flight donuts conserve consumed batter")
+	var production_events: Array = model.events.filter(func(event): return event.type == "production")
+	_check(production_events.size() == pending.size() and production_events[0].delivery_id == pending[0] and production_events[0].delivery_epoch == epoch, "each production event exposes its authoritative physical delivery identity")
+	pending.clear()
+	pending = model.pending_delivery_ids()
+	_check(pending.size() == model.production_count, "presentation cannot mutate the pending ledger through its returned array")
+	var before: Dictionary = model.to_save()
+	_check(not model.settle_delivery(pending[0], true, epoch - 1).ok and model.to_save() == before, "stale physical generation cannot consume a current pending donut")
+	var accepted: Dictionary = model.settle_delivery(pending[0], true, epoch)
+	_check(accepted.ok and accepted.kept and accepted.accepted and model.supply == opening_supply + 1, "tray landing adds exactly one scoopable donut")
+	before = model.to_save()
+	_check(not model.settle_delivery(pending[0], true, epoch).ok and model.to_save() == before, "duplicate landing cannot double-credit food")
+	_check(not model.settle_delivery(999999, true, epoch).ok and model.to_save() == before, "unknown physical food cannot fabricate stock")
+	var missed: Dictionary = model.settle_delivery(pending[1], false, epoch)
+	_check(missed.ok and not missed.kept and model.supply == opening_supply + 1 and model.waste_count == 1, "a donut that misses the tray is waste even when storage has space")
+	before = model.to_save()
+	_check(not model.settle_delivery(pending[1], false, epoch).ok and model.to_save() == before, "repeated waste callback cannot charge twice")
+	model.supply = model.supply_capacity
+	var overflow: Dictionary = model.settle_delivery(pending[2], true, epoch)
+	_check(overflow.ok and not overflow.kept and not overflow.accepted and model.supply == model.supply_capacity and model.waste_count == 2, "authoritative tray capacity converts a late extra landing into waste")
+	_check(model.sales == 0.0 and model.mistakes == 0 and model.streak == 0, "spillage spends food without adding unrelated score or mistake penalties")
+	_check(model.get_stats().waste_count == 2 and model.get_stats().total_wasted == 2, "shift and career-run waste are exposed in stats")
+	var spilled: Dictionary = model.spill_stock(2)
+	_check(spilled.ok and spilled.wasted == 2 and model.supply == model.supply_capacity - 2 and model.waste_count == 4, "previously credited tray donuts are removed when physics knocks them onto the counter")
+	before = model.to_save()
+	_check(not model.spill_stock(-1).ok and model.to_save() == before, "invalid spill cannot manufacture or subtract food")
+	spilled = model.spill_stock(1000)
+	_check(spilled.wasted == model.supply_capacity - 2 and model.supply == 0, "spill accounting clips to actual available stock")
+	before = model.to_save()
+	_check(model.spill_stock().wasted == 0 and model.to_save() == before, "empty tray cannot be charged a second time for the same physical spill")
+	model.tick(3.0)
+	var saved: Dictionary = model.to_save()
+	var copy = Stand.new()
+	copy.external_delivery = true
+	var old_copy_epoch: int = copy.delivery_epoch
+	_check(copy.from_save(JSON.parse_string(JSON.stringify(saved))), "physical pending deliveries and waste survive JSON save/resume")
+	_check(copy.pending_delivery_ids() == model.pending_delivery_ids() and copy.waste_count == model.waste_count and copy.supply == 0, "resume preserves distinct landed, pending and wasted inventory")
+	_check(copy.delivery_epoch > old_copy_epoch and copy.external_delivery, "restoring invalidates old-world callbacks and preserves external delivery configuration")
+	var restore_id: int = copy.pending_delivery_ids()[0]
+	_check(copy.settle_delivery(restore_id, true, copy.delivery_epoch).kept and copy.supply == 1, "reconstructed in-flight donut credits stock once after resumed landing")
+	var old_next_id: int = model._next_delivery_id
+	var old_id: int = model.pending_delivery_ids()[0]
+	var old_epoch: int = model.delivery_epoch
+	model.sales = model.target
+	model.finish_shift()
+	_check(model.last_result.wasted == model.waste_count and model.last_result.total_wasted == model.get_stats().total_wasted, "shift results record actual food waste")
+	model.start_shift()
+	_check(model.pending_delivery_ids().is_empty() and model.waste_count == 0 and model.get_stats().total_wasted > 0, "next shift clears physical ledger and shift waste while retaining run waste")
+	model.tick(2.0)
+	_check(model.pending_delivery_ids()[0] >= old_next_id and model.delivery_epoch > old_epoch, "delivery IDs and runtime generations cannot repeat across shifts")
+	before = model.to_save()
+	_check(not model.settle_delivery(old_id, true, old_epoch).ok and model.to_save() == before, "previous shift's delayed landing cannot modify the next shift")
+	old_next_id = model._next_delivery_id
+	model.new_run(555)
+	model.start_shift()
+	model.tick(2.0)
+	_check(model.pending_delivery_ids()[0] >= old_next_id and model.get_stats().total_wasted == 0, "new career run keeps unique physical IDs while resetting run waste")
+	var old_format: Dictionary = saved.duplicate(true)
+	old_format.version = 2
+	for key in ["waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries"]: old_format.erase(key)
+	var migrated = Stand.new()
+	_check(migrated.from_save(JSON.parse_string(JSON.stringify(old_format))), "version2 saves migrate into physical production without requiring nonexistent delivery fields")
+	_check(migrated.supply == int(old_format.supply) and migrated.batter == int(old_format.batter) and migrated.production_count == int(old_format.production_count) and migrated.pending_delivery_ids().is_empty() and migrated.waste_count == 0, "legacy migration preserves all credited stock and never replays already credited production")
+	for change in [{"_pending_deliveries": [0]}, {"_pending_deliveries": [saved._next_delivery_id]}, {"_pending_deliveries": [restore_id, restore_id]}, {"_pending_deliveries": ["1"]}, {"waste_count": -1}, {"_run_wasted": -1}, {"_next_delivery_id": 0}]:
+		var broken: Dictionary = saved.duplicate(true)
+		broken.merge(change, true)
+		before = copy.to_save()
+		_check(not copy.from_save(broken) and copy.to_save() == before, "malformed physical delivery ledger rejected without changing live state: " + str(change.keys()[0]))
+
+	var oversized: Dictionary = saved.duplicate(true)
+	oversized.production_count = 65
+	oversized._next_delivery_id = 1000
+	oversized._pending_deliveries = range(1, 66)
+	before = copy.to_save()
+	_check(not copy.from_save(oversized) and copy.to_save() == before, "oversized physical save ledger is rejected before creating excessive scene bodies")
+	oversized._pending_deliveries = range(1, 65)
+	_check(copy.from_save(oversized) and copy.pending_delivery_ids().size() == 64, "conservative pending-ledger boundary accepts sixty-four valid unique donuts")
 
 
 func _test_orders_and_phases() -> void:
@@ -401,12 +496,22 @@ func _test_paced_runs() -> void:
 		if bool(_simulate_run(1800 + seed_index, 1.2, "relaxed").won): relaxed_wins += 1
 	_check(relaxed_wins == 12, "relaxed difficulty supports deliberate1.2second physical actions across12seeds")
 	print("RELAXED BALANCE 1.20s/action: %d/12 wins" % relaxed_wins)
+	var physical_wins: int = 0
+	var physical_relaxed_wins: int = 0
+	for seed_index in range(12):
+		if bool(_simulate_run(1600 + seed_index, 0.65, "normal", 7.0).won): physical_wins += 1
+		if bool(_simulate_run(1800 + seed_index, 1.2, "relaxed", 7.0).won): physical_relaxed_wins += 1
+	_check(physical_wins == 12, "seven-second physical transit remains clearable across twelve normal campaign seeds")
+	_check(physical_relaxed_wins == 12, "seven-second physical transit preserves relaxed campaign accessibility across twelve seeds")
+	print("PHYSICAL TRANSIT 7.00s: normal %d/12; relaxed %d/12 wins" % [physical_wins, physical_relaxed_wins])
 
 
-func _simulate_run(seed_number: int, action_seconds: float, difficulty: String = "normal") -> Dictionary:
+func _simulate_run(seed_number: int, action_seconds: float, difficulty: String = "normal", delivery_delay: float = 0.0) -> Dictionary:
 	var model = Stand.new()
 	model.new_run(seed_number, difficulty)
+	model.external_delivery = delivery_delay > 0.0
 	model.start_shift()
+	var transit: Dictionary = {}
 	var tool: String = "none"
 	var action_clock: float = 0.0
 	var holding: String = ""
@@ -427,6 +532,7 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 				for offer in offers:
 					if str(offer.id) == preferred: model.buy_upgrade(preferred)
 			model.start_shift()
+			transit.clear()
 			tool = "none"
 			holding = ""
 			action_clock = 0.0
@@ -470,6 +576,12 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 						model.serve()
 						tool = "none"
 		model.tick(0.1)
+		if model.external_delivery:
+			for id in model.pending_delivery_ids():
+				transit[id] = float(transit.get(id, delivery_delay)) - 0.1
+				if float(transit[id]) <= 0.000001:
+					model.settle_delivery(int(id), true, model.delivery_epoch)
+					transit.erase(id)
 	history.append({"sales": model.sales, "served": model.served, "walkouts": model.missed, "stock_wait": snappedf(stock_wait, 0.1)})
 	if model.phase == "won": cleared += 1
 	return {"won": model.phase == "won", "cleared": cleared, "shifts": history, "steps": steps, "repair_seconds": snappedf(repair_time, 0.1), "refill_seconds": snappedf(refill_time, 0.1)}

@@ -120,7 +120,7 @@ func _update_loops() -> void:
     if not is_instance_valid(_machine_loop): return
     var active = str(_machine_state.get("phase",""))=="playing" and not bool(_machine_state.get("paused",false))
     var maintaining = str(_machine_state.get("hold_station","")) in ["refill","repair"]
-    var running = active and not maintaining and not bool(_machine_state.get("jammed",false)) and not bool(_machine_state.get("overheated",false)) and int(_machine_state.get("batter",0))>0 and float(_machine_state.get("temperature",0))>=145 and int(_machine_state.get("supply",0))<int(_machine_state.get("supply_capacity",36))
+    var running = active and not maintaining and not bool(_machine_state.get("jammed",false)) and not bool(_machine_state.get("overheated",false)) and int(_machine_state.get("batter",0))>0 and float(_machine_state.get("temperature",0))>=145
     var volume = -80.0 if muted or ambience_volume<=0 else linear_to_db(ambience_volume)
     _machine_loop.volume_db = -80 if not running or volume<=-80 else -33 + volume
     _machine_loop.pitch_scale = clampf(0.9+(float(_machine_state.get("temperature",175))-145)*.002, .9,1.12)

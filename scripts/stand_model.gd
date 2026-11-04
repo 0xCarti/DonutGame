@@ -3,7 +3,7 @@ extends RefCounted
 ## The clock, food, orders, heat, repairs and money are authoritative here.
 
 const Content = preload("res://scripts/stand_content.gd")
-const SAVE_VERSION: int = 2
+const SAVE_VERSION: int = 3
 const ENABLE_FUTURE_BOOSTS: bool = false
 const TARGETS: Array[int] = [110, 175, 250, 330, 420, 520]
 const SHIFT_TIMES: Array[float] = [105.0, 110.0, 115.0, 120.0, 125.0, 130.0]
@@ -28,6 +28,13 @@ var jam_progress: float = 0.0
 var overheated: bool = false
 var refill_progress: float = 0.0
 var production_count: int = 0
+## Rendering enables this so food becomes stock only after its physical landing.
+var external_delivery: bool = false
+var delivery_epoch: int = 0
+var waste_count: int = 0
+var _run_wasted: int = 0
+var _next_delivery_id: int = 1
+var _pending_deliveries: Array = []
 var package_type: String = ""
 var package_count: int = 0
 var package_flavor: String = ""
@@ -96,6 +103,7 @@ func new_run(run_seed: int = 0, run_difficulty: String = "normal", game_mode: St
 	_run_served = 0
 	_run_missed = 0
 	_run_sales = 0.0
+	_run_wasted = 0
 	_best_streak = 0
 	assisted = false
 	active_boosts = {}
@@ -104,6 +112,9 @@ func new_run(run_seed: int = 0, run_difficulty: String = "normal", game_mode: St
 
 
 func _reset_shift() -> void:
+	delivery_epoch += 1
+	_pending_deliveries.clear()
+	waste_count = 0
 	_rules = Content.shift_info(shift_index, difficulty, mode)
 	_legacy_shift = false
 	shift_name = str(_rules["name"])
@@ -207,11 +218,14 @@ func _step(step: float, practice: bool = false) -> void:
 		_production_clock += step
 		while _production_clock >= interval and _can_produce():
 			_production_clock -= interval
-			supply += 1
 			batter -= 1
 			production_count += 1
+			var delivery_id: int = _next_delivery_id
+			_next_delivery_id += 1
+			_pending_deliveries.append(delivery_id)
 			temperature = minf(260.0, temperature + 0.12)
-			events.append({"type": "production", "supply": supply, "batter": batter, "count": production_count})
+			events.append({"type": "production", "supply": supply, "batter": batter, "count": production_count, "delivery_id": delivery_id, "delivery_epoch": delivery_epoch})
+			if not external_delivery: settle_delivery(delivery_id, true, delivery_epoch)
 			if production_count >= _next_jam_at and _machine_elapsed >= 22.0:
 				jammed = true
 				events.append({"type": "jam", "count": production_count})
@@ -239,7 +253,43 @@ func _step(step: float, practice: bool = false) -> void:
 
 
 func _can_produce() -> bool:
-	return phase == "playing" and not jammed and not overheated and temperature >= 145.0 and supply < supply_capacity and batter > 0 and not (refill_progress > 0.0 and _refill_age <= 0.25) and not (jam_progress > 0.0 and _service_age <= 0.25)
+	return phase == "playing" and not jammed and not overheated and temperature >= 145.0 and batter > 0 and not (refill_progress > 0.0 and _refill_age <= 0.25) and not (jam_progress > 0.0 and _service_age <= 0.25)
+
+
+func pending_delivery_ids() -> Array:
+	# A copy prevents presentation code from changing authoritative inventory.
+	return _pending_deliveries.duplicate()
+
+
+func settle_delivery(delivery_id: int, kept: bool, epoch: int = -1) -> Dictionary:
+	if (epoch >= 0 and epoch != delivery_epoch) or not _pending_deliveries.has(delivery_id):
+		return _fail("stale_delivery", "That donut has already landed or belongs to an earlier shift.", {"kept": false, "accepted": false, "delivery_id": delivery_id})
+	_pending_deliveries.erase(delivery_id)
+	var accepted: bool = kept and supply < supply_capacity
+	if accepted:
+		supply += 1
+	else:
+		waste_count += 1
+		_run_wasted += 1
+	if phase != "playing" and not last_result.is_empty():
+		last_result["wasted"] = waste_count
+		last_result["total_wasted"] = _run_wasted
+	var receipt: Dictionary = _ok("delivery_kept" if accepted else "delivery_wasted", "Donut landed in the tray." if accepted else "Donut spilled onto the counter and went to waste.", {"delivery_id": delivery_id, "kept": accepted, "accepted": accepted, "supply": supply, "wasted": 0 if accepted else 1, "waste_count": waste_count})
+	events.append({"type": "delivery", "delivery_id": delivery_id, "delivery_epoch": delivery_epoch, "kept": accepted, "supply": supply, "waste_count": waste_count})
+	return receipt
+
+
+func spill_stock(count: int = 1) -> Dictionary:
+	if count <= 0: return _fail("invalid_spill", "No donuts left the tray.", {"wasted": 0})
+	var lost: int = mini(count, supply)
+	supply -= lost
+	waste_count += lost
+	_run_wasted += lost
+	if phase != "playing" and not last_result.is_empty():
+		last_result["wasted"] = waste_count
+		last_result["total_wasted"] = _run_wasted
+	if lost > 0: events.append({"type": "stock_spilled", "wasted": lost, "supply": supply, "waste_count": waste_count})
+	return _ok("stock_spilled", "Donuts spilled out of the tray.", {"wasted": lost, "supply": supply, "waste_count": waste_count})
 
 
 func _refresh_alerts() -> void:
@@ -383,6 +433,8 @@ func discard() -> Dictionary:
 	var recoverable: int = scoop_count + (package_count if package_flavor.is_empty() else 0)
 	var returned: int = mini(recoverable, supply_capacity - supply)
 	var wasted: int = scoop_count + package_count - returned
+	waste_count += wasted
+	_run_wasted += wasted
 	supply += returned
 	scoop_count = 0
 	package_type = ""
@@ -478,7 +530,7 @@ func finish_shift() -> void:
 	var earned: int = 8 + served * 3 + int(sales / 45.0) if cleared else 0
 	credits += earned
 	phase = ("won" if mode == "campaign" and shift_index == TARGETS.size() - 1 else "shop") if cleared else "lost"
-	last_result = {"cleared": cleared, "shift": shift_index + 1, "sales": sales, "target": target, "served": served, "missed": missed, "mistakes": mistakes, "credits_earned": earned, "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode}
+	last_result = {"cleared": cleared, "shift": shift_index + 1, "sales": sales, "target": target, "served": served, "missed": missed, "mistakes": mistakes, "wasted": waste_count, "total_wasted": _run_wasted, "credits_earned": earned, "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode}
 	events.append({"type": "shift_end", "phase": phase, "result": last_result.duplicate(true)})
 	if phase == "shop": _generate_offers()
 
@@ -568,14 +620,14 @@ func production_status() -> String:
 	if overheated: return "TOO HOT - lower heat"
 	if temperature < 145.0: return "Warming up - raise heat"
 	if batter <= 0: return "OUT OF BATTER - hold refill"
-	if supply >= supply_capacity: return "Catch tray full"
 	if refill_progress > 0.0 and _refill_age <= 0.25: return "Refilling batter"
 	if jam_progress > 0.0 and _service_age <= 0.25: return "Servicing feeder"
+	if supply >= supply_capacity: return "TRAY FULL - donuts will overflow"
 	return "Making donuts"
 
 
 func get_stats() -> Dictionary:
-	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning}
+	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "waste_count": waste_count, "total_wasted": _run_wasted, "pending_deliveries": _pending_deliveries.size(), "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning}
 
 
 func total_shifts() -> int:
@@ -621,17 +673,22 @@ func from_save(data: Dictionary) -> bool:
 		if data.is_empty():
 			last_save_error = "This older save is invalid or already finished. Start a new fairground run."
 			return false
+	if data.get("version") == 2: data = _migrate_v2(data)
 	if not _valid_save(data):
 		last_save_error = "This save is damaged or from an unsupported version. Start a new run."
 		return false
+	var previous_next_id: int = _next_delivery_id
 	for key in _saved_keys(): set(key, data[key].duplicate(true) if data[key] is Array or data[key] is Dictionary else data[key])
+	_next_delivery_id = maxi(previous_next_id, _next_delivery_id)
+	delivery_epoch += 1
+	for index in range(_pending_deliveries.size()): _pending_deliveries[index] = int(_pending_deliveries[index])
 	for order in orders:
 		order["id"] = int(order["id"])
 		order["patience"] = float(order["patience"])
 		order["max_patience"] = float(order["max_patience"])
 		order["base_price"] = float(order["base_price"])
 	for id in owned: owned[id] = int(owned[id])
-	for key in ["shift", "target", "served", "missed", "mistakes", "credits_earned", "total_served", "total_missed", "best_streak"]:
+	for key in ["shift", "target", "served", "missed", "mistakes", "credits_earned", "total_served", "total_missed", "best_streak", "wasted", "total_wasted"]:
 		if last_result.has(key): last_result[key] = int(last_result[key])
 	for key in ["sales", "total_sales"]:
 		if last_result.has(key): last_result[key] = float(last_result[key])
@@ -645,7 +702,7 @@ func from_save(data: Dictionary) -> bool:
 
 
 func _saved_keys() -> Array[String]:
-	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts"]
+	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries"]
 
 
 func _legacy_rules(index: int) -> Dictionary:
@@ -659,7 +716,15 @@ func _migrate_v1(old: Dictionary) -> Dictionary:
 	var migrated: Dictionary = old.duplicate(true)
 	var legacy: Dictionary = _legacy_rules(int(old["shift_index"]))
 	var last_production: int = clampi(int(old["_next_jam_at"]) - 26, 0, int(old["production_count"]))
-	migrated.merge({"version": SAVE_VERSION, "difficulty": "normal", "mode": "campaign", "shift_name": legacy["name"], "shift_description": legacy["description"], "jam_risk": clampf(float(int(old["production_count"]) - last_production) / float(maxi(1, int(old["_next_jam_at"]) - last_production)), 0.0, 1.0), "heat_warning": float(old["temperature"]) >= 195.0, "_best_streak": int(old["streak"]), "_legacy_shift": true, "_machine_elapsed": float(old["shift_duration"]) - float(old["time_left"]), "_last_jam_production": last_production, "_service_age": 10.0, "_jam_warned": false, "assisted": false, "active_boosts": {}}, true)
+	migrated.merge({"version": 2, "difficulty": "normal", "mode": "campaign", "shift_name": legacy["name"], "shift_description": legacy["description"], "jam_risk": clampf(float(int(old["production_count"]) - last_production) / float(maxi(1, int(old["_next_jam_at"]) - last_production)), 0.0, 1.0), "heat_warning": float(old["temperature"]) >= 195.0, "_best_streak": int(old["streak"]), "_legacy_shift": true, "_machine_elapsed": float(old["shift_duration"]) - float(old["time_left"]), "_last_jam_production": last_production, "_service_age": 10.0, "_jam_warned": false, "assisted": false, "active_boosts": {}}, true)
+	return migrated
+
+
+func _migrate_v2(old: Dictionary) -> Dictionary:
+	var migrated: Dictionary = old.duplicate(true)
+	# Previously production already added every cooked donut to supply. There is
+	# no uncredited physical food to reconstruct from either older save format.
+	migrated.merge({"version": SAVE_VERSION, "waste_count": 0, "_run_wasted": 0, "_next_delivery_id": 1, "_pending_deliveries": []}, true)
 	return migrated
 
 
@@ -675,8 +740,14 @@ func _valid_save(data: Dictionary) -> bool:
 	if not _valid_int64_text(data.get("seed_value")) or not _valid_int64_text(data.get("rng_state")): return false
 	for spec in [["time_left", 0, 180], ["shift_duration", 100, 180], ["temperature", 20, 260], ["jam_progress", 0, 1], ["refill_progress", 0, 1], ["sales", 0, 1000000000], ["_production_clock", 0, 3], ["_arrival_clock", -1, 30], ["_refill_age", 0, 10], ["_service_age", 0, 10], ["_machine_elapsed", 0, 10000000], ["jam_risk", 0, 1], ["_run_sales", 0, 10000000000]]:
 		if not _number_in(data.get(spec[0]), float(spec[1]), float(spec[2])): return false
-	for spec in [["supply", 0, 60], ["supply_capacity", 36, 60], ["batter", 0, 132], ["heat_setting", 0, 4], ["production_count", 0, 100000], ["package_count", 0, 12], ["scoop_count", 0, 6], ["served", 0, 100000], ["missed", 0, 100000], ["mistakes", 0, 100000], ["streak", 0, 100000], ["credits", 0, 1000000], ["_next_jam_at", 1, 100000], ["_next_order_id", 1, 100000], ["_orders_created", 0, 100000], ["_run_served", 0, 100000], ["_run_missed", 0, 100000], ["_last_jam_production", 0, 100000], ["_best_streak", 0, 100000]]:
+	for spec in [["supply", 0, 60], ["supply_capacity", 36, 60], ["batter", 0, 132], ["heat_setting", 0, 4], ["production_count", 0, 100000], ["package_count", 0, 12], ["scoop_count", 0, 6], ["served", 0, 100000], ["missed", 0, 100000], ["mistakes", 0, 100000], ["streak", 0, 100000], ["credits", 0, 1000000], ["_next_jam_at", 1, 100000], ["_next_order_id", 1, 100000], ["_orders_created", 0, 100000], ["_run_served", 0, 100000], ["_run_missed", 0, 100000], ["_last_jam_production", 0, 100000], ["_best_streak", 0, 100000], ["waste_count", 0, 1000000], ["_run_wasted", 0, 100000000], ["_next_delivery_id", 1, 1000000000]]:
 		if not _integer_in(data.get(spec[0]), int(spec[1]), int(spec[2])): return false
+	if int(data["_run_wasted"]) < int(data["waste_count"]): return false
+	if not data["_pending_deliveries"] is Array or data["_pending_deliveries"].size() > mini(64, int(data["production_count"])): return false
+	var delivery_ids: Dictionary = {}
+	for id in data["_pending_deliveries"]:
+		if not _integer_in(id, 1, int(data["_next_delivery_id"]) - 1) or delivery_ids.has(int(id)): return false
+		delivery_ids[int(id)] = true
 	for key in ["jammed", "overheated", "_offers_generated", "heat_warning", "_legacy_shift", "_jam_warned", "assisted"]:
 		if not data[key] is bool: return false
 	if bool(data["_legacy_shift"]) and (str(data["mode"]) != "campaign" or int(data["shift_index"]) > 2): return false
@@ -723,6 +794,8 @@ func _valid_save(data: Dictionary) -> bool:
 			if not _integer_in(result.get(key), 0, 1000000): return false
 		for key in ["sales", "total_sales"]:
 			if not _number_in(result.get(key), 0.0, 10000000.0): return false
+		for key in ["wasted", "total_wasted"]:
+			if result.has(key) and not _integer_in(result[key], 0, 100000000): return false
 		if result.has("best_streak") and not _integer_in(result["best_streak"], 0, 100000): return false
 		if result.has("assisted") and not result["assisted"] is bool: return false
 		if result.has("difficulty") and not result["difficulty"] in ["normal", "relaxed"]: return false

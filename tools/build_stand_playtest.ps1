@@ -45,8 +45,8 @@ if (-not (Test-Path -LiteralPath $ProjectPath -PathType Leaf)) {
 $versionMatch = [regex]::Match([IO.File]::ReadAllText($ProjectPath), '(?m)^config/version="([^"]+)"')
 if (-not $versionMatch.Success) { throw 'project.godot is missing config/version.' }
 $GameVersion = $versionMatch.Groups[1].Value -replace '[^A-Za-z0-9._-]', '-'
-if ($GameVersion -ne '1.0.0') {
-    throw "This Golden Hour package expects version 1.0.0; project has $GameVersion."
+if ($GameVersion -notmatch '^1\.0\.\d+$') {
+    throw "This Golden Hour package expects a version 1.0 release; project has $GameVersion."
 }
 if ([IO.File]::ReadAllText($ProjectPath) -notmatch '(?m)^run/main_scene="res://scenes/stand_main.tscn"') {
     throw 'Golden Hour requires scenes/stand_main.tscn as the project main scene.'
@@ -99,7 +99,7 @@ function Invoke-NativeLogged {
     $logPath = Get-WorkspacePath "builds/logs/$BuildId/$Step.log"
     [IO.File]::WriteAllText($logPath, $output, [Text.UTF8Encoding]::new($false))
     foreach ($line in ($output -split '\r?\n')) {
-        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
+        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
             Write-Host $line
         }
     }
@@ -142,6 +142,7 @@ function Invoke-GodotStep {
 
 $requiredSources = @(
     'tests/test_stand_model.gd', 'tests/test_stand_controller.gd', 'tools/check_audio.gd',
+    'tests/test_stand_food_physics.gd', 'tests/test_stand_food_integration.gd',
     'tests/test_player_profile.gd', 'tests/test_stand_presentation.gd', 'tests/test_stand_audio.gd', 'tests/test_stand_world.gd', 'docs/IDEA2_PLAYTEST.md',
     'docs/ASSET_LICENSES.md', 'docs/ART_PROMPTS.json', 'docs/licenses/Godot-LICENSE.txt',
     'docs/licenses/Godot-COPYRIGHT.txt', 'docs/licenses/SOURCES.json', 'assets/fonts/OFL.txt'
@@ -178,6 +179,14 @@ $world = Invoke-GodotStep -Step '08-stand-world-tests' -Arguments @('--script', 
 if ($world.Output -notmatch '(?im)WORLD QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 28) {
     throw "Stand world suite did not report at least 28 passing checks. See $($world.LogPath)"
 }
+$food = Invoke-GodotStep -Step '08a-food-physics-tests' -Arguments @('--script', 'res://tests/test_stand_food_physics.gd')
+if ($food.Output -notmatch '(?im)FOOD PHYSICS QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 30) {
+    throw "Physical food suite did not pass. See $($food.LogPath)"
+}
+$foodIntegration = Invoke-GodotStep -Step '08b-food-integration-tests' -Arguments @('--script', 'res://tests/test_stand_food_integration.gd')
+if ($foodIntegration.Output -notmatch '(?im)FOOD INTEGRATION QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 1) {
+    throw "Physical inventory integration suite did not pass. See $($foodIntegration.LogPath)"
+}
 
 $WindowsExe = Get-WorkspacePath "builds/windows/$GameVersion/GoldenHour.exe"
 $WebIndex = Get-WorkspacePath "builds/web/$GameVersion/index.html"
@@ -198,7 +207,7 @@ func _initialize() -> void:
         push_error("Could not mount the exported resource pack")
         quit(1)
         return
-    var required = ["res://scenes/stand_main.tscn", "res://scripts/stand_main.gd", "res://scripts/stand_model.gd", "res://scripts/stand_content.gd", "res://scripts/stand_world.gd", "res://scripts/stand_hud.gd", "res://scripts/stand_feedback.gd", "res://scripts/player_profile.gd", "res://scripts/stand_audio.gd", "res://scripts/game_audio.gd", "res://assets/fonts/Fredoka-Medium.ttf", "res://assets/art/title_keyart.png", "res://assets/art/brand_seal.png", "res://assets/art/counter_sign.png", "res://assets/shaders/oil.gdshader", "res://assets/shaders/donut_crust.gdshader", "res://assets/shaders/powder_sugar.gdshader", "res://assets/shaders/fairground_sky.gdshader", "res://assets/audio/stand/evening_theme.wav", "res://assets/audio/stand/fryer_loop.wav", "res://assets/audio/sale_jackpot.wav"]
+    var required = ["res://scenes/stand_main.tscn", "res://scripts/stand_main.gd", "res://scripts/stand_model.gd", "res://scripts/stand_content.gd", "res://scripts/stand_world.gd", "res://scripts/stand_food_physics.gd", "res://scripts/stand_hud.gd", "res://scripts/stand_feedback.gd", "res://scripts/player_profile.gd", "res://scripts/stand_audio.gd", "res://scripts/game_audio.gd", "res://assets/fonts/Fredoka-Medium.ttf", "res://assets/art/title_keyart.png", "res://assets/art/brand_seal.png", "res://assets/art/counter_sign.png", "res://assets/shaders/oil.gdshader", "res://assets/shaders/donut_crust.gdshader", "res://assets/shaders/powder_sugar.gdshader", "res://assets/shaders/fairground_sky.gdshader", "res://assets/audio/stand/evening_theme.wav", "res://assets/audio/stand/fryer_loop.wav", "res://assets/audio/sale_jackpot.wav"]
     var forbidden = ["res://scenes/main.tscn", "res://scripts/main.gd", "res://scripts/run_model.gd", "res://scripts/world.gd", "res://scripts/upgrades.gd", "res://scripts/score_feedback.gd", "res://tests/test_stand_model.gd", "res://tests/test_controller.gd", "res://assets/fonts/Fredoka.ttf"]
     var failures = 0
     for path in required:

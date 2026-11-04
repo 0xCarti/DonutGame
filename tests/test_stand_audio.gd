@@ -36,7 +36,7 @@ func _run() -> void:
 	state.overheated = false
 	state.supply = 36
 	sound.sync_machine(state)
-	check(sound._machine_loop.volume_db == -80, "full tray stops machinery")
+	check(sound._machine_loop.volume_db > -80, "full tray keeps producing with spill risk")
 	state.supply = 20
 	state.paused = true
 	sound.sync_machine(state)

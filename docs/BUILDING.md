@@ -14,9 +14,9 @@ cache at `C:/Users/bryce/.cache/donutsgame/godot/`. You can select an exact edit
 pwsh -File tools/build_stand_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-stable_win64_console.exe'
 ```
 
-The active script requires version 1.0.0 and the first-person stand scene.
-It imports assets, runs simulation, controller, career, presentation, world and
-audio verification, exports Windows and Web sequentially, packages their required files and full
+The active script accepts version 1.0.x and requires the first-person stand scene.
+It imports assets, runs simulation, controller, career, presentation, world,
+rigid-body food, physical inventory and audio verification, exports Windows and Web sequentially, packages their required files and full
 license notices, and writes separate ZIPs plus SHA256 hashes under
 `builds/releases/`. Native engine helper processes run without visible windows;
 the script does not launch an interactive game.

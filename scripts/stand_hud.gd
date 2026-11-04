@@ -137,6 +137,9 @@ func _build() -> void:
 	controls.stock = _label(machine, "18", Vector2(272, 34), Vector2(70, 31), 24)
 	_label(machine, "READY", Vector2(272, 66), Vector2(71, 17), 10, MUTED)
 	controls.stock_bar = _bar(machine, Vector2(253, 92), Vector2(95, 4), MINT)
+	controls.flow = _label(self, "", Vector2(22, 648), Vector2(358, 23), 13, MUTED)
+	controls.flow.add_theme_color_override("font_outline_color", INK)
+	controls.flow.add_theme_constant_override("outline_size", 5)
 
 	var task = _panel(self, Vector2(394, 676), Vector2(492, 108), Color("1c393c"))
 	controls.step = _label(task, "", Vector2(15, 9), Vector2(423, 17), 11, GOLD)
@@ -185,6 +188,7 @@ func refresh(state: Dictionary, context: Dictionary) -> void:
 	for i in range(3):
 		var card: Dictionary = controls.orders[i]
 		var active = i < orders.size()
+		card.card.visible = active or i == 0
 		card.card.modulate.a = 1.0 if active else 0.35
 		card.glyph.visible = active
 		card.patience.visible = active
@@ -216,6 +220,7 @@ func refresh(state: Dictionary, context: Dictionary) -> void:
 	controls.batter_bar.value = 100.0 * float(state.get("batter", 0)) / maxf(1.0, float(context.get("batter_capacity", 72)))
 	controls.stock.text = str(state.get("supply", 0))
 	controls.stock_bar.value = 100.0 * float(state.get("supply", 0)) / maxf(1.0, float(state.get("supply_capacity", 36)))
+	controls.flow.text = "%d IN THE FRYER   ·   %d WASTED" % [int(state.get("in_flight", 0)), int(state.get("waste_count", 0))]
 	controls.condition.text = str(context.get("machine_status", "RUNNING"))
 	controls.condition.add_theme_color_override("font_color", RED if bool(state.get("jammed", false)) or bool(state.get("overheated", false)) else MINT)
 	var tool = str(state.get("held_tool", "none"))
@@ -229,6 +234,8 @@ func refresh(state: Dictionary, context: Dictionary) -> void:
 	controls.prompt.text = str(context.get("prompt", "Read the first ticket"))
 	controls.key.text = str(context.get("key", "CLICK"))
 	controls.hint.text = str(context.get("hint", ""))
+	if not str(context.get("queued_action", "")).is_empty():
+		controls.hint.text = "Next: " + str(context.queued_action).to_lower()
 	controls.step.text = str(context.get("step", "YOUR NEXT MOVE"))
 	var faults: Array = context.get("faults", [])
 	controls.fault.visible = not faults.is_empty()
