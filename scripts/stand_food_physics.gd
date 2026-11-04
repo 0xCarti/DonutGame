@@ -15,6 +15,11 @@ const FOOD_LAYER: int = 4
 const SURFACE_LAYER: int = 2
 const TRAY_CENTER: Vector3 = Vector3(-1.40, 1.76, 0.93)
 const TRAY_FLOOR_Y: float = 1.7875
+const CHUTE_PIVOT: Vector3 = Vector3(-0.19, 2.22, -0.35)
+const CHUTE_LENGTH: float = 1.85
+const CHUTE_DROP: float = 0.08
+const SWEEP_SECONDS: float = 8.4
+const SHAKE_SECONDS: float = 0.60
 
 var _world: Node3D
 var _capacity: int = 36
@@ -27,6 +32,15 @@ var _path: Curve3D
 var _seed_serial: int = -10000
 var _paused_velocities: Dictionary = {}
 var _sphere: SphereShape3D
+var _fixed_path_length: float = 0.0
+var _total_path_length: float = 0.0
+var _sweep_phase: float = 0.0
+var _chute_angle: float = PI * 0.25
+var _chute_tip: Vector3
+var _outlet_velocity: Vector3 = Vector3.ZERO
+var _tray_surfaces: Array[StaticBody3D] = []
+var _shake_time: float = SHAKE_SECONDS
+var _shake_cooldown: float = 0.0
 
 
 func configure(world: Node3D) -> void:
@@ -40,6 +54,7 @@ func configure(world: Node3D) -> void:
 	_sphere.radius = CRUST_RADIUS
 	_build_surfaces()
 	_build_path()
+	_update_chute_pose(0.0)
 
 
 func _build_surfaces() -> void:
@@ -66,6 +81,9 @@ func _surface(label: String, at: Vector3, size: Vector3) -> void:
 	shape.shape = box
 	body.add_child(shape)
 	_surfaces.add_child(body)
+	if label != "Counter":
+		body.set_meta("rest_position", at)
+		_tray_surfaces.append(body)
 
 
 func _build_path() -> void:
@@ -73,21 +91,72 @@ func _build_path() -> void:
 	_path.bake_interval = 0.012
 	var machine: Node3D = _world.get("_machine_root") as Node3D
 	var points: PackedVector3Array = []
-	for point in [Vector3(-3.65, 2.34, -0.28), Vector3(-0.35, 2.34, -0.28), Vector3(2.95, 2.34, -0.28), Vector3(3.38, 2.48, -0.25), Vector3(4.00, 2.69, -0.25), Vector3(4.34, 2.80, -0.25), Vector3(4.50, 2.70, 0.05), Vector3(4.50, 2.45, 0.80)]:
+	for point in [Vector3(-3.65, 2.34, -0.28), Vector3(-0.35, 2.34, -0.28), Vector3(2.95, 2.34, -0.28), Vector3(3.38, 2.48, -0.25), Vector3(4.00, 2.69, -0.25), Vector3(4.34, 2.80, -0.25), Vector3(4.50, 2.70, 0.05)]:
 		points.append(to_local(machine.to_global(point)) if is_instance_valid(machine) else point)
-	points.append(Vector3(-0.22, 2.15, -0.10))
-	points.append(Vector3(-0.42, 2.10, 0.16))
-	points.append(Vector3(-0.62, 2.075, 0.43))
+	points.append(CHUTE_PIVOT)
 	for index in range(points.size()):
 		var before: Vector3 = points[maxi(0, index - 1)]
 		var after: Vector3 = points[mini(points.size() - 1, index + 1)]
 		var tangent: Vector3 = (after - before).normalized()
 		var handle: float = minf(points[index].distance_to(before), points[index].distance_to(after)) * 0.20
 		_path.add_point(points[index], -tangent * handle, tangent * handle)
+	_fixed_path_length = _path.get_baked_length()
+	_total_path_length = _fixed_path_length + Vector2(CHUTE_LENGTH, CHUTE_DROP).length()
 
 
 func conveyor_position(progress: float) -> Vector3:
-	return _path.sample_baked(clampf(progress, 0.0, 1.0) * _path.get_baked_length(), true)
+	var distance: float = clampf(progress, 0.0, 1.0) * _total_path_length
+	if distance <= _fixed_path_length:
+		return _path.sample_baked(distance, true)
+	return CHUTE_PIVOT.lerp(_chute_tip, (distance - _fixed_path_length) / (_total_path_length - _fixed_path_length))
+
+
+func _update_chute_pose(delta: float) -> void:
+	if _machine_running:
+		_sweep_phase = fposmod(_sweep_phase + delta * TAU / SWEEP_SECONDS, TAU)
+	_chute_angle = deg_to_rad(45.0 + 20.0 * sin(_sweep_phase))
+	_chute_tip = CHUTE_PIVOT + Vector3(-sin(_chute_angle) * CHUTE_LENGTH, -CHUTE_DROP, cos(_chute_angle) * CHUTE_LENGTH)
+	var angular_speed: float = deg_to_rad(20.0) * cos(_sweep_phase) * TAU / SWEEP_SECONDS if _machine_running else 0.0
+	_outlet_velocity = Vector3(-cos(_chute_angle), 0, -sin(_chute_angle)) * CHUTE_LENGTH * angular_speed
+	if _world.has_method("set_discharge_chute_pose"):
+		_world.call("set_discharge_chute_pose", CHUTE_PIVOT, _chute_tip)
+
+
+func shake_tray() -> bool:
+	if _paused or _shake_cooldown > 0.0:
+		return false
+	_shake_time = -0.20 # The hands reach the rim before the tray begins moving.
+	_shake_cooldown = 1.25
+	return true
+
+
+func _loosen_tray() -> void:
+	# A small impulse loosens contacts, so the pile actually settles differently.
+	# Pull near-rim rings inward instead of throwing usable stock off a half tray.
+	for entry in _entries:
+		if str(entry.stage) != "resident": continue
+		var body: RigidBody3D = entry.body
+		var offset: Vector3 = body.position - TRAY_CENTER
+		var direction: Vector3 = Vector3(_rng.randf_range(-1.0, 1.0), 0, _rng.randf_range(-1.0, 1.0)).normalized()
+		if absf(offset.x) > 0.78 or absf(offset.z) > 0.43:
+			direction = Vector3(-offset.x, 0, -offset.z).normalized()
+		body.sleeping = false
+		body.apply_central_impulse((direction * 0.36 + Vector3(0, 0.12, 0)) * body.mass)
+		body.apply_torque_impulse(Vector3(_rng.randf_range(-0.00008, 0.00008), 0, _rng.randf_range(-0.00008, 0.00008)))
+
+
+func _update_tray_shake(delta: float) -> void:
+	_shake_cooldown = maxf(0.0, _shake_cooldown - delta)
+	var before: float = _shake_time
+	_shake_time = minf(SHAKE_SECONDS, _shake_time + delta)
+	if before < 0.0 and _shake_time >= 0.0:
+		_loosen_tray()
+	var t: float = maxf(0.0, _shake_time) / SHAKE_SECONDS
+	var offset: Vector3 = Vector3(sin(t * TAU * 2.0) * sin(t * PI) * 0.035, 0, sin(t * TAU) * sin(t * PI) * 0.015) if t < 1.0 else Vector3.ZERO
+	for body in _tray_surfaces:
+		body.position = Vector3(body.get_meta("rest_position")) + offset
+	if _world.has_method("set_tray_shake_offset"):
+		_world.call("set_tray_shake_offset", offset)
 
 
 func set_capacity(capacity: int) -> void:
@@ -128,6 +197,9 @@ func clear_food() -> void:
 		body.queue_free()
 	_entries.clear()
 	_paused_velocities.clear()
+	_shake_time = SHAKE_SECONDS
+	_shake_cooldown = 0.0
+	_update_tray_shake(0.0)
 
 
 func seed_stock(count: int, capacity: int) -> void:
@@ -171,6 +243,13 @@ func enqueue_production(id: int) -> void:
 	_trim_waste()
 	var entry: Dictionary = _new_body(id, conveyor_position(0.0))
 	entry.stage = "conveyor"
+	# Restored/batched production waits behind the feeder instead of placing
+	# several donuts in the same conveyor slot and releasing them as one lump.
+	var gap: float = (OUTER_RADIUS * 2.0 + 0.13) / _total_path_length
+	for previous in _entries:
+		if str(previous.stage) == "conveyor":
+			entry.progress = minf(float(entry.progress), float(previous.progress) - gap)
+	entry.visual.visible = float(entry.progress) >= 0.0
 	entry.body.freeze = true
 	entry.body.collision_layer = 0
 	entry.body.collision_mask = 0
@@ -276,6 +355,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_instance_valid(_world):
 		return
+	_update_chute_pose(delta)
+	_update_tray_shake(delta)
 	for index in range(_entries.size() - 1, -1, -1):
 		var entry: Dictionary = _entries[index]
 		var body: RigidBody3D = entry.body
@@ -284,6 +365,8 @@ func _physics_process(delta: float) -> void:
 			if _machine_running:
 				entry.progress = minf(1.0, float(entry.progress) + delta / CONVEYOR_SECONDS)
 				var progress: float = float(entry.progress)
+				entry.visual.visible = progress >= 0.0
+				if progress < 0.0: continue
 				body.position = conveyor_position(progress)
 				var tangent: Vector3 = conveyor_position(minf(1.0, progress + 0.002)) - conveyor_position(maxf(0.0, progress - 0.002))
 				var horizontal_squared: float = tangent.x * tangent.x + tangent.z * tangent.z
@@ -344,9 +427,17 @@ func _deflect_over_rim(body: RigidBody3D) -> void:
 	var vertical_radius: float = CRUST_RADIUS + RING_RADIUS * sqrt(maxf(0.0, 1.0 - body.basis.y.dot(Vector3.UP) ** 2))
 	var clearance: float = maxf(0.025, 1.95 + vertical_radius + 0.025 - body.position.y)
 	var lift: float = clampf(sqrt(2.0 * 9.8 * clearance), 0.70, 2.10)
+	# Spill toward the closest rim. A moving outlet must not keep pushing every
+	# overflow donut across the entire tray toward the old fixed right exit.
+	var offset: Vector3 = body.position - TRAY_CENTER
+	var x_distance: float = 1.10 - absf(offset.x)
+	var z_distance: float = 0.70 - absf(offset.z)
+	var direction: Vector3 = Vector3(signf(offset.x) if absf(offset.x) > 0.01 else 1.0, 0, 0) if x_distance < z_distance else Vector3(0, 0, signf(offset.z) if absf(offset.z) > 0.01 else 1.0)
+	var distance: float = maxf(0.0, minf(x_distance, z_distance)) + OUTER_RADIUS + 0.08
+	var flight_time: float = maxf(0.20, 2.0 * lift / 9.8)
 	body.sleeping = false
-	body.linear_velocity = Vector3(1.55, lift, _rng.randf_range(0.25, 0.45))
-	body.angular_velocity = Vector3(0.45, 0.60, -1.65)
+	body.linear_velocity = direction * clampf(distance / flight_time, 1.10, 3.0) + Vector3(0, lift, 0)
+	body.angular_velocity = Vector3(direction.z, 0.4, -direction.x) * 1.2
 
 
 func _release(entry: Dictionary) -> void:
@@ -357,7 +448,8 @@ func _release(entry: Dictionary) -> void:
 	body.collision_mask = FOOD_LAYER | SURFACE_LAYER
 	body.freeze = false
 	body.sleeping = false
-	body.linear_velocity = Vector3(_rng.randf_range(-0.62, -0.40), -0.12, _rng.randf_range(0.64, 0.90))
+	var direction: Vector3 = (_chute_tip - CHUTE_PIVOT).normalized()
+	body.linear_velocity = direction * 0.30 + _outlet_velocity * 0.65 + Vector3(_rng.randf_range(-0.035, 0.035), -0.12, _rng.randf_range(-0.025, 0.025))
 	body.angular_velocity = Vector3(_rng.randf_range(-0.70, 0.70), _rng.randf_range(-1.6, 1.6), _rng.randf_range(-1.1, 1.1))
 
 
@@ -394,7 +486,7 @@ func _trim_waste() -> void:
 
 
 func debug_snapshot() -> Dictionary:
-	var snapshot: Dictionary = {"available": 0, "conveyor": 0, "falling": 0, "waste": 0, "bodies": _entries.size(), "paused": _paused, "capacity": _capacity, "positions": [], "entries": []}
+	var snapshot: Dictionary = {"available": 0, "conveyor": 0, "falling": 0, "waste": 0, "bodies": _entries.size(), "paused": _paused, "capacity": _capacity, "positions": [], "entries": [], "chute_angle": _chute_angle, "chute_phase": _sweep_phase, "outlet": _chute_tip, "shaking": _shake_time < SHAKE_SECONDS}
 	for entry in _entries:
 		var stage: String = entry.stage
 		if stage == "resident":

@@ -5,7 +5,7 @@ const Model = preload("res://scripts/stand_model.gd")
 const World = preload("res://scripts/stand_world.gd")
 const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
-const VERSION = "1.0.1"
+const VERSION = "1.0.2"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -256,8 +256,16 @@ func _act(station: String) -> void:
 			held_tool = "scoop"
 			result = {"ok": true, "message": "Scoop ready. Click the fresh donut tray."}
 		"supply":
+			if held_tool == "none":
+				if world.shake_tray():
+					world.animate_action("tray_shake")
+					audio.play_action("tray")
+					_last_hand_action = "supply"
+					_toast("A gentle shake settles the fresh donuts.", MINT)
+				_refresh_hud()
+				return
 			if held_tool != "scoop":
-				_toast("Pick up the scoop first.", RED)
+				_toast("Set your order down before handling the tray.", RED)
 				return
 			result = model.scoop()
 		"package":
@@ -421,6 +429,14 @@ func _show_title() -> void:
 	_new_screen()
 	world.reset_look()
 	_sync_world()
+	# Fill any viewport margins as well as the designed canvas; the paused 3D
+	# counter must not peek through beside the artwork at a wider aspect ratio.
+	var backdrop = ColorRect.new()
+	backdrop.position = Vector2(-1280, -800)
+	backdrop.size = Vector2(3840, 2400)
+	backdrop.color = Color("0c2829")
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(backdrop)
 	if ResourceLoader.exists("res://assets/art/title_keyart.png"):
 		var art = TextureRect.new()
 		art.texture = load("res://assets/art/title_keyart.png")
@@ -430,48 +446,195 @@ func _show_title() -> void:
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		screen.add_child(art)
-	var p = _panel(screen, Vector2(32, 28), Vector2(480, 744), INK)
-	_label(p, "FRESH DONUTS. BIG LITTLE MOMENTS.", Vector2(28, 26), Vector2(424, 24), 14, GOLD)
-	_label(p, "GOLDEN HOUR", Vector2(25, 67), Vector2(430, 66), 45, CREAM)
-	_text(p, "Your hands. Your fryer.\nA whole fairground waiting.", Vector2(30, 147), Vector2(420, 70), 24, MUTED)
-	var summary = profile.get_summary() if profile != null else {}
-	_label(p, "%d orders served  ·  %d perfect runs" % [int(summary.get("total_served", 0)), int(summary.get("campaign_wins", 0))], Vector2(30, 230), Vector2(420, 27), 15, GOLD)
-	_label(p, "CHOOSE YOUR PACE", Vector2(30, 281), Vector2(420, 20), 12, MUTED)
-	_button(p, "STANDARD", Vector2(30, 310), Vector2(202, 42), func():
-		selected_difficulty = "normal"
-		_show_title(), GOLD if selected_difficulty == "normal" else PANEL)
-	_button(p, "RELAXED", Vector2(246, 310), Vector2(202, 42), func():
-		selected_difficulty = "relaxed"
-		_show_title(), GOLD if selected_difficulty == "relaxed" else PANEL)
-	_label(p, "A lively rush with room to master the rhythm." if selected_difficulty == "normal" else "More time, patient customers, the same hands-on work.", Vector2(30, 365), Vector2(420, 25), 13, MUTED)
-	_button(p, "OPEN THE STAND  >", Vector2(30, 410), Vector2(418, 56), func():
-		selected_mode = "campaign"
-		_request_new_run())
-	if not saved_run.is_empty():
-		_button(p, "CONTINUE YOUR SHIFT", Vector2(30, 480), Vector2(418, 45), _continue_run, MINT)
-	else:
-		_button(p, "PRACTICE  ·  NO PRESSURE", Vector2(30, 480), Vector2(418, 45), _start_practice, PANEL)
-	_button(p, "Collection", Vector2(30, 545), Vector2(202, 43), _show_collection, PANEL)
-	_button(p, "Settings", Vector2(246, 545), Vector2(202, 43), _show_settings, PANEL)
-	var endless_ready = profile != null and profile.is_endless_unlocked()
-	var endless = _button(p, "ENDLESS RUSH" if endless_ready else "ENDLESS  ·  WIN A CAMPAIGN", Vector2(30, 603), Vector2(418, 40), func():
+	# Tickets, a wristband and the operator's ink stamp sit directly on the fair
+	# artwork. Every word and click target is native UI, including the cut stubs.
+	_label(screen, "HOT MINI DONUTS  /  COLD EVENING AIR", Vector2(58, 43), Vector2(460, 24), 13, GOLD)
+	var wordmark = _label(screen, "GOLDEN HOUR", Vector2(51, 72), Vector2(490, 74), 51, CREAM)
+	wordmark.add_theme_color_override("font_shadow_color", Color(0.03, 0.07, 0.07, 0.8))
+	wordmark.add_theme_constant_override("shadow_offset_y", 4)
+	_label(screen, "A little stand. A whole evening to make.", Vector2(59, 151), Vector2(450, 27), 19, Color("d7ded0"))
+	_title_pace_wristband()
+	var continuing: bool = not saved_run.is_empty()
+	var shift_number: int = 1
+	var saved_pace: String = "Standard"
+	if continuing:
+		shift_number = int(saved_run.get("model", {}).get("shift_index", 0)) + 1
+		saved_pace = "Relaxed" if str(saved_run.get("model", {}).get("difficulty", "normal")) == "relaxed" else "Standard"
+	var primary = _title_ticket_button(screen, "CONTINUE YOUR SHIFT" if continuing else "OPEN THE STAND  >", Vector2(54, 283), Vector2(458, 126), func():
+		if continuing: _continue_run()
+		else:
+			selected_mode = "campaign"
+			_request_new_run(), CREAM, "YOUR COUNTER IS WAITING" if continuing else "FAIRGROUND  /  %d-SHIFT CAMPAIGN" % _shift_count(), "Resume your %s shift." % saved_pace if continuing else "Serve. Upgrade. Find your rhythm.", "SHIFT\n%02d" % shift_number)
+	primary.name = "TitleContinue" if continuing else "TitleOpenStand"
+	primary.rotation = -0.015
+	var practice_ticket = _title_ticket_button(screen, "PRACTICE  ·  NO PRESSURE", Vector2(65, 432), Vector2(436, 89), _start_practice, Color("dfebd3"), "TAKE A QUIET MOMENT", "", "ALL\nDAY")
+	practice_ticket.name = "TitlePractice"
+	practice_ticket.rotation = 0.018
+	if continuing:
+		var new_stand = _title_text_button(screen, "OPEN THE STAND  >", Vector2(72, 536), Vector2(420, 31), func():
+			selected_mode = "campaign"
+			_request_new_run(), GOLD, 16)
+		new_stand.name = "TitleOpenStand"
+		new_stand.tooltip_text = "Start a new campaign. You will be asked before replacing your saved run."
+	var endless_ready: bool = profile != null and profile.is_endless_unlocked()
+	var endless = _title_text_button(screen, "ENDLESS RUSH" if endless_ready else "ENDLESS  ·  WIN A CAMPAIGN", Vector2(72, 578 if continuing else 542), Vector2(420, 34), func():
 		selected_mode = "endless"
-		_request_new_run(), PANEL)
+		_request_new_run(), GOLD, 16)
+	endless.name = "TitleEndless"
 	endless.disabled = not endless_ready
-	_button(p, "How to play" if saved_run.is_empty() else "Practice", Vector2(30, 665), Vector2(202, 36), func():
-		if saved_run.is_empty(): _show_help(false)
-		else: _start_practice(), PANEL)
-	_button(p, "Credits", Vector2(246, 665), Vector2(202, 36), _show_credits, PANEL)
+	endless.tooltip_text = "Complete a campaign to open Endless Rush." if not endless_ready else "Keep the stand open as long as you can."
+	_title_career_stamp(Vector2(66, 632))
+	for item in [["Settings", _show_settings], ["How to play", func(): _show_help(false)], ["Credits", _show_credits]]:
+		var index: int = ["Settings", "How to play", "Credits"].find(str(item[0]))
+		_title_text_button(screen, str(item[0]), Vector2(53 + index * 148, 738), Vector2(141, 35), item[1], CREAM, 16)
 	_label(screen, "GOLDEN HOUR  /  " + VERSION, Vector2(938, 752), Vector2(310, 26), 13, CREAM).horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	if not OS.has_feature("web"):
-		_button(screen, "QUIT GAME", Vector2(1090, 22), Vector2(158, 38), _quit_game, PANEL)
+		_title_text_button(screen, "QUIT GAME", Vector2(1090, 22), Vector2(158, 38), _quit_game, CREAM, 14)
 	var notices: Array[String] = []
 	if not _run_load_notice.is_empty(): notices.append(_run_load_notice)
 	if profile != null and not str(profile.load_warning).is_empty(): notices.append(str(profile.load_warning))
 	if not notices.is_empty():
-		var notice = _panel(screen, Vector2(552, 568), Vector2(696, 160), INK)
+		var notice = _panel(screen, Vector2(555, 568), Vector2(693, 160), INK)
 		_label(notice, "SAVE NOTICE", Vector2(22, 15), Vector2(652, 24), 16, GOLD)
 		_text(notice, "\n".join(notices), Vector2(22, 49), Vector2(652, 97), 17, CREAM)
+
+func _title_ticket_button(parent: Node, value: String, at: Vector2, dimensions: Vector2, callback: Callable, paper: Color, caption: String, footnote: String, stub: String) -> Button:
+	var button = Button.new()
+	button.position = at
+	button.size = dimensions
+	button.text = value
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.focus_mode = Control.FOCUS_ALL
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.add_theme_font_size_override("font_size", 25 if dimensions.y > 100 else 21)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var empty = StyleBoxEmpty.new()
+		empty.content_margin_left = 25
+		empty.content_margin_right = 79
+		empty.content_margin_top = 19
+		button.add_theme_stylebox_override(state, empty)
+	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		# Button.text remains the accessible action name. A child label draws the
+		# ink above the custom paper, since draw signals follow the native label.
+		button.add_theme_color_override(state, Color(0, 0, 0, 0))
+	button.draw.connect(func():
+		var cut: PackedVector2Array = _title_ticket_outline(dimensions)
+		var shadow: PackedVector2Array = []
+		for point in cut: shadow.append(point + Vector2(3, 6))
+		button.draw_colored_polygon(shadow, Color(0.015, 0.03, 0.03, 0.42))
+		var fill: Color = paper.lightened(0.055) if button.is_hovered() else paper
+		if button.button_pressed: fill = paper.darkened(0.07)
+		button.draw_colored_polygon(cut, fill)
+		var closed: PackedVector2Array = cut.duplicate()
+		closed.append(cut[0])
+		button.draw_polyline(closed, Color("c39d66"), 1.0, true)
+		for y in range(10, int(dimensions.y) - 8, 10):
+			button.draw_line(Vector2(dimensions.x - 65, y), Vector2(dimensions.x - 65, y + 4), Color("b4a17a"), 1.0, true)
+		button.draw_line(Vector2(25, dimensions.y - 14), Vector2(dimensions.x - 88, dimensions.y - 14), Color(0.40, 0.42, 0.29, 0.22), 1.0)
+		if button.has_focus(): button.draw_rect(Rect2(Vector2(12, 6), dimensions - Vector2(24, 12)), Color("a95332"), false, 2.0))
+	for event in [button.mouse_entered, button.mouse_exited, button.button_down, button.button_up, button.focus_entered, button.focus_exited]: event.connect(button.queue_redraw)
+	button.pressed.connect(func():
+		if is_instance_valid(overlay): return
+		audio.play_event("click")
+		callback.call())
+	parent.add_child(button)
+	_label(button, caption, Vector2(25, 12), Vector2(dimensions.x - 105, 22), 12, Color("8b4735"))
+	_label(button, value, Vector2(25, 41 if dimensions.y > 100 else 36), Vector2(dimensions.x - 103, 38), 25 if dimensions.y > 100 else 21, Color("173f3b"))
+	if not footnote.is_empty(): _label(button, footnote, Vector2(25, dimensions.y - 38), Vector2(dimensions.x - 105, 21), 14, Color("496454"))
+	var stub_text = _label(button, stub, Vector2(dimensions.x - 61, 17), Vector2(56, dimensions.y - 30), 13, Color("8b4735"))
+	stub_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return button
+
+func _title_ticket_outline(dimensions: Vector2) -> PackedVector2Array:
+	var w: float = dimensions.x
+	var h: float = dimensions.y
+	var notch: float = 10.0
+	var points: PackedVector2Array = [Vector2(0, 3), Vector2(3, 0), Vector2(w - 3, 0), Vector2(w, 3), Vector2(w, h * 0.5 - notch)]
+	for i in range(1, 13):
+		var angle: float = -PI * 0.5 - PI * float(i) / 12.0
+		points.append(Vector2(w, h * 0.5) + Vector2(cos(angle), sin(angle)) * notch)
+	points.append_array(PackedVector2Array([Vector2(w, h - 3), Vector2(w - 3, h), Vector2(3, h), Vector2(0, h - 3), Vector2(0, h * 0.5 + notch)]))
+	for i in range(1, 13):
+		var angle: float = PI * 0.5 - PI * float(i) / 12.0
+		points.append(Vector2(0, h * 0.5) + Vector2(cos(angle), sin(angle)) * notch)
+	return points
+
+func _title_text_button(parent: Node, value: String, at: Vector2, dimensions: Vector2, callback: Callable, color: Color, font_size: int = 16) -> Button:
+	var button = _button(parent, value, at, dimensions, func():
+		if not is_instance_valid(overlay): callback.call())
+	button.focus_mode = Control.FOCUS_ALL
+	button.add_theme_font_size_override("font_size", font_size)
+	for state in ["normal", "hover", "pressed", "disabled"]: button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	var focus = StyleBoxFlat.new()
+	focus.bg_color = Color(0, 0, 0, 0)
+	focus.border_color = GOLD
+	focus.set_border_width_all(1)
+	focus.set_corner_radius_all(3)
+	button.add_theme_stylebox_override("focus", focus)
+	button.add_theme_color_override("font_color", color)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", GOLD)
+	button.add_theme_color_override("font_focus_color", GOLD)
+	button.add_theme_color_override("font_disabled_color", Color("afbfb0"))
+	return button
+
+func _title_pace_wristband() -> void:
+	var band = Control.new()
+	band.position = Vector2(62, 204)
+	band.size = Vector2(435, 47)
+	band.rotation = 0.012
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(band)
+	band.draw.connect(func():
+		band.draw_style_box(_title_band_style(), Rect2(Vector2.ZERO, band.size))
+		for x in [12, 24, 36]: band.draw_circle(Vector2(x, 24), 2.1, Color("172e2d")))
+	_label(band, "NEW RUN PACE", Vector2(51, 12), Vector2(100, 24), 12, Color("e5e8ca"))
+	for i in range(2):
+		var pace: String = "normal" if i == 0 else "relaxed"
+		var selected: bool = selected_difficulty == pace
+		var button = _title_text_button(band, "STANDARD" if i == 0 else "RELAXED", Vector2(155 + i * 133, 6), Vector2(128, 35), func():
+			selected_difficulty = pace
+			_show_title(), Color("183d37") if selected else CREAM, 14)
+		button.name = "TitlePaceNormal" if i == 0 else "TitlePaceRelaxed"
+		if selected:
+			var style = StyleBoxFlat.new()
+			style.bg_color = Color("ecd9a8")
+			style.set_corner_radius_all(2)
+			button.add_theme_stylebox_override("normal", style)
+			button.add_theme_stylebox_override("hover", style)
+			button.add_theme_color_override("font_hover_color", INK)
+	_label(screen, "New runs: a lively rush. Find your rhythm." if selected_difficulty == "normal" else "New runs: more time and patient customers.", Vector2(72, 255), Vector2(436, 19), 12, Color("bbcdbb"))
+
+func _title_band_style() -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color("2e6155")
+	style.set_corner_radius_all(3)
+	style.set_border_width_all(1)
+	style.border_color = Color("739481")
+	style.shadow_color = Color(0, 0, 0, 0.3)
+	style.shadow_size = 3
+	style.shadow_offset = Vector2(1, 3)
+	return style
+
+func _title_career_stamp(at: Vector2) -> void:
+	var summary: Dictionary = profile.get_summary() if profile != null else {}
+	var stamp = Control.new()
+	stamp.position = at
+	stamp.size = Vector2(432, 80)
+	stamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(stamp)
+	stamp.draw.connect(func():
+		stamp.draw_arc(Vector2(38, 38), 34, 0, TAU, 64, Color("b5aa80"), 1.2, true)
+		stamp.draw_arc(Vector2(38, 38), 29, 0, TAU, 64, Color("b5aa80"), 0.8, true)
+		stamp.draw_line(Vector2(88, 12), Vector2(429, 12), Color(0.68, 0.68, 0.47, 0.45), 1.0)
+		stamp.draw_line(Vector2(88, 66), Vector2(429, 66), Color(0.68, 0.68, 0.47, 0.45), 1.0))
+	_label(stamp, "%02d" % int(summary.get("campaign_wins", 0)), Vector2(8, 10), Vector2(60, 37), 25, Color("dfd2a7")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_label(stamp, "WINS", Vector2(8, 44), Vector2(60, 18), 10, Color("b5aa80")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_label(stamp, "%d ORDERS SERVED" % int(summary.get("total_served", 0)), Vector2(96, 18), Vector2(215, 23), 13, Color("d7dac0"))
+	_label(stamp, "YOUR FAIRGROUND RECORD", Vector2(96, 42), Vector2(226, 18), 10, Color("b5aa80"))
+	var collection = _title_text_button(stamp, "Collection", Vector2(303, 20), Vector2(128, 40), _show_collection, GOLD, 16)
+	collection.name = "TitleCollection"
+	collection.tooltip_text = "Your earned stand colours, achievements and career records."
 
 func _request_new_run() -> void:
 	if saved_run.is_empty():
@@ -668,6 +831,8 @@ func _guide_context() -> Dictionary:
 	return {"prompt": prompt, "hint": hint, "step": step, "key": keys.get(target, "CLICK"), "station": target}
 
 func _context_prompt() -> String:
+	if hover_station == "supply" and held_tool == "none": return "Give the tray a gentle shake"
+	if hover_station == "supply" and held_tool == "package": return "Set your order down first"
 	if hover_station == "repair":
 		if model.jammed: return "Hold to clear the jam"
 		if model.jam_risk >= 0.5: return "Hold to service the feeder"
@@ -933,6 +1098,8 @@ func _apply_effect_settings() -> void:
 
 func _modal(dimensions: Vector2) -> Panel:
 	_close_overlay()
+	get_viewport().gui_release_focus()
+	_set_screen_modal_focus(screen, true)
 	_stop_hold()
 	_queued_action = ""
 	paused = current_view == "play"
@@ -950,8 +1117,26 @@ func _close_overlay() -> void:
 		ui.remove_child(overlay)
 		overlay.queue_free()
 		overlay = null
+		_set_screen_modal_focus(screen, false)
 	paused = false
 	if is_instance_valid(world): _sync_world()
+
+func _set_screen_modal_focus(node: Node, suspended: bool) -> void:
+	if not is_instance_valid(node): return
+	if node is Control:
+		if suspended:
+			if not node.has_meta("focus_before_modal"):
+				node.set_meta("focus_before_modal", node.focus_mode)
+			node.focus_mode = Control.FOCUS_NONE
+		elif node.has_meta("focus_before_modal"):
+			node.focus_mode = int(node.get_meta("focus_before_modal"))
+			node.remove_meta("focus_before_modal")
+	for child in node.get_children(): _set_screen_modal_focus(child, suspended)
+
+func _focus_modal_button(candidate: WeakRef) -> void:
+	var button = candidate.get_ref()
+	if is_instance_valid(button) and button.is_inside_tree() and is_instance_valid(overlay) and overlay.is_ancestor_of(button):
+		button.grab_focus()
 
 func _style(color: Color) -> StyleBoxFlat:
 	var style = StyleBoxFlat.new()
@@ -1013,7 +1198,8 @@ func _button(parent: Node, value: String, at: Vector2, dimensions: Vector2, call
 	button.position = at
 	button.size = dimensions
 	button.text = value
-	button.focus_mode = Control.FOCUS_NONE
+	var in_modal: bool = is_instance_valid(overlay) and overlay.is_ancestor_of(parent)
+	button.focus_mode = Control.FOCUS_ALL if in_modal else Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.add_theme_font_size_override("font_size", 19)
 	button.add_theme_color_override("font_color", INK if color == GOLD or color == MINT else CREAM)
@@ -1027,6 +1213,9 @@ func _button(parent: Node, value: String, at: Vector2, dimensions: Vector2, call
 		audio.play_event("click")
 		callback.call())
 	parent.add_child(button)
+	if in_modal and not overlay.has_meta("initial_keyboard_focus"):
+		overlay.set_meta("initial_keyboard_focus", true)
+		call_deferred("_focus_modal_button", weakref(button))
 	return button
 
 func _shade(parent: Node) -> void:

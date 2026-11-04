@@ -506,11 +506,14 @@ func _test_paced_runs() -> void:
 	print("PHYSICAL TRANSIT 7.00s: normal %d/12; relaxed %d/12 wins" % [physical_wins, physical_relaxed_wins])
 
 
-func _simulate_run(seed_number: int, action_seconds: float, difficulty: String = "normal", delivery_delay: float = 0.0) -> Dictionary:
+func _simulate_run(seed_number: int, action_seconds: float, difficulty: String = "normal", delivery_delay: float = 0.0, animation_times: Dictionary = {}, shift_time_overrides: Dictionary = {}) -> Dictionary:
 	var model = Stand.new()
 	model.new_run(seed_number, difficulty)
 	model.external_delivery = delivery_delay > 0.0
 	model.start_shift()
+	if shift_time_overrides.has(model.shift_index):
+		model.shift_duration = float(shift_time_overrides[model.shift_index])
+		model.time_left = model.shift_duration
 	var transit: Dictionary = {}
 	var tool: String = "none"
 	var action_clock: float = 0.0
@@ -532,6 +535,9 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 				for offer in offers:
 					if str(offer.id) == preferred: model.buy_upgrade(preferred)
 			model.start_shift()
+			if shift_time_overrides.has(model.shift_index):
+				model.shift_duration = float(shift_time_overrides[model.shift_index])
+				model.time_left = model.shift_duration
 			transit.clear()
 			tool = "none"
 			holding = ""
@@ -550,6 +556,7 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 			action_clock -= 0.1
 			if action_clock <= 0.0:
 				action_clock = action_seconds
+				var animation: String = ""
 				if model.temperature >= 198.0 and model.heat_setting > 2:
 					model.adjust_heat(-1)
 				elif model.jammed and (model.supply < 12 or model.package_type.is_empty()):
@@ -560,21 +567,35 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 					var order: Dictionary = model.orders[0]
 					if model.package_type.is_empty():
 						model.choose_package(str(order.package))
+						animation = str(order.package)
 						tool = "none"
 					elif model.package_type != str(order.package) or (not model.package_flavor.is_empty() and model.package_flavor != str(order.flavor)):
 						model.discard()
+						animation = "trash"
 						tool = "none"
 					elif model.package_count < model.package_capacity():
-						if tool != "scoop": tool = "scoop"
-						elif model.scoop_count > 0: model.dump()
-						else: model.scoop()
+						if tool != "scoop":
+							tool = "scoop"
+							animation = "scoop"
+						elif model.scoop_count > 0:
+							model.dump()
+							animation = "package"
+						else:
+							model.scoop()
+							animation = "supply"
 					elif model.package_flavor.is_empty():
 						model.coat(str(order.flavor))
+						animation = str(order.flavor)
 						tool = "none"
-					elif tool != "package": tool = "package"
+					elif tool != "package":
+						tool = "package"
+						animation = "package"
 					else:
 						model.serve()
+						animation = "serve"
 						tool = "none"
+				if not animation_times.is_empty() and not animation.is_empty():
+					action_clock = action_seconds + float(animation_times.get(animation, 0.70))
 		model.tick(0.1)
 		if model.external_delivery:
 			for id in model.pending_delivery_ids():

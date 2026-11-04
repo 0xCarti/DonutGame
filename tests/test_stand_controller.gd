@@ -64,6 +64,7 @@ func _run() -> void:
 	await _test_first_run()
 	await _test_physical_counter()
 	await _test_buffered_actions()
+	await _test_empty_hand_tray_shake()
 	await _test_bag_service()
 	await _test_bucket_and_mistakes()
 	await _test_maintenance_and_pause()
@@ -128,6 +129,26 @@ func _test_physical_counter() -> void:
 	await _key(KEY_X)
 	_check(app.model.package_type.is_empty() and app.held_tool == "none", "discard clears the work surface and held tool")
 
+
+func _test_empty_hand_tray_shake() -> void:
+	_reset_shift(1902)
+	app.hover_station = "supply"
+	_check(app._guide_context().prompt == "Give the tray a gentle shake", "empty-hand tray hover explains settling instead of scooping")
+	var stock: int = app.model.supply
+	app._act("supply")
+	_check(app.world._food.debug_snapshot().shaking and app.world._action == "tray_shake", "empty-hand tray click starts physical settling and hand animation together")
+	_check(app.model.supply == stock and app.model.scoop_count == 0 and app.held_tool == "none", "shaking neither consumes nor manufactures food or tools")
+	app._show_pause()
+	var cooldown: float = app.world._food._shake_cooldown
+	app._act("supply")
+	_check(app.world._food._shake_cooldown == cooldown, "paused clicks cannot restart a tray shake")
+	app._close_overlay()
+	await _settle_hand_motion()
+	_reset_shift(1903)
+	app.held_tool = "package"
+	app._act("supply")
+	_check(not app.world._food.debug_snapshot().shaking, "a hand holding an order cannot shake the tray")
+	app.held_tool = "none"
 
 func _test_bag_service() -> void:
 	_reset_shift(732)

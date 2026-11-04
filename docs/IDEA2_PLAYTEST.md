@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.1 · Windows
+Version 1.0.2 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,
@@ -34,7 +34,9 @@ Objects glow gently under your pointer. Bags, buckets and tools travel from
 their actual counter positions; one next click can be buffered while your
 hands finish a movement. Pause cancels that queued click.
 
-Donuts climb the machine's exit ramp and fall into the tray as physical objects.
+Donuts climb the machine's exit ramp, ride a sweeping chute and fall into the
+tray as physical objects. The chute distributes fresh output across the tray.
+With empty hands, click the tray (or press F) to give it a gentle settling shake.
 The ready count increases after they land. A full tray does not stop the fryer:
 extra donuts tumble onto the counter and become waste. Watch the ready stock,
 in-flight and wasted counters, and keep serving to make room.
@@ -64,7 +66,7 @@ look around. Home recentres the view. Esc pauses and F11 toggles fullscreen.
 Settings include sound effects, music, fairground ambience, reduced motion,
 look sensitivity and inverted look.
 
-Optional keys: B bag; V bucket; S pick up scoop; F scoop from tray;
+Optional keys: B bag; V bucket; S pick up scoop; F scoop or shake with empty hands;
 Space pour, lift or put down; C cinnamon; P powdered; E hand over;
 hold R repair or service; hold T refill; - / + heat; X discard; H help.
 

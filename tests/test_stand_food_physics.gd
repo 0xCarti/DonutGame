@@ -77,7 +77,7 @@ func _run() -> void:
 	check(maximum_step < 0.01, "Baked conveyor path is continuous without teleport seams")
 	check(crest > 2.34, "Donuts climb visibly above the machine exit ramp")
 	check(ramp_clearance >= 0.0, "Donut undersides clear the actual inclined roller tops")
-	check(food.conveyor_position(1.0).is_equal_approx(Vector3(-0.62, 2.075, 0.43)), "Discharge ends over the interior of the tray")
+	check(food.conveyor_position(1.0).is_equal_approx(food._chute_tip) and food._inside_tray(food._chute_tip), "Discharge ends at the moving chute tip over the tray interior")
 	var removed: Array = food.take_donuts(6)
 	check(removed.size() == 6 and food.get_available_count() == 12, "Scoop removes exact physical stock")
 	check(removed[0].physics_interpolation_mode == Node.PHYSICS_INTERPOLATION_MODE_OFF, "Scoop hand animation is not double interpolated")

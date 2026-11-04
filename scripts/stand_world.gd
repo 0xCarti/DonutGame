@@ -24,13 +24,26 @@ var _state: Dictionary = {}
 var _stations: Dictionary = {}
 var _markers: Dictionary = {}
 var _machine_root: Node3D
+var _discharge_chute: Node3D
+var _discharge_chute_tip: Marker3D
+var _discharge_chute_floor: MeshInstance3D
 var _machine_donuts: Array[Node3D] = []
 var _bulk_donuts: Array[Node3D] = []
 var _food: Node3D
+var _tray_visual: Node3D
 var _station_meshes: Dictionary = {}
 var _station_overlays: Dictionary = {}
 var _highlight_strengths: Dictionary = {}
 var _heat_knobs: Array[Node3D] = []
+var _dial_presses: Array[float] = [0.0, 0.0]
+var _dial_velocities: Array[float] = [0.0, 0.0]
+var _arm_rigs: Array[Dictionary] = []
+var _hand_tracks: Array[Dictionary] = []
+var _finger_joints: Array[Array] = []
+const UPPER_ARM_LENGTH: float = 1.12
+const FOREARM_LENGTH: float = 1.04
+const GRASP_TIME: float = 0.20
+const ACTION_DURATIONS: Dictionary = {"bag": 0.92, "bucket": 0.92, "scoop": 0.80, "supply": 1.02, "package": 1.14, "cinnamon": 1.24, "powdered": 1.24, "serve": 0.90, "tray_shake": 1.06}
 var _motions: Array[Dictionary] = []
 var _tool_home: Transform3D
 var _shakers: Dictionary = {}
@@ -104,6 +117,8 @@ var _package_anchor: Vector3 = Vector3(0.55, 1.73, 2.00)
 var _supply_anchor: Vector3 = Vector3(-1.40, 1.76, 0.93)
 var _serve_anchor: Vector3 = Vector3(0.50, 1.71, -0.95)
 const MAX_EFFECTS: int = 64
+const DISCHARGE_HORIZONTAL_LENGTH: float = 1.85
+const DISCHARGE_DROP: float = 0.08
 
 func _ready() -> void:
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -497,14 +512,19 @@ func _make_machine() -> void:
 	for i in range(7):
 		var roller: MeshInstance3D = _cylinder(Vector3(3.43 + float(i) * 0.13, 2.34 + float(i) * 0.043, -0.25), 0.045, 1.51, "steel_light")
 		roller.rotation_degrees.x = 90.0
-	var chute: MeshInstance3D = _box(Vector3(4.50, 2.45, 0.32), Vector3(0.76, 0.06, 1.45), "steel_light")
-	chute.rotation_degrees.x = 20.0
-	for x in [4.13, 4.87]:
-		var lip: MeshInstance3D = _box(Vector3(x, 2.50, 0.32), Vector3(0.05, 0.2, 1.45), "steel")
-		lip.rotation_degrees.x = 20.0
-	_tube(Vector3(4.3, 2.31, -1.24), Vector3(4.3, 3.11, -1.24), 0.04, "steel_light")
-	_tube(Vector3(4.3, 3.11, -1.24), Vector3(4.3, 3.11, 0.7), 0.04, "steel_light")
-	_tube(Vector3(4.3, 3.11, 0.7), Vector3(4.3, 2.31, 0.7), 0.04, "steel_light")
+	# This fixed upper exit ends at the swivel bearing. The delivery trough below
+	# it moves as one rigid assembly; no second fixed floor crosses its sweep.
+	var exit_start: Vector3 = Vector3(4.50, 2.65, -0.35)
+	var exit_end: Vector3 = Vector3(4.50, (2.175 - 1.01) / 0.48, (-0.35 + 0.60) / 0.48)
+	var exit_direction: Vector3 = (exit_end - exit_start).normalized()
+	var chute: MeshInstance3D = _box((exit_start + exit_end) * 0.5, Vector3(0.80, 0.06, exit_start.distance_to(exit_end)), "steel_light")
+	chute.look_at(chute.position - exit_direction, Vector3.UP)
+	for side in [-1.0, 1.0]:
+		var offset: Vector3 = Vector3(side * 0.40, 0.075, 0)
+		_tube(exit_start + offset, exit_end + offset, 0.028, "steel")
+	_tube(Vector3(5.2, 2.31, -1.24), Vector3(5.2, 3.11, -1.24), 0.04, "steel_light")
+	_tube(Vector3(5.2, 3.11, -1.24), Vector3(5.2, 3.11, 1.15), 0.04, "steel_light")
+	_tube(Vector3(5.2, 3.11, 1.15), Vector3(5.2, 2.31, 1.15), 0.04, "steel_light")
 	for i in range(32):
 		var bubble: MeshInstance3D = _sphere(Vector3(_rng.randf_range(-4.0, 3.3), 2.245, _rng.randf_range(-1.0, 0.40)), _rng.randf_range(0.025, 0.065), "oil_bubble")
 		bubble.scale.y = 0.3
@@ -872,24 +892,58 @@ func _build_compact_machine() -> void:
 		if child != _machine_root and not previous.has(child):
 			child.reparent(_machine_root, false)
 	_box(Vector3(-2.35, 1.765, -0.72), Vector3(4.5, 0.16, 1.14), "dark_enamel")
-	# The discharge dogleg ends over the inside of the tray, not its rim.
-	var chute_start: Vector3 = Vector3(-0.22, 2.105, -0.10)
-	var chute_end: Vector3 = Vector3(-0.62, 2.03, 0.43)
-	var direction: Vector3 = (chute_end - chute_start).normalized()
-	var chute: MeshInstance3D = _box((chute_start + chute_end) * 0.5, Vector3(0.43, 0.035, chute_start.distance_to(chute_end) + 0.10), "steel_light")
-	chute.look_at(chute.position - direction, Vector3.UP)
+	_build_discharge_chute()
+
+func _build_discharge_chute() -> void:
+	var pivot: Vector3 = Vector3(-0.19, 2.22, -0.35)
+	var length: float = Vector2(DISCHARGE_HORIZONTAL_LENGTH, DISCHARGE_DROP).length()
+	# Bearing and gear housing remain mounted to the machine. The slim support
+	# arm and trough are children of the rotating assembly, not rebuilt meshes.
+	_cylinder(pivot + Vector3(0, -0.15, 0), 0.105, 0.18, "steel_dark")
+	_cylinder(pivot + Vector3(0, -0.065, 0), 0.145, 0.035, "steel_light")
+	_box(pivot + Vector3(0.18, -0.16, -0.04), Vector3(0.25, 0.20, 0.23), "steel_dark")
+	_tube(pivot + Vector3(0, -0.16, 0), pivot + Vector3(0.17, -0.16, 0), 0.035, "brass")
+	_discharge_chute = Node3D.new()
+	_discharge_chute.name = "SweepingDeliveryChute"
+	_discharge_chute.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	add_child(_discharge_chute)
+	_discharge_chute_floor = _box(Vector3(0, -0.0575, length * 0.5), Vector3(0.40, 0.025, length), "steel_light", _discharge_chute)
+	_discharge_chute_floor.name = "DeliveryFloor"
 	for side in [-1.0, 1.0]:
-		var offset: Vector3 = direction.cross(Vector3.UP).normalized() * side * 0.22 + Vector3(0, 0.065, 0)
-		_tube(chute_start + offset, chute_end + offset, 0.025, "steel")
+		_box(Vector3(side * 0.205, -0.025, length * 0.5), Vector3(0.025, 0.080, length), "steel", _discharge_chute)
+		_tube(Vector3(side * 0.205, 0.015, 0), Vector3(side * 0.205, 0.015, length), 0.013, "steel_light", _discharge_chute)
+	_box(Vector3(0, -0.094, 0.26), Vector3(0.065, 0.055, 0.57), "steel_dark", _discharge_chute)
+	_cylinder(Vector3(0, -0.075, 0), 0.067, 0.035, "brass", _discharge_chute)
+	_discharge_chute_tip = Marker3D.new()
+	_discharge_chute_tip.name = "ReleaseCenter"
+	_discharge_chute_tip.position = Vector3(0, 0, length)
+	_discharge_chute.add_child(_discharge_chute_tip)
+	var angle: float = deg_to_rad(45.0)
+	set_discharge_chute_pose(pivot, pivot + Vector3(-sin(angle) * DISCHARGE_HORIZONTAL_LENGTH, -DISCHARGE_DROP, cos(angle) * DISCHARGE_HORIZONTAL_LENGTH))
+	_discharge_chute.reset_physics_interpolation()
+
+func set_discharge_chute_pose(start: Vector3, end: Vector3) -> void:
+	if not is_instance_valid(_discharge_chute) or start.is_equal_approx(end):
+		return
+	# Physics owns the clock. This exact transform is shared by the guided food
+	# and visible trough, including pause/jam, with interpolation only at render.
+	var forward: Vector3 = (end - start).normalized()
+	var right: Vector3 = Vector3.UP.cross(forward).normalized()
+	var up: Vector3 = forward.cross(right).normalized()
+	_discharge_chute.transform = Transform3D(Basis(right, up, forward), start)
 
 func _build_stations() -> void:
 	# Bulk tray contains visible individual donuts, with a scoop resting beside it.
-	_box(_supply_anchor - Vector3(0, 0.06, 0), Vector3(2.25, 0.12, 1.46), "steel_dark")
-	_box(_supply_anchor + Vector3(0, 0.01, 0), Vector3(2.12, 0.035, 1.32), "tray_paper")
+	_tray_visual = Node3D.new()
+	_tray_visual.name = "CatchTray"
+	_tray_visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	add_child(_tray_visual)
+	_box(_supply_anchor - Vector3(0, 0.06, 0), Vector3(2.25, 0.12, 1.46), "steel_dark", _tray_visual)
+	_box(_supply_anchor + Vector3(0, 0.01, 0), Vector3(2.12, 0.035, 1.32), "tray_paper", _tray_visual)
 	for z in [-0.72, 0.72]:
-		_box(_supply_anchor + Vector3(0, 0.08, z), Vector3(2.28, 0.22, 0.055), "steel_light")
+		_box(_supply_anchor + Vector3(0, 0.08, z), Vector3(2.28, 0.22, 0.055), "steel_light", _tray_visual)
 	for x in [-1.12, 1.12]:
-		_box(_supply_anchor + Vector3(x, 0.08, 0), Vector3(0.055, 0.22, 1.46), "steel_light")
+		_box(_supply_anchor + Vector3(x, 0.08, 0), Vector3(0.055, 0.22, 1.46), "steel_light", _tray_visual)
 	_station("supply", _supply_anchor + Vector3(0, 0.20, 0), Vector3(2.15, 0.35, 1.35), "FRESH DONUTS")
 	_station("serve", _serve_anchor + Vector3(0, 0.13, 0), Vector3(1.35, 0.30, 0.92), "SERVE")
 	_station("package", _package_anchor + Vector3(0, 0.23, 0), Vector3(0.88, 0.52, 0.72), "PACK HERE")
@@ -1282,36 +1336,91 @@ func _batch_static_venue() -> void:
 func _build_hands() -> void:
 	_view_hands = Node3D.new()
 	camera.add_child(_view_hands)
-	# Forearms enter the bottom of the eye-height camera, anchoring the player.
+	# Separate, fixed-length bones solve to the glove. The torso can lean under
+	# the counter; the sleeve never scales to bridge the whole camera-to-tool gap.
 	for side in [-1.0, 1.0]:
-		var elbow: Vector3 = Vector3(side * 0.55, -0.79, -0.55)
-		var wrist: Vector3 = Vector3(side * 0.34, -0.48, -0.88)
+		var wrist: Vector3 = Vector3(side * 0.43, -0.74, -1.35)
 		var hand: Node3D = Node3D.new()
 		hand.position = wrist
 		_view_hands.add_child(hand)
 		_hands.append(hand)
-		_tube(elbow - wrist, Vector3(0, -0.025, 0.028), 0.105, "sleeve", hand)
+		var upper: MeshInstance3D = _mesh_node(_make_sleeve_mesh(UPPER_ARM_LENGTH, false), Vector3.ZERO, _mat["sleeve"])
+		var fore: MeshInstance3D = _mesh_node(_make_sleeve_mesh(FOREARM_LENGTH, true), Vector3.ZERO, _mat["sleeve"])
+		var elbow: MeshInstance3D = _sphere(Vector3.ZERO, 0.103, "sleeve")
+		var upper_material: ShaderMaterial = _arm_material(false)
+		var fore_material: ShaderMaterial = _arm_material(true)
+		upper.material_override = upper_material
+		fore.material_override = fore_material
+		elbow.material_override = upper_material
+		for segment in [upper, fore, elbow]: segment.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_arm_rigs.append({"upper": upper, "fore": fore, "joint": elbow, "upper_material": upper_material, "fore_material": fore_material, "shoulder": Vector3.ZERO, "elbow": Vector3.ZERO, "wrist": Vector3.ZERO})
+		_hand_tracks.append({"node": null, "from": hand.global_transform, "age": 1.0, "duration": GRASP_TIME})
 		_tube(Vector3(0, -0.025, 0.03), Vector3(0, 0.005, -0.025), 0.103, "stitched_cuff", hand)
 		var palm: MeshInstance3D = _sphere(Vector3(0, 0.025, -0.07), 0.095, "glove", hand)
 		palm.scale = Vector3(0.89, 0.57, 1.15)
+		var finger_joints: Array = []
 		for i in range(4):
 			var finger_x: float = -0.059 + float(i) * 0.039
 			var length: float = 0.082 if i in [1, 2] else 0.062
 			var knuckle: Vector3 = Vector3(finger_x, 0.049, -0.12)
 			var bend: Vector3 = Vector3(finger_x, 0.068, -0.12 - length * 0.55)
 			var tip: Vector3 = Vector3(finger_x, 0.025, -0.12 - length)
-			_tube(knuckle, bend, 0.022, "glove", hand)
-			_tube(bend, tip, 0.020, "glove", hand)
-			_sphere(bend, 0.024, "glove", hand)
-			_sphere(tip, 0.021, "glove", hand)
-			_tube(knuckle + Vector3(-0.011, 0.010, 0.002), knuckle + Vector3(0.011, 0.010, 0.002), 0.002, "paper_fold", hand)
+			var joint: Node3D = Node3D.new()
+			hand.add_child(joint)
+			joint.position = knuckle
+			finger_joints.append(joint)
+			_tube(Vector3.ZERO, bend - knuckle, 0.022, "glove", joint)
+			_tube(bend - knuckle, tip - knuckle, 0.020, "glove", joint)
+			_sphere(bend - knuckle, 0.024, "glove", joint)
+			_sphere(tip - knuckle, 0.021, "glove", joint)
+			_tube(Vector3(-0.011, 0.010, 0.002), Vector3(0.011, 0.010, 0.002), 0.002, "paper_fold", joint)
+		_finger_joints.append(finger_joints)
 		_tube(Vector3(-side * 0.065, 0.015, -0.03), Vector3(-side * 0.104, 0.02, -0.085), 0.033, "glove", hand)
 		_tube(Vector3(-side * 0.104, 0.02, -0.085), Vector3(-side * 0.08, 0.043, -0.125), 0.028, "glove", hand)
 		_sphere(Vector3(-side * 0.08, 0.043, -0.125), 0.028, "glove", hand)
 		for stitch in range(5):
 			_box(Vector3(-0.066 + float(stitch) * 0.033, 0.063, -0.004), Vector3(0.014, 0.003, 0.009), "paper_fold", hand)
-	_scoop_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(12), deg_to_rad(-10), 0)).scaled(Vector3.ONE * 0.82), Vector3(0.32, -0.40, -1.17))
-	_package_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(9), deg_to_rad(-14), 0)).scaled(Vector3.ONE * 0.65), Vector3(0.28, -0.49, -1.13))
+	_scoop_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(12), deg_to_rad(-10), deg_to_rad(-5))).scaled(Vector3.ONE * 0.78), Vector3(0.48, -0.62, -1.64))
+	_package_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(6), deg_to_rad(-12), 0)).scaled(Vector3.ONE * 0.78), Vector3(0.43, -0.82, -1.64))
+	_update_hands(1.0)
+
+func _make_sleeve_mesh(length: float, forearm: bool) -> ArrayMesh:
+	# A tailored taper and a few soft cloth folds replace the straight red rods.
+	var levels: Array[float] = [-0.5, -0.46, -0.39, -0.27, -0.10, 0.12, 0.28, 0.36, 0.42, 0.5]
+	var widths: Array = [0.105, 0.110, 0.104, 0.102, 0.097, 0.094, 0.089, 0.096, 0.084, 0.082] if forearm else [0.124, 0.126, 0.120, 0.117, 0.114, 0.110, 0.108, 0.112, 0.104, 0.102]
+	var surface: SurfaceTool = SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for ring in range(levels.size() - 1):
+		for segment in range(16):
+			for corner in [Vector2i(0, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(0, 0), Vector2i(1, 1), Vector2i(1, 0)]:
+				var row: int = ring + corner.y
+				var angle: float = float(segment + corner.x) * TAU / 16.0
+				var radius: float = widths[row] * (1.0 + sin(angle * 3.0 + levels[row] * 4.0) * 0.025)
+				surface.set_uv(Vector2(float(segment + corner.x) / 16.0, levels[row] + 0.5))
+				surface.add_vertex(Vector3(cos(angle) * radius, levels[row] * length, sin(angle) * radius))
+	surface.generate_normals()
+	return surface.commit()
+
+func _arm_material(forearm: bool) -> ShaderMaterial:
+	# Counter objects use world space, while the close hand presentation must not
+	# expose a severed shoulder at distant stations. Fade to a short cuff there;
+	# retain the articulated silhouette as the tool returns to the operator.
+	var shader: Shader = Shader.new()
+	shader.code = """shader_type spatial;
+render_mode blend_mix, depth_prepass_alpha, cull_back;
+uniform float remote_weight = 0.0;
+uniform bool forearm = false;
+void fragment() {
+ ALBEDO = vec3(0.42, 0.105, 0.068);
+ ROUGHNESS = 0.86;
+ float cuff = forearm ? smoothstep(0.62, 0.94, UV.y) : 0.0;
+ ALPHA = mix(1.0, cuff, remote_weight);
+}
+"""
+	var material: ShaderMaterial = ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("forearm", forearm)
+	return material
 
 func get_camera() -> Camera3D:
 	return camera
@@ -1474,8 +1583,16 @@ func sync_state(state: Dictionary) -> void:
 	if pouring_batter != _refilling:
 		_refilling = pouring_batter
 		var target: Transform3D = Transform3D(Basis.from_euler(Vector3(0, 0, deg_to_rad(65))), _stations["refill"].position + Vector3(0.34, 0.35, 0)) if pouring_batter else _pitcher_home
-		_move_node(_maintenance_prop, target, 0.28, 0.15)
+		_move_node(_maintenance_prop, target, 0.52 if pouring_batter else 0.48, 0.26)
+		if pouring_batter: _motions.back()["delay"] = GRASP_TIME
 	_batter_stream.visible = pouring_batter and not _node_is_moving(_maintenance_prop)
+
+func shake_tray() -> bool:
+	return _food.shake_tray() if is_instance_valid(_food) else false
+
+func set_tray_shake_offset(offset: Vector3) -> void:
+	if is_instance_valid(_tray_visual):
+		_tray_visual.position = offset
 
 func reset_food(supply: int, capacity: int, pending_ids: Array = []) -> void:
 	if not is_instance_valid(_food):
@@ -1495,6 +1612,13 @@ func reset_food(supply: int, capacity: int, pending_ids: Array = []) -> void:
 	_action_time = 0.0
 	_action = ""
 	_action_prop = null
+	_handoff = null
+	for track in _hand_tracks:
+		track.node = null
+		track.age = 1.0
+	_dial_presses = [0.0, 0.0]
+	_dial_velocities = [0.0, 0.0]
+	for knob in _heat_knobs: knob.rotation.z = 0.0
 	_refilling = false
 	_maintenance_prop.global_transform = _pitcher_home
 	_batter_stream.visible = false
@@ -1531,12 +1655,13 @@ func _sync_food(previous: Dictionary) -> void:
 			_held_scoop_donuts.append(donut)
 			var index: int = _held_scoop_donuts.size() - 1
 			var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), Vector3(-0.10 + float(index % 2) * 0.19, 0.085 + float(index / 2) * 0.10, -0.15 + float(index / 2) * 0.12))
-			_move_node(donut, _held_scoop.global_transform * local, 0.24, 0.11, func():
+			_move_node(donut, _held_scoop.global_transform * local, 0.22, 0.065, func():
 				if is_instance_valid(donut):
 					donut.reparent(_held_scoop, true)
 					donut.transform = local)
 			_motions.back()["target_node"] = _held_scoop
 			_motions.back()["target_local"] = local
+			_motions.back()["delay"] = 0.30 + float(index) * 0.018
 
 func _plain_donut(id: int, at: Vector3) -> Node3D:
 	var donut: Node3D = _create_donut({"id": id, "recipe": "cinnamon"}, at)
@@ -1567,7 +1692,8 @@ func _sync_package() -> void:
 				if kind == "bag": _prep.scale = Vector3(1.05, 0.06, 1.7)
 				top.visible = false
 				var target: Transform3D = Transform3D(Basis.IDENTITY, _package_anchor)
-				_move_node(_prep, target, 0.43, 0.48, func(): top.visible = true)
+				_move_node(_prep, target, 0.56, 0.34, func(): top.visible = true)
+				_motions.back()["delay"] = GRASP_TIME
 	if not is_instance_valid(_prep): return
 	_prep.visible = true
 	var count: int = mini(int(_state.get("package_count", 0)), 12)
@@ -1586,13 +1712,14 @@ func _sync_package() -> void:
 		var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.60), _package_donut_position(index, kind))
 		var package: Node3D = _prep
 		if transferred:
-			_move_node(donut, package.global_transform * local, 0.27 + float(index % 3) * 0.04, 0.15, func():
+			_move_node(donut, package.global_transform * local, 0.26 + float(index % 3) * 0.025, 0.025, func():
 				if is_instance_valid(donut) and is_instance_valid(package):
 					donut.reparent(package, true)
 					donut.transform = local)
-			_motions.back()["delay"] = 0.13
+			_motions.back()["delay"] = 0.40 + float(index % 3) * 0.035
 			_motions.back()["follow_source"] = _held_scoop
 			_motions.back()["source_local"] = scoop_origin
+			_motions.back()["falling"] = true
 		else:
 			donut.reparent(package, false)
 			donut.transform = local
@@ -1620,15 +1747,17 @@ func _sync_held_tool() -> void:
 	var prior: String = _held_type
 	_held_type = tool
 	if tool == "scoop":
-		_move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.32, 0.15)
+		_move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.44, 0.16)
+		_motions.back()["delay"] = GRASP_TIME
 	elif prior == "scoop":
-		_move_node(_held_scoop, _tool_home, 0.30, 0.12)
+		_move_node(_held_scoop, _tool_home, 0.38, 0.16)
 	if tool == "package" and is_instance_valid(_prep):
 		_held_package = _prep
-		_move_node(_prep, _view_hands.global_transform * _package_pose, 0.36, 0.20)
+		_move_node(_prep, _view_hands.global_transform * _package_pose, 0.50, 0.20)
+		_motions.back()["delay"] = GRASP_TIME
 	elif prior == "package" and is_instance_valid(_prep):
 		_held_package = null
-		_move_node(_prep, Transform3D(Basis.IDENTITY, _package_anchor), 0.30, 0.12)
+		_move_node(_prep, Transform3D(Basis.IDENTITY, _package_anchor), 0.42, 0.15)
 
 func _sync_people() -> void:
 	var orders: Array = _state.get("orders", [])
@@ -1647,7 +1776,7 @@ func _sync_people() -> void:
 			person.set_meta("queue_index", i)
 			var pose: Transform3D = Transform3D(Basis.from_euler(Vector3(0, deg_to_rad(-float(i) * 7.0), 0)), target)
 			_move_node(person, pose, 0.64 if arriving else 0.42)
-			if is_instance_valid(_served_person) and not arriving: _motions.back()["delay"] = 0.43
+			if is_instance_valid(_served_person) and not arriving: _motions.back()["delay"] = 0.64
 		var serve_hit: Area3D = person.get_meta("serve_hit")
 		serve_hit.collision_layer = 1 if i == 0 else 0
 		var label: Label3D = person.get_meta("order_label")
@@ -1667,7 +1796,7 @@ func _sync_people() -> void:
 			leaving.get_meta("patience").visible = false
 			_departing.append(leaving)
 			if leaving == _served_person:
-				_move_node(leaving, leaving.global_transform, 0.48, 0.0, func(): _depart_customer(leaving))
+				_move_node(leaving, leaving.global_transform, 0.70, 0.0, func(): _depart_customer(leaving))
 			else:
 				_depart_customer(leaving)
 			_people.erase(id)
@@ -1779,32 +1908,39 @@ func is_action_busy() -> bool:
 
 func animate_action(id: String) -> void:
 	# Heat clicks may arrive during a transfer; never cancel a hand movement.
-	if id in ["heat_down", "heat_up"]: return
+	if id in ["heat_down", "heat_up"]:
+		_dial_presses[0 if id == "heat_down" else 1] = 0.15
+		return
 	_action = id
 	_action_before = _state.duplicate(true)
-	_action_duration = 0.44 if id != "serve" else 0.50
+	_action_duration = ACTION_DURATIONS.get(id, 0.70)
 	_action_time = _action_duration
 	_action_serial += 1
 	_action_reach = get_station_world_position(id)
 	if id == "supply":
-		var dipped: Transform3D = Transform3D(Basis.from_euler(Vector3(0, -0.3, -0.15)), _supply_anchor + Vector3(0.30, 0.21, 0.12))
-		_move_node(_held_scoop, dipped, 0.18, 0.15, func(): _move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.24, 0.22))
+		var dipped: Transform3D = Transform3D(Basis.from_euler(Vector3(-0.08, -0.3, -0.08)), _supply_anchor + Vector3(0.30, 0.24, 0.14))
+		_move_node(_held_scoop, dipped, 0.30, 0.20, func():
+			_move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.34, 0.26)
+			_motions.back()["delay"] = 0.26)
 	elif id == "package" and str(_state.get("held_tool", "")) == "scoop":
-		var tipped: Transform3D = Transform3D(Basis.from_euler(Vector3(deg_to_rad(55), 0, 0)).scaled(Vector3.ONE * 0.82), _package_anchor + Vector3(0.03, 0.8, 0.12))
-		_move_node(_held_scoop, tipped, 0.18, 0.15, func(): _move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.24, 0.10))
+		var over_bag: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.90), _package_anchor + Vector3(0.03, 0.87, 0.16))
+		var tipped: Transform3D = Transform3D(Basis.from_euler(Vector3(deg_to_rad(-66), 0, 0)).scaled(Vector3.ONE * 0.90), over_bag.origin)
+		_move_node(_held_scoop, over_bag, 0.26, 0.12, func():
+			_move_node(_held_scoop, tipped, 0.18, 0.0, func():
+				_move_node(_held_scoop, _view_hands.global_transform * _scoop_pose, 0.28, 0.14)
+				_motions.back()["delay"] = 0.32))
 	elif id in ["cinnamon", "powdered"]:
 		_action_prop = _shakers[id]
 		var shaker: Node3D = _action_prop
 		var home: Transform3D = _shaker_homes[id]
 		var tilted: Transform3D = Transform3D(Basis.from_euler(Vector3(0, 0, deg_to_rad(-135))), _package_anchor + Vector3(0.16, 1.0, 0))
-		_move_node(shaker, tilted, 0.18, 0.18, func():
+		_move_node(shaker, tilted, 0.32, 0.23, func():
 			_coat_package(id)
-			_move_node(shaker, home, 0.24, 0.14, func(): _action_prop = null))
-		for i in range(18 if not _reduced_motion else 6):
-			var grain: MeshInstance3D = _sphere(_package_anchor + Vector3(_rng.randf_range(-0.13, 0.13), 0.85, _rng.randf_range(-0.12, 0.12)), 0.011, id)
-			_add_effect(grain, Vector3(_rng.randf_range(-0.10, 0.10), -1.15, _rng.randf_range(-0.10, 0.10)), 0.22 + float(i % 5) * 0.025)
-			grain.visible = false
-			_effects.back()["delay"] = 0.14
+			_emit_seasoning(id)
+			_move_node(shaker, tilted, 0.26, 0.0, func():
+				_move_node(shaker, home, 0.34, 0.20, func(): _action_prop = null))
+			_motions.back()["shake"] = true)
+		_motions.back()["delay"] = GRASP_TIME
 	if id == "trash":
 		var recoverable: Array[Node3D] = []
 		recoverable.append_array(_held_scoop_donuts)
@@ -1835,10 +1971,27 @@ func animate_action(id: String) -> void:
 			destination = _served_person.to_global(Vector3(0.12, 1.78, 0.48)) if is_instance_valid(_served_person) else _serve_anchor + Vector3(0, 0.16, -0.62)
 		_handoff = package if id == "serve" else null
 		var recipient: Node3D = _served_person if id == "serve" else null
-		_move_node(package, Transform3D(Basis.IDENTITY, destination), 0.48, 0.30, func():
-			if is_instance_valid(recipient): package.reparent(recipient, true)
-			else: package.queue_free())
+		if id == "serve":
+			# Offer at the service ledge, release, then let the customer collect.
+			# The operator never needs to reach all the way to the customer's torso.
+			_move_node(package, Transform3D(Basis.IDENTITY, _serve_anchor + Vector3(0, 0.045, 0.02)), 0.48, 0.10, func():
+				_handoff = null
+				_move_node(package, Transform3D(Basis.IDENTITY, destination), 0.20, 0.04, func():
+					if is_instance_valid(recipient): package.reparent(recipient, true)
+					else: package.queue_free()))
+		else:
+			_move_node(package, Transform3D(Basis.IDENTITY, destination), 0.58, 0.20, func(): package.queue_free())
 		for person_id in _people: _people[person_id].set_meta("cheer", 0.95)
+
+func _emit_seasoning(flavor: String) -> void:
+	for i in range(18 if not _reduced_motion else 6):
+		var grain: MeshInstance3D = _sphere(_package_anchor + Vector3(_rng.randf_range(-0.13, 0.13), 0.85, _rng.randf_range(-0.12, 0.12)), 0.011, flavor)
+		_add_effect(grain, Vector3(_rng.randf_range(-0.10, 0.10), -1.15, _rng.randf_range(-0.10, 0.10)), 0.28 + float(i % 5) * 0.025)
+		grain.visible = false
+		_effects.back()["delay"] = float(i % 5) * 0.035
+
+func _minimum_jerk(t: float) -> float:
+	return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 
 func _move_node(node: Node3D, destination: Transform3D, duration: float, arc: float = 0.0, finished: Callable = Callable()) -> void:
 	for index in range(_motions.size() - 1, -1, -1):
@@ -1866,11 +2019,18 @@ func _advance_motions(delta: float) -> void:
 			continue
 		motion.age = minf(float(motion.duration), float(motion.age) + delta)
 		var t: float = float(motion.age) / float(motion.duration)
-		var eased: float = t * t * (3.0 - 2.0 * t)
+		var eased: float = _minimum_jerk(t)
 		if motion.has("target_node") and is_instance_valid(motion.target_node):
 			motion.to = motion.target_node.global_transform * Transform3D(motion.target_local)
 		var pose: Transform3D = Transform3D(motion.from).interpolate_with(motion.to, eased)
-		pose.origin.y += sin(t * PI) * float(motion.arc)
+		if bool(motion.get("falling", false)):
+			pose.origin = Transform3D(motion.from).origin.lerp(Transform3D(motion.to).origin, t * t)
+		# Unlike sin(pi*t), this lift has zero speed at pickup and set-down.
+		pose.origin.y += 16.0 * t * t * (1.0 - t) * (1.0 - t) * float(motion.arc)
+		if bool(motion.get("shake", false)):
+			var shake: float = sin(t * TAU * 2.0) * pow(sin(t * PI), 2.0)
+			pose.origin += Vector3(0.045, 0.018, 0) * shake
+			pose.basis = pose.basis.rotated(Vector3.FORWARD, shake * 0.10)
 		node.global_transform = pose
 		if t >= 1.0:
 			var callback: Callable = motion.finished
@@ -1905,6 +2065,127 @@ func _add_effect(node: Node3D, velocity: Vector3, lifetime: float) -> void:
 		old["node"].queue_free()
 	_effects.append({"node": node, "velocity": velocity, "age": 0.0, "lifetime": lifetime, "scale": node.scale})
 
+func _hand_goal(index: int) -> Dictionary:
+	var node: Node3D
+	var offset: Vector3 = Vector3.ZERO
+	var grip_basis: Basis = Basis.IDENTITY
+	var side: float = -1.0 if index == 0 else 1.0
+	if _action == "tray_shake" and _action_time > 0.20:
+		node = _tray_visual
+		offset = _supply_anchor + Vector3(side * 0.69, 0.13, 0.81)
+	elif index == 0:
+		if _action == "package" and _held_type == "scoop" and is_instance_valid(_prep) and is_action_busy():
+			node = _prep
+			offset = Vector3(-0.35, 0.28, 0.10)
+			grip_basis = Basis.from_euler(Vector3(0, -PI * 0.5, 0))
+		elif _held_type != "scoop" and _node_is_moving(_held_scoop):
+			node = _held_scoop
+			offset = Vector3(0, -0.005, 0.53)
+	else:
+		if _refilling or _node_is_moving(_maintenance_prop):
+			node = _maintenance_prop
+			offset = Vector3(0.39, 0.26, 0.08)
+			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
+		elif str(_state.get("hold_station", "")) == "repair":
+			node = _repair_handle
+			offset = Vector3(0, 0, 0.09)
+		elif is_instance_valid(_action_prop):
+			node = _action_prop
+			offset = Vector3(0.27, 0.28, 0.08)
+			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
+		elif is_instance_valid(_handoff) and _action == "serve" and _node_is_moving(_handoff):
+			node = _handoff
+			offset = Vector3(0.35, 0.28, 0.10)
+			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
+		elif _action in ["bag", "bucket"] and is_instance_valid(_prep) and _node_is_moving(_prep):
+			node = _prep
+			offset = Vector3(0.35, 0.28, 0.10)
+			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
+		elif is_instance_valid(_held_package):
+			node = _held_package
+			offset = Vector3(0.35, 0.28, 0.10)
+			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
+		elif _held_type == "scoop":
+			node = _held_scoop
+			offset = Vector3(0, -0.005, 0.53)
+	if is_instance_valid(node):
+		var transform: Transform3D = node.get_global_transform_interpolated() if node == _tray_visual else node.global_transform
+		return {"node": node, "pose": Transform3D(transform.basis.orthonormalized() * grip_basis, transform * offset)}
+	return {"node": null, "pose": _view_hands.global_transform * Transform3D(Basis.IDENTITY, Vector3(side * 0.43, -0.74, -1.35))}
+
+func _update_hands(delta: float) -> void:
+	for index in range(_hands.size()):
+		var hand: Node3D = _hands[index]
+		var track: Dictionary = _hand_tracks[index]
+		var goal: Dictionary = _hand_goal(index)
+		if track.node != goal.node:
+			track.node = goal.node
+			track.from = hand.global_transform
+			track.age = 0.0
+			track.duration = GRASP_TIME if is_instance_valid(goal.node) else 0.22
+		track.age = minf(float(track.duration), float(track.age) + delta)
+		var t: float = clampf(float(track.age) / float(track.duration), 0.0, 1.0)
+		hand.global_transform = Transform3D(track.from).interpolate_with(goal.pose, _minimum_jerk(t))
+		var finger_angle: float = -0.62 if is_instance_valid(goal.node) else 0.08
+		for joint in _finger_joints[index]:
+			joint.rotation.x = lerpf(joint.rotation.x, finger_angle, 1.0 - exp(-delta * 18.0))
+		_solve_arm(index, hand.global_position)
+
+func _solve_arm(index: int, wrist: Vector3) -> void:
+	var side: float = -1.0 if index == 0 else 1.0
+	var rig: Dictionary = _arm_rigs[index]
+	# The implied torso leans beneath the opaque counter. At distant stations
+	# its shoulder follows the reach; both visible bone lengths remain anatomical.
+	var shoulder: Vector3 = _view_hands.to_global(Vector3(side * 0.54, -1.48, -0.35))
+	var reach: float = UPPER_ARM_LENGTH + FOREARM_LENGTH - 0.07
+	# Vertical reach takes priority: keep the shoulder below the opaque worktop,
+	# then slide the hidden torso horizontally. A radial clamp would lift the
+	# shoulder into view and expose a disconnected sleeve over the counter.
+	shoulder.y = maxf(1.30, wrist.y - reach + 0.015)
+	var vertical: float = wrist.y - shoulder.y
+	var horizontal_reach: float = sqrt(maxf(0.0, reach * reach - vertical * vertical))
+	var horizontal: Vector3 = Vector3(shoulder.x - wrist.x, 0, shoulder.z - wrist.z)
+	if horizontal.length() > horizontal_reach:
+		horizontal = horizontal.normalized() * horizontal_reach
+	shoulder.x = wrist.x + horizontal.x
+	shoulder.z = wrist.z + horizontal.z
+	var direction: Vector3 = (wrist - shoulder).normalized()
+	var distance: float = clampf(shoulder.distance_to(wrist), 0.08, reach)
+	var projection: float = (UPPER_ARM_LENGTH * UPPER_ARM_LENGTH - FOREARM_LENGTH * FOREARM_LENGTH + distance * distance) / (2.0 * distance)
+	var height: float = sqrt(maxf(0.0, UPPER_ARM_LENGTH * UPPER_ARM_LENGTH - projection * projection))
+	var bend: Vector3 = Vector3(side * 0.55, -0.8, 0.20)
+	bend = (bend - direction * bend.dot(direction)).normalized()
+	var elbow: Vector3 = shoulder + direction * projection + bend * height
+	var upper: MeshInstance3D = rig.upper
+	var fore: MeshInstance3D = rig.fore
+	upper.visible = _view_hands.visible
+	fore.visible = _view_hands.visible
+	rig.joint.visible = _view_hands.visible
+	var remote_weight: float = smoothstep(1.85, 2.60, camera.global_position.distance_to(wrist))
+	rig.upper_material.set_shader_parameter("remote_weight", remote_weight)
+	rig.fore_material.set_shader_parameter("remote_weight", remote_weight)
+	upper.global_position = (shoulder + elbow) * 0.5
+	upper.global_basis = Basis(Quaternion(Vector3.UP, (elbow - shoulder).normalized()))
+	fore.global_position = (elbow + wrist) * 0.5
+	fore.global_basis = Basis(Quaternion(Vector3.UP, (wrist - elbow).normalized()))
+	rig.joint.global_position = elbow
+	rig.shoulder = shoulder
+	rig.elbow = elbow
+	rig.wrist = wrist
+
+func _update_dials(delta: float) -> void:
+	for index in range(_heat_knobs.size()):
+		_dial_presses[index] = maxf(0.0, _dial_presses[index] - delta)
+		var target: float = (-0.45 if index == 0 else 0.45) if _dial_presses[index] > 0.0 else 0.0
+		# Exact critically damped spring integration keeps repeated presses smooth
+		# and frame-rate independent, without touching the neighboring encoder.
+		var omega: float = 23.0
+		var displacement: float = _heat_knobs[index].rotation.z - target
+		var coefficient: float = _dial_velocities[index] + omega * displacement
+		var decay: float = exp(-omega * delta)
+		_heat_knobs[index].rotation.z = target + (displacement + coefficient * delta) * decay
+		_dial_velocities[index] = (_dial_velocities[index] - omega * coefficient * delta) * decay
+
 func _process(delta: float) -> void:
 	if not _loaded:
 		return
@@ -1918,8 +2199,7 @@ func _process(delta: float) -> void:
 	_work_light.light_energy = 0.42 + _reward_pulse * _reward_strength
 	_error_glow.light_energy = (0.12 + (0.35 if _reduced_motion else pow(sin(_time * 5.0) * 0.5 + 0.5, 3.0) * 0.7)) if not _context_station.is_empty() else 0.0
 	_update_highlights(delta)
-	for knob in _heat_knobs:
-		knob.rotation.z = lerp_angle(knob.rotation.z, deg_to_rad(120.0 - float(_state.get("heat_setting", 3)) * 60.0), 1.0 - exp(-delta * 15.0))
+	_update_dials(delta)
 	_repair_motion = move_toward(_repair_motion, 1.0 if str(_state.get("hold_station", "")) == "repair" else 0.0, delta * 7.0)
 	_repair_handle.position.y = 2.16 + (sin(_time * 13.0) * 0.018 * _repair_motion if not _reduced_motion else 0.0)
 	_batter_stream.visible = _refilling and not _node_is_moving(_maintenance_prop)
@@ -1934,7 +2214,6 @@ func _process(delta: float) -> void:
 		camera.position.y += sin(_time * 71.0) * _camera_kick * 0.20
 		camera.position.x += cos(_time * 83.0) * _camera_kick * 0.12
 		camera.rotation.z += sin(_time * 67.0) * _camera_kick * 0.018
-	var action_phase: float = sin(clampf(_action_time / _action_duration, 0.0, 1.0) * PI)
 	_view_hands.position = Vector3(0, 0.0 if _reduced_motion else sin(_time * 1.2) * 0.008, 0)
 	_advance_motions(delta)
 	if was_busy and not is_action_busy(): action_finished.emit()
@@ -1942,46 +2221,7 @@ func _process(delta: float) -> void:
 		_held_scoop.global_transform = _view_hands.global_transform * _scoop_pose
 	if is_instance_valid(_held_package) and not _node_is_moving(_held_package):
 		_held_package.global_transform = _view_hands.global_transform * _package_pose
-	if _hands.size() == 2:
-		var right_home: Vector3 = Vector3(0.34, -0.48, -0.88)
-		var reaching_to: Vector3 = _action_reach + Vector3(0, 0.20, 0.24)
-		var reach_amount: float = action_phase * 0.90
-		# Keep the glove on the moving object rather than pointing at its old station.
-		if _action in ["bag", "bucket"] and is_instance_valid(_prep) and is_action_busy():
-			reaching_to = _prep.to_global(Vector3(0.27, 0.24, 0.10))
-			reach_amount = 1.0
-		elif is_instance_valid(_handoff) and _action == "serve" and is_action_busy():
-			reaching_to = _handoff.to_global(Vector3(0.27, 0.21, 0.08))
-			reach_amount = 1.0
-		elif is_instance_valid(_action_prop):
-			reaching_to = _action_prop.to_global(Vector3(0.18, 0.25, 0))
-			reach_amount = 1.0
-		elif is_instance_valid(_held_package):
-			reaching_to = _held_package.to_global(Vector3(0.27, 0.21, 0.08))
-			reach_amount = 1.0
-		elif _held_type == "scoop":
-			reaching_to = _held_scoop.to_global(Vector3(0, -0.005, 0.42))
-			reach_amount = 1.0
-		if str(_state.get("hold_station", "")) == "refill":
-			reaching_to = _maintenance_prop.to_global(Vector3(0.34, 0.24, 0))
-			reach_amount = 1.0
-		elif str(_state.get("hold_station", "")) == "repair":
-			reaching_to = _repair_handle.global_position
-			reach_amount = 1.0
-		_hand_reach_weight = lerpf(_hand_reach_weight, reach_amount, 1.0 - exp(-delta * 24.0))
-		var reach: Vector3 = _view_hands.to_local(reaching_to)
-		_hands[1].position = right_home.lerp(reach, _hand_reach_weight)
-		_hands[1].rotation.x = action_phase * -0.30
-		_hands[0].rotation.z = action_phase * -0.16 if _action == "serve" else 0.0
-		for side_index in range(2):
-			var hand: Node3D = _hands[side_index]
-			var sleeve: MeshInstance3D = hand.get_child(0)
-			var elbow: Vector3 = _view_hands.to_global(Vector3(-0.55 if side_index == 0 else 0.55, -0.79, -0.55))
-			var wrist: Vector3 = hand.to_global(Vector3(0, -0.025, 0.028))
-			var direction: Vector3 = (wrist - elbow).normalized()
-			sleeve.global_position = (elbow + wrist) * 0.5
-			sleeve.global_basis = Basis(Quaternion(Vector3.UP, direction))
-			sleeve.scale.y = elbow.distance_to(wrist) / maxf(0.001, float(sleeve.mesh.height))
+	_update_hands(delta)
 	var running: bool = str(_state.get("phase", "playing")) == "playing" and not bool(_state.get("jammed", false)) and int(_state.get("batter", 1)) > 0 and not bool(_state.get("overheated", false)) and float(_state.get("temperature", 180.0)) >= 145.0 and str(_state.get("hold_station", "")) != "refill"
 	if running:
 		_production_time += delta

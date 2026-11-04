@@ -99,7 +99,7 @@ function Invoke-NativeLogged {
     $logPath = Get-WorkspacePath "builds/logs/$BuildId/$Step.log"
     [IO.File]::WriteAllText($logPath, $output, [Text.UTF8Encoding]::new($false))
     foreach ($line in ($output -split '\r?\n')) {
-        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
+        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|HAND MOTION QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|CHUTE DISTRIBUTION QA:|TITLE MENU QA:|ACTION PACING QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
             Write-Host $line
         }
     }
@@ -143,6 +143,9 @@ function Invoke-GodotStep {
 $requiredSources = @(
     'tests/test_stand_model.gd', 'tests/test_stand_controller.gd', 'tools/check_audio.gd',
     'tests/test_stand_food_physics.gd', 'tests/test_stand_food_integration.gd',
+    'tools/check_chute_distribution.gd',
+    'tools/capture_title_1_0_2.gd',
+    'tools/check_action_pacing.gd', 'tests/test_stand_hand_motion.gd',
     'tests/test_player_profile.gd', 'tests/test_stand_presentation.gd', 'tests/test_stand_audio.gd', 'tests/test_stand_world.gd', 'docs/IDEA2_PLAYTEST.md',
     'docs/ASSET_LICENSES.md', 'docs/ART_PROMPTS.json', 'docs/licenses/Godot-LICENSE.txt',
     'docs/licenses/Godot-COPYRIGHT.txt', 'docs/licenses/SOURCES.json', 'assets/fonts/OFL.txt'
@@ -188,8 +191,27 @@ if ($foodIntegration.Output -notmatch '(?im)FOOD INTEGRATION QA:\s+(\d+) checks,
     throw "Physical inventory integration suite did not pass. See $($foodIntegration.LogPath)"
 }
 
+$chute = Invoke-GodotStep -Step '08c-chute-distribution-tests' -Arguments @('--script', 'res://tools/check_chute_distribution.gd', '--fixed-fps', '60')
+if ($chute.Output -notmatch '(?im)CHUTE DISTRIBUTION QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 1) {
+    throw "Discharge distribution suite did not pass. See $($chute.LogPath)"
+}
+
 $WindowsExe = Get-WorkspacePath "builds/windows/$GameVersion/GoldenHour.exe"
+$title = Invoke-GodotStep -Step '08d-title-menu-tests' -Arguments @('--script', 'res://tools/capture_title_1_0_2.gd')
+if ($title.Output -notmatch '(?im)TITLE MENU QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 1) {
+    throw "Title menu suite did not pass. See $($title.LogPath)"
+}
+
 $WebIndex = Get-WorkspacePath "builds/web/$GameVersion/index.html"
+$hands = Invoke-GodotStep -Step '08e-hand-motion-tests' -Arguments @('--script', 'res://tests/test_stand_hand_motion.gd')
+if ($hands.Output -notmatch '(?im)HAND MOTION QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 1) {
+    throw "Hand motion suite did not pass. See $($hands.LogPath)"
+}
+$pacing = Invoke-GodotStep -Step '08f-action-pacing-tests' -Arguments @('--script', 'res://tools/check_action_pacing.gd')
+if ($pacing.Output -notmatch '(?im)ACTION PACING QA:\s+(\d+) checks,\s+0 failures' -or [int]$Matches[1] -lt 1) {
+    throw "Animation pacing suite did not pass. See $($pacing.LogPath)"
+}
+
 Invoke-GodotStep -Step '09-export-windows' -Arguments @('--export-release', 'Windows Desktop', $WindowsExe) | Out-Null
 Invoke-GodotStep -Step '10-export-web' -Arguments @('--export-release', 'Web', $WebIndex) | Out-Null
 
