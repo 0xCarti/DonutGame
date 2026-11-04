@@ -99,7 +99,7 @@ function Invoke-NativeLogged {
     $logPath = Get-WorkspacePath "builds/logs/$BuildId/$Step.log"
     [IO.File]::WriteAllText($logPath, $output, [Text.UTF8Encoding]::new($false))
     foreach ($line in ($output -split '\r?\n')) {
-        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|HAND MOTION QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|CHUTE DISTRIBUTION QA:|TITLE MENU QA:|ACTION PACING QA:|COUNTER QA:|CUSTOMER ART QA:|STAND ART QA:|STAND GAGS:|WORLD GAGS QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
+        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|HAND MOTION QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|CHUTE DISTRIBUTION QA:|TITLE MENU QA:|ACTION PACING QA:|COUNTER QA:|CUSTOMER ART QA:|STAND ART QA:|STAND GAGS:|WORLD GAGS QA:|FRYER FIRE QA:|DISPLAY QUALITY QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
             Write-Host $line
         }
     }
@@ -147,7 +147,7 @@ $requiredSources = @(
     'tools/capture_title_1_0_2.gd',
     'tools/check_action_pacing.gd', 'tests/test_stand_hand_motion.gd',
     'tests/test_stand_counter.gd', 'tests/test_stand_customers.gd', 'tests/test_stand_art.gd',
-    'tests/test_stand_gags.gd', 'tests/test_stand_world_gags.gd',
+    'tests/test_stand_gags.gd', 'tests/test_stand_world_gags.gd', 'tests/test_fryer_fire.gd', 'tests/test_display_quality.gd',
     'tests/test_player_profile.gd', 'tests/test_stand_presentation.gd', 'tests/test_stand_audio.gd', 'tests/test_stand_world.gd', 'docs/IDEA2_PLAYTEST.md',
     'docs/ASSET_LICENSES.md', 'docs/ART_PROMPTS.json', 'docs/licenses/Godot-LICENSE.txt',
     'docs/licenses/Godot-COPYRIGHT.txt', 'docs/licenses/SOURCES.json', 'assets/fonts/OFL.txt'
@@ -219,7 +219,9 @@ foreach ($artGate in @(
     @{Step='08h-customer-tests'; Script='res://tests/test_stand_customers.gd'; Marker='CUSTOMER ART QA'},
     @{Step='08i-art-tests'; Script='res://tests/test_stand_art.gd'; Marker='STAND ART QA'},
     @{Step='08j-gag-controller-tests'; Script='res://tests/test_stand_gags.gd'; Marker='STAND GAGS'},
-    @{Step='08k-gag-world-tests'; Script='res://tests/test_stand_world_gags.gd'; Marker='WORLD GAGS QA'}
+    @{Step='08k-gag-world-tests'; Script='res://tests/test_stand_world_gags.gd'; Marker='WORLD GAGS QA'},
+    @{Step='08l-fire-visual-tests'; Script='res://tests/test_fryer_fire.gd'; Marker='FRYER FIRE QA'},
+    @{Step='08m-display-quality-tests'; Script='res://tests/test_display_quality.gd'; Marker='DISPLAY QUALITY QA'}
 )) {
     $result = Invoke-GodotStep -Step $artGate.Step -Arguments @('--script', $artGate.Script)
     if ($result.Output -notmatch ('(?im)' + $artGate.Marker + ':\s+(\d+) checks,\s+0 failures') -or [int]$Matches[1] -lt 1) {
@@ -245,10 +247,10 @@ func _initialize() -> void:
         quit(1)
         return
     var required = ["res://scenes/stand_main.tscn", "res://scripts/stand_main.gd", "res://scripts/stand_model.gd", "res://scripts/stand_content.gd", "res://scripts/stand_world.gd", "res://scripts/stand_food_physics.gd", "res://scripts/stand_hud.gd", "res://scripts/stand_feedback.gd", "res://scripts/player_profile.gd", "res://scripts/stand_audio.gd", "res://scripts/game_audio.gd", "res://assets/fonts/Fredoka-Medium.ttf", "res://assets/art/title_keyart.png", "res://assets/art/brand_seal.png", "res://assets/art/counter_sign.png", "res://assets/shaders/oil.gdshader", "res://assets/shaders/donut_crust.gdshader", "res://assets/shaders/powder_sugar.gdshader", "res://assets/shaders/fairground_sky.gdshader", "res://assets/audio/stand/evening_theme.wav", "res://assets/audio/stand/fryer_loop.wav", "res://assets/audio/sale_jackpot.wav"]
-    required.append_array(["res://assets/art/shaker_cinnamon.svg", "res://assets/art/shaker_powdered.svg", "res://assets/models/fairgoer_geometry.res", "res://scripts/customer_geometry.gd"])
+    required.append_array(["res://scripts/fryer_fire.gd", "res://assets/shaders/fryer_fire.gdshader", "res://assets/art/shaker_cinnamon.svg", "res://assets/art/shaker_powdered.svg", "res://assets/models/fairgoer_geometry.res", "res://scripts/customer_geometry.gd"])
     for gag in ["punch", "bell", "bell_reply", "sneeze", "seagull", "hat", "fire", "extinguish"]:
         required.append("res://assets/audio/gags/" + gag + ".wav")
-    for material in ["counter_wood", "kraft_paper"]:
+    for material in ["counter_wood", "kraft_paper", "detail_steel", "detail_dough", "detail_canvas", "detail_paper", "detail_ground"]:
         for channel in ["color", "normal", "roughness"]:
             required.append("res://assets/materials/" + material + "_" + channel + ".png")
     var forbidden = ["res://scenes/main.tscn", "res://scripts/main.gd", "res://scripts/run_model.gd", "res://scripts/world.gd", "res://scripts/upgrades.gd", "res://scripts/score_feedback.gd", "res://tests/test_stand_model.gd", "res://tests/test_controller.gd", "res://assets/fonts/Fredoka.ttf"]

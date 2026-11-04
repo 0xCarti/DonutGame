@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.5 · Windows
+Version 1.0.6 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,
@@ -124,3 +124,10 @@ The stand, donuts, characters, interface, animation, illustration and
 synthesized sound are original project assets. Godot is MIT-licensed and
 Fredoka is provided under SIL OFL 1.1. Full engine, third-party and font notices
 are supplied in LICENSES beside the game.
+
+## Display quality
+
+F11 switches between a window and fullscreen. The scene renders at your display
+resolution with 4x antialiasing and detailed surface maps; fullscreen fills the
+display without stretching a smaller image. Reduced Motion also softens the
+new fire movement and cartoon customer reactions.

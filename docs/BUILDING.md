@@ -17,7 +17,7 @@ pwsh -File tools/build_stand_playtest.ps1 -GodotPath 'C:/path/to/Godot_v4.7.2-st
 The active script accepts version 1.0.x and requires the first-person stand scene.
 It imports assets, runs simulation, controller, career, presentation, world,
 rigid-body food, physical inventory, chute distribution, hand motion, title-menu,
-actual-action pacing, controller/world gag integration and audio verification, exports Windows and Web sequentially, packages their required files and full
+actual-action pacing, controller/world gag integration, fire lifecycle, display quality and audio verification, exports Windows and Web sequentially, packages their required files and full
 license notices, and writes separate ZIPs plus SHA256 hashes under
 `builds/releases/`. Native engine helper processes run without visible windows;
 the script does not launch an interactive game.
@@ -37,10 +37,10 @@ export configuration select Idea 2.
 
 ## Asset reproduction and notices
 
-The 1.0.3 authored surface maps are baked with:
+The current HD surface maps and authored art are reproduced with:
 
 ```powershell
-godot --headless --path . --script res://tools/bake_material_maps.gd
+python tools/generate_surface_detail.py
 python tools/generate_shaker_labels.py
 godot --headless --path . --script res://tools/bake_customer_geometry.gd
 ```
@@ -85,3 +85,17 @@ because this procedural-art build does not enable ETC2/ASTC texture importing.
 Godot 4.7.2 rejects a Web export with an empty configuration-error message if the
 mobile compression preset is enabled while that project import setting is off.
 Enable both settings together when adding mobile VRAM-compressed textures.
+
+## Native package verification
+
+After packaging, select the exact Windows ZIP for a fresh extraction, hash and
+version verification, isolated native smoke run, and save-fingerprint comparison:
+
+```powershell
+pwsh -File tools/verify_windows_package.ps1 -ZipPath 'builds/releases/<exact-Windows-release.zip>'
+```
+
+The verifier preserves previous extraction and evidence directories. Rendering
+probes are `tools/probe_display_quality.gd` and `tools/probe_fire_performance.gd`;
+they use test mode and never save player progress. The original HD material
+generator requires NumPy and Pillow.

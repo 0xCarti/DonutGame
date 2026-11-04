@@ -6,7 +6,7 @@ config/name="Golden Hour — Mini Donut Club"
 run/main_scene="res://scenes/stand_main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://assets/icon.svg"
-config/version="1.0.5"
+config/version="1.0.6"
 
 [display]
 window/size/viewport_width=1280
@@ -14,14 +14,17 @@ window/size/viewport_height=800
 window/size/window_width_override=1280
 window/size/window_height_override=800
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
+window/stretch/aspect="expand"
+window/dpi/allow_hidpi=true
 window/handheld/orientation=0
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
-anti_aliasing/quality/msaa_3d=1
+textures/default_filters/anisotropic_filtering_level=4
+anti_aliasing/quality/msaa_3d=2
+scaling_3d/scale=1.0
 environment/defaults/default_clear_color=Color(0.085, 0.11, 0.17, 1)
 
 [audio]

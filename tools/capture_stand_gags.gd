@@ -1,7 +1,7 @@
 extends SceneTree
 ## Native world/HUD review of the actual controller, with persistence disabled.
 const Controller=preload("res://scripts/stand_main.gd")
-const OUT="res://playtest-reports/slapstick-1.0.5"
+const OUT="res://playtest-reports/slapstick-1.0.6"
 var app
 var recording: bool=false
 var frame_index: int=0
@@ -29,7 +29,9 @@ func act(id: String) -> void:
 	await settle()
 func run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT+"/frames"))
-	root.size=Vector2i(1280,800)
+	root.size=Vector2i(1920,1080)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS,true)
+	root.position=Vector2i(-32000,-32000)
 	app=Controller.new()
 	app.test_mode=true
 	root.add_child(app)
@@ -62,9 +64,9 @@ func run() -> void:
 	await snapshot("04-neighbor-reply")
 	await create_timer(1.1).timeout
 	app._act("customer")
-	await create_timer(0.34).timeout
+	await create_timer(0.12).timeout
 	await snapshot("05-punch-impact")
-	await create_timer(0.18).timeout
+	await create_timer(0.14).timeout
 	await snapshot("06-punch-recoil")
 	await create_timer(2.0).timeout
 	app.model.temperature=220.0

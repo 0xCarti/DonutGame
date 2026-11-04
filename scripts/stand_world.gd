@@ -1,5 +1,6 @@
 extends Node3D
 const FoodGeometry = preload("res://scripts/stand_food_physics.gd")
+const FryerFire = preload("res://scripts/fryer_fire.gd")
 signal delivery_settled(delivery_id: int, kept: bool)
 signal stock_spilled(delivery_id: int)
 signal action_finished
@@ -7,6 +8,8 @@ signal gag_sound(id: String)
 ## First-person Golden Hour stand. Original meshes and material generators reused
 ## from the original art library; all interaction staging is specific to this game.
 var camera: Camera3D
+const CAMERA_REFERENCE_ASPECT: float = 1.6
+const CAMERA_VERTICAL_FOV: float = 70.0
 var _mat: Dictionary = {}
 var _bubble_nodes: Array[MeshInstance3D] = []
 var _steam_nodes: Array[MeshInstance3D] = []
@@ -48,7 +51,9 @@ var _player_glove_materials: Dictionary = {}
 const UPPER_ARM_LENGTH: float = 1.12
 const FOREARM_LENGTH: float = 1.04
 const GRASP_TIME: float = 0.20
-const ACTION_DURATIONS: Dictionary = {"bag": 0.92, "bucket": 0.92, "scoop": 0.80, "supply": 1.02, "package": 1.14, "cinnamon": 1.24, "powdered": 1.24, "serve": 0.90, "tray_shake": 1.06, "punch": 0.68, "bell": 0.30, "extinguish": 1.46}
+const ACTION_DURATIONS: Dictionary = {"bag": 0.92, "bucket": 0.92, "scoop": 0.80, "supply": 1.02, "package": 1.14, "cinnamon": 1.24, "powdered": 1.24, "serve": 0.90, "tray_shake": 1.06, "punch": 0.36, "bell": 0.30, "extinguish": 1.46}
+const JAB_IMPACT_TIME: float = 0.12
+const JAB_RECOIL_DURATION: float = 0.72
 var _motions: Array[Dictionary] = []
 var _tool_home: Transform3D
 var _shakers: Dictionary = {}
@@ -61,8 +66,6 @@ var _gag_serial: int = 0
 var _fire_visual: Node3D
 var _foam_visual: Node3D
 var _fire_light: OmniLight3D
-var _fire_flames: Array[Node3D] = []
-var _fire_smoke: Array[Node3D] = []
 var _extinguisher: Node3D
 var _extinguisher_home: Transform3D
 var _bell: Node3D
@@ -290,6 +293,11 @@ func _apply_authored_materials() -> void:
 		_mat[key].roughness = 0.54 if key == "steel_light" else 0.68
 
 func _bake_surface(kind: String) -> Dictionary:
+	# Offline original microdetail provides real 1024px surface information and
+	# avoids rebuilding these textures every time the stand opens.
+	var prefix: String = "res://assets/materials/detail_" + kind
+	if ResourceLoader.exists(prefix + "_color.png"):
+		return {"color": load(prefix + "_color.png"), "normal": load(prefix + "_normal.png"), "roughness": load(prefix + "_roughness.png")}
 	var resolution: int = 192
 	var color_image: Image = Image.create(resolution, resolution, false, Image.FORMAT_RGBA8)
 	var height_image: Image = Image.create(resolution, resolution, false, Image.FORMAT_RGB8)
@@ -470,10 +478,10 @@ func _label(text_value: String, at: Vector3, size: int, color: Color, parent: No
 	var label: Label3D = Label3D.new()
 	label.text = text_value
 	label.position = at
-	label.font_size = size
+	label.font_size = size * 3
 	if _world_font != null:
 		label.font = _world_font
-	label.pixel_size = 0.006
+	label.pixel_size = 0.002
 	label.modulate = color
 	label.outline_size = 0
 	label.no_depth_test = false
@@ -1416,12 +1424,15 @@ func _make_shaker_label(flavor: String, parent: Node3D) -> void:
 func _build_view() -> void:
 	camera = Camera3D.new()
 	camera.position = Vector3(0, 3.45, 5.65)
-	camera.fov = 70.0
+	camera.keep_aspect = Camera3D.KEEP_HEIGHT
+	camera.fov = CAMERA_VERTICAL_FOV
 	camera.near = 0.05
 	camera.far = 80.0
 	add_child(camera)
 	camera.look_at(Vector3(0, 2.28, -1.2), Vector3.UP)
 	camera.current = true
+	get_viewport().size_changed.connect(_update_camera_framing)
+	_update_camera_framing()
 	# Soft reflected counter light keeps near-camera paper and food readable.
 	var hand_fill: OmniLight3D = OmniLight3D.new()
 	hand_fill.position = Vector3(0.10, 0.05, -0.20)
@@ -1779,6 +1790,15 @@ void fragment() {
 	material.shader = shader
 	material.set_shader_parameter("forearm", forearm)
 	return material
+
+func _update_camera_framing() -> void:
+	if not is_instance_valid(camera): return
+	var dimensions: Vector2 = get_viewport().get_visible_rect().size
+	var aspect: float = dimensions.x / maxf(1.0, dimensions.y)
+	# Wide displays gain horizontal room. Narrow windows retain the complete
+	# original counter instead of cropping off the fryer dials and containers.
+	var width_compensation: float = maxf(1.0, CAMERA_REFERENCE_ASPECT / maxf(0.1, aspect))
+	camera.fov = rad_to_deg(2.0 * atan(tan(deg_to_rad(CAMERA_VERTICAL_FOV * 0.5)) * width_compensation))
 
 func get_camera() -> Camera3D:
 	return camera
@@ -2155,7 +2175,7 @@ func _sync_people() -> void:
 			person.set_meta("queue_index", i)
 			var pose: Transform3D = Transform3D(Basis.from_euler(Vector3(0, deg_to_rad(-float(i) * 7.0), 0)), target)
 			_move_node(person, pose, 0.64 if arriving else 0.42)
-			if is_instance_valid(_punch_person): _motions.back()["delay"] = 0.72
+			if is_instance_valid(_punch_person): _motions.back()["delay"] = 0.50
 			elif is_instance_valid(_served_person) and not arriving: _motions.back()["delay"] = 0.64
 		var serve_hit: Area3D = person.get_meta("serve_hit")
 		serve_hit.collision_layer = 1 if i == 0 else 0
@@ -2833,10 +2853,10 @@ func _hand_goal(index: int) -> Dictionary:
 	var offset: Vector3 = Vector3.ZERO
 	var grip_basis: Basis = Basis.IDENTITY
 	var side: float = -1.0 if index == 0 else 1.0
-	if index == 1 and _action == "punch" and is_instance_valid(_punch_person) and _action_time > 0.18:
+	if index == 1 and _action == "punch" and is_instance_valid(_punch_person) and _action_time > 0.19:
 		node = _jab_marker
 		offset = Vector3.ZERO
-		grip_basis = Basis.from_euler(Vector3(-0.12, 0, -0.48)).scaled(Vector3.ONE * 1.55)
+		grip_basis = Basis.from_euler(Vector3(-0.12, 0, -0.48)).scaled(Vector3.ONE * 1.35)
 	elif index == (0 if _held_type in ["scoop", "package"] else 1) and _action == "bell" and _action_time > 0.07:
 		node = _bell_button
 		offset = Vector3(0, 0.04, 0.06)
@@ -2898,10 +2918,15 @@ func _update_hands(delta: float) -> void:
 		var track: Dictionary = _hand_tracks[index]
 		var goal: Dictionary = _hand_goal(index)
 		if track.node != goal.node:
+			var returning_jab: bool = track.node == _jab_marker
 			track.node = goal.node
 			track.from = hand.global_transform
 			track.age = 0.0
 			track.duration = GRASP_TIME if is_instance_valid(goal.node) else 0.22
+			# The jab commits immediately and snaps back; ordinary pickups retain
+			# their softer grasp curve and the arm solver retains fixed bone lengths.
+			if goal.node == _jab_marker: track.duration = 0.105
+			elif returning_jab: track.duration = 0.14
 		track.age = minf(float(track.duration), float(track.age) + delta)
 		var t: float = clampf(float(track.age) / float(track.duration), 0.0, 1.0)
 		hand.global_transform = Transform3D(track.from).interpolate_with(goal.pose, _minimum_jerk(t))
@@ -2909,11 +2934,12 @@ func _update_hands(delta: float) -> void:
 		_solve_arm(index, hand.global_position)
 
 func _pose_player_fingers(index: int, gripping: bool, delta: float) -> void:
-	var ease: float = 1.0 - exp(-delta * 18.0)
+	var punching: bool = index == 1 and _action == "punch" and _action_time > 0.16
+	var ease: float = 1.0 - exp(-delta * (75.0 if punching else 18.0))
 	for digit in range(_finger_chains[index].size()):
 		var chain: Array = _finger_chains[index][digit]
 		var target: Vector3 = Vector3(-0.27, -0.64, -0.38) if gripping else Vector3(0.045, -0.10, -0.07)
-		if index == 1 and _action == "punch" and _action_time > 0.12: target = Vector3(-1.12, -1.48, -1.20)
+		if punching: target = Vector3(-1.12, -1.48, -1.20)
 		if digit == 3 and gripping: target *= 1.10
 		for joint in range(3):
 			chain[joint].rotation.x = lerpf(chain[joint].rotation.x, target[joint], ease)
@@ -3095,27 +3121,10 @@ func _build_slapstick_props() -> void:
 	_material("gag_foam", Color("edf1dc"),0.0,0.93)
 	var powder_material: StandardMaterial3D = _material("gag_powder",Color(0.98,0.98,0.93,0.45),0.0,1.0)
 	powder_material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
-	var smoke_material: StandardMaterial3D = _material("gag_smoke",Color(0.16,0.15,0.17,0.32),0.0,1.0)
-	smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_fire_visual=Node3D.new()
+	_fire_visual=FryerFire.new()
 	_fire_visual.name="FryerFlames"
+	_fire_visual.position=Vector3(-2.6,2.1,-0.55)
 	add_child(_fire_visual)
-	var flame_mesh: ArrayMesh=_make_flame_mesh()
-	for i in range(12):
-		var flame: Node3D=Node3D.new()
-		_fire_visual.add_child(flame)
-		flame.position=Vector3(-3.80+float(i%6)*0.48,2.15,-0.72+float(i/6)*0.31)
-		var outer: MeshInstance3D=_mesh_node(flame_mesh,Vector3.ZERO,_mat["gag_flame"],flame)
-		outer.scale=Vector3(1.0,0.80+float(i%4)*0.12,0.85)
-		outer.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var core: MeshInstance3D=_mesh_node(flame_mesh,Vector3(0,0.02,0.075),_mat["gag_flame_core"],flame)
-		core.scale=Vector3(0.62,0.60,0.60)
-		core.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_fire_flames.append(flame)
-	for i in range(8):
-		var smoke: MeshInstance3D=_sphere(Vector3.ZERO,0.20,"gag_smoke",_fire_visual)
-		smoke.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_fire_smoke.append(smoke)
 	_fire_light=OmniLight3D.new()
 	_fire_light.position=Vector3(-2.65,2.7,-0.45)
 	_fire_light.light_color=Color("ff8128")
@@ -3183,21 +3192,6 @@ func _make_service_bell(at: Vector3,parent: Node3D) -> Node3D:
 	bell.set_meta("button",button)
 	return bell
 
-func _make_flame_mesh() -> ArrayMesh:
-	# Curved tapering tongues retain depth while giving fire a pointed silhouette.
-	var rows: Array=[Vector3(0.0,0.055,0.0),Vector3(0.12,0.145,0.008),Vector3(0.27,0.120,0.026),Vector3(0.44,0.075,0.054),Vector3(0.62,0.035,0.095),Vector3(0.77,0.001,0.145)]
-	var surface: SurfaceTool=SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for ring in range(rows.size()-1):
-		for segment in range(12):
-			for corner in [Vector2i(0,0),Vector2i(0,1),Vector2i(1,1),Vector2i(0,0),Vector2i(1,1),Vector2i(1,0)]:
-				var row: Vector3=rows[ring+corner.y]
-				var angle: float=float(segment+corner.x)*TAU/12.0
-				surface.set_uv(Vector2(float(segment+corner.x)/12.0,row.x/0.77))
-				surface.add_vertex(Vector3(row.z+cos(angle)*row.y,row.x,sin(angle)*row.y))
-	surface.generate_normals()
-	return surface.commit()
-
 func _new_gag_node(label: String) -> Node3D:
 	var node: Node3D=Node3D.new()
 	node.name=label
@@ -3208,7 +3202,7 @@ func _gag_bubble(text_value: String, at: Vector3, color: Color=Color("ffe9a4")) 
 	var node: Node3D=_new_gag_node("ComicReaction")
 	node.position=at
 	var label: Label3D=_label(text_value,Vector3.ZERO,44,color,node)
-	label.outline_size=8
+	label.outline_size=24
 	label.outline_modulate=Color("402c2b")
 	label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test=true
@@ -3227,7 +3221,16 @@ func _free_gag(gag: Dictionary) -> void:
 	# Eviction has the same ownership obligations as natural completion.
 	if str(gag.get("kind", "")) == "jab":
 		var person: Node3D = gag.get("person")
-		if is_instance_valid(person): _depart_customer(person)
+		if is_instance_valid(person):
+			# A capped effect can be evicted mid-recoil. Restore the same detail
+			# transforms as natural completion before giving departure ownership.
+			person.get_meta("portrait").transform = gag.portrait_origin
+			var arms: Array = person.get_meta("arms")
+			for index in range(arms.size()): arms[index].transform = gag.arm_origins[index]
+			var eyes: Array = person.get_meta("eyes")
+			for index in range(eyes.size()): eyes[index].scale = gag.eye_scales[index]
+			person.scale = Transform3D(gag.origin).basis.get_scale()
+			_depart_customer(person)
 		if _punch_person == person: _punch_person = null
 	elif str(gag.get("kind", "")) == "foam_spray":
 		_extinguish_fire_hold = false
@@ -3237,11 +3240,10 @@ func _free_gag(gag: Dictionary) -> void:
 func _sync_fire_visual() -> void:
 	if not is_instance_valid(_fire_visual): return
 	var burning: bool=bool(_state.get("fire_active",false)) or _extinguish_fire_hold
-	var warning: bool=float(_state.get("fire_danger",0.0))>=0.35 and float(_state.get("fire_recovery",0.0))<=0.0 and float(_state.get("foam_time",0.0))<=0.0
-	_fire_visual.visible=burning or warning
-	for flame in _fire_flames: flame.visible=burning
-	for i in range(_fire_smoke.size()): _fire_smoke[i].visible=burning or i<4
-	_foam_visual.visible=float(_state.get("foam_time",0.0))>0.0
+	var danger: float=float(_state.get("fire_danger",0.0)) if float(_state.get("fire_recovery",0.0))<=0.0 else 0.0
+	var foam_time: float=float(_state.get("foam_time",0.0))
+	_fire_visual.set_state(burning,danger,foam_time,_reduced_motion)
+	_foam_visual.visible=foam_time>0.0
 	_fire_light.light_energy=1.8 if burning else 0.0
 
 func _start_customer_jab() -> void:
@@ -3251,8 +3253,12 @@ func _start_customer_jab() -> void:
 	for index in range(_motions.size()-1,-1,-1):
 		if _motions[index].node==person: _motions.remove_at(index)
 	var impact: Vector3=person.to_global(Vector3(0,2.82,0.20))
-	_jab_marker.global_position=impact+Vector3(0.07,-0.035,0.42)
-	_push_gag({"kind":"jab","age":0.0,"duration":0.91,"person":person,"origin":person.transform,"impact":impact,"hit":false})
+	_jab_marker.global_position=impact+Vector3(0.07,-0.035,0.04)
+	var arm_origins: Array[Transform3D] = []
+	for arm in person.get_meta("arms"): arm_origins.append(arm.transform)
+	var eye_scales: Array[Vector3] = []
+	for eye in person.get_meta("eyes"): eye_scales.append(eye.scale)
+	_push_gag({"kind":"jab","age":0.0,"duration":JAB_RECOIL_DURATION,"person":person,"origin":person.transform,"impact":impact,"hit":false,"portrait_origin":person.get_meta("portrait").transform,"arm_origins":arm_origins,"eye_scales":eye_scales})
 
 func _start_extinguisher() -> void:
 	_extinguish_fire_hold=bool(_state.get("fire_active",false))
@@ -3337,16 +3343,7 @@ func _update_gags(delta: float) -> void:
 	_sync_fire_visual()
 	if _fire_visual.visible:
 		var burning: bool=bool(_state.get("fire_active",false)) or _extinguish_fire_hold
-		for i in range(_fire_flames.size()):
-			var flame: Node3D=_fire_flames[i]
-			var pulse: float=1.0 if _reduced_motion else 0.90+sin(_time*7.0+float(i)*1.3)*0.22
-			flame.scale=Vector3(1,pulse,1)
-			flame.rotation.z=0.0 if _reduced_motion else sin(_time*3.4+float(i))*0.13
-		for i in range(_fire_smoke.size()):
-			var smoke: Node3D=_fire_smoke[i]
-			var life: float=fmod(_time*0.25+float(i)*0.14,1.0)
-			smoke.position=Vector3(-3.6+float(i%5)*0.55,2.50+life*1.25,-0.54)
-			smoke.scale=Vector3.ONE*(0.4+life*1.1)*(1.0 if burning else 0.70)
+		_fire_visual.advance(delta)
 		_fire_light.light_energy=(1.7 if _reduced_motion else 1.7+sin(_time*11.0)*0.20) if burning else 0.0
 	if _foam_visual.visible:
 		var coverage: float=clampf(float(_state.get("foam_time",0.0))/1.5,0.0,1.0)
@@ -3373,22 +3370,21 @@ func _update_gags(delta: float) -> void:
 			"jab":
 				var person: Node3D=gag.person
 				if is_instance_valid(person):
-					var jab: float=smoothstep(0.19,0.31,float(gag.age))*(1.0-smoothstep(0.34,0.50,float(gag.age)))
-					if float(gag.age)<0.50: _jab_marker.global_position=Vector3(gag.impact)+Vector3(0.07,-0.035,0.42-jab*0.39)
-					if not bool(gag.hit) and float(gag.age)>=0.31:
+					if not bool(gag.hit) and float(gag.age)>=JAB_IMPACT_TIME:
 						gag.hit=true
 						gag_sound.emit("punch")
-						_gag_bubble("POW!",Vector3(gag.impact)+Vector3(0,0.38,0))
-						_comic_stars(person.to_global(Vector3(0,3.28,0)))
-					var recoil: float=sin(clampf((float(gag.age)-0.31)/0.60,0.0,1.0)*PI)
-					person.transform=Transform3D(gag.origin)
-					person.position+=Vector3(-0.12*recoil,0,-0.38*recoil)
-					person.rotation.x=-0.12*recoil if not _reduced_motion else 0.0
-					person.rotation.z=0.16*recoil if not _reduced_motion else 0.0
+						_gag_bubble("POW!",Vector3(gag.impact)+Vector3(-0.35,0.43,0.05))
+						_comic_stars(person)
+						_comic_impact(Vector3(gag.impact)+Vector3(0,0,0.13))
+					_animate_jab_recoil(gag)
 			"stars":
 				if is_instance_valid(gag.node):
-					gag.node.rotation.y+=delta*(0.4 if _reduced_motion else 3.8)
-					gag.node.position.y+=delta*0.13
+					if is_instance_valid(gag.get("person")): gag.node.global_position=gag.person.to_global(Vector3(0,3.24,0))
+					gag.node.rotation.y+=delta*(0.25 if _reduced_motion else 6.0)
+					gag.node.scale=Vector3.ONE*(1.0-smoothstep(0.72,1.0,t))
+			"comic_impact":
+				if is_instance_valid(gag.node):
+					gag.node.scale=Vector3.ONE*(0.60+t*1.4)*(1.0-smoothstep(0.46,1.0,t))
 			"reaction":
 				var person: Node3D=gag.person
 				if is_instance_valid(person):
@@ -3439,13 +3435,69 @@ func _update_gags(delta: float) -> void:
 			_free_gag(gag)
 			_gags.erase(gag)
 
-func _comic_stars(at: Vector3) -> void:
+func _animate_jab_recoil(gag: Dictionary) -> void:
+	var person: Node3D = gag.person
+	var age: float = maxf(0.0,float(gag.age)-JAB_IMPACT_TIME)
+	var kick: float = 1.0-exp(-age*42.0)
+	var recovery: float = smoothstep(0.30,0.59,age)
+	var spring: float = sin(age*34.0)*exp(-age*5.5)*kick
+	var squash: float = sin(clampf(age/0.105,0.0,1.0)*PI)
+	var stretch: float = sin(clampf((age-0.105)/0.20,0.0,1.0)*PI)
+	var hop: float = sin(clampf(age/0.36,0.0,1.0)*PI)
+	var pivot: Vector3 = Vector3(0,1.75,0)
+	var body: Basis = Basis.IDENTITY
+	if not _reduced_motion:
+		body = Basis.from_euler(Vector3(-0.38*kick*(1.0-recovery),0.10*spring,0.24*spring))
+		body = body.scaled(Vector3(1.0+squash*0.12-stretch*0.045,1.0-squash*0.18+stretch*0.12,1.0+squash*0.08))
+	person.transform = Transform3D(gag.origin)*Transform3D(body,pivot-body*pivot)
+	person.position += Vector3(-smoothstep(0.05,0.56,age)*(0.16 if _reduced_motion else 0.48),0.0 if _reduced_motion else hop*0.22,-kick*(1.0-recovery*0.20)*(0.18 if _reduced_motion else 0.66))
+	var portrait: Node3D = person.get_meta("portrait")
+	var neck: Vector3 = Vector3(0,2.61,0)
+	var head: Basis = Basis.IDENTITY if _reduced_motion else Basis.from_euler(Vector3(0.12*spring,0.25*spring,-0.20*kick*(1.0-recovery)+spring*0.25))
+	portrait.transform = Transform3D(gag.portrait_origin)*Transform3D(head,neck-head*neck)
+	var arms: Array = person.get_meta("arms")
+	for index in range(arms.size()):
+		arms[index].transform = gag.arm_origins[index]
+		if not _reduced_motion:
+			arms[index].rotation.x -= kick*(1.0-recovery)*1.15
+			arms[index].rotation.z += (-1.0 if index==0 else 1.0)*kick*(1.0-recovery)*(0.60+spring*0.24)
+	var eyes: Array = person.get_meta("eyes")
+	for index in range(eyes.size()):
+		eyes[index].scale = gag.eye_scales[index]*Vector3(1.0,1.0 if _reduced_motion else 1.0+kick*(1.0-recovery)*0.80,1.0)
+
+func _comic_impact(at: Vector3) -> void:
+	var node: Node3D = _new_gag_node("ComicImpact")
+	node.position = at
+	for index in range(6 if _reduced_motion else 9):
+		var angle: float = float(index)*TAU/(6.0 if _reduced_motion else 9.0)
+		var ray: MeshInstance3D = _box(Vector3(cos(angle),sin(angle),0)*0.18,Vector3(0.12,0.032,0.012),"gold_light",node)
+		ray.rotation.z = angle
+		ray.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_push_gag({"kind":"comic_impact","node":node,"age":0.0,"duration":0.19})
+
+func _comic_stars(person: Node3D) -> void:
 	var node: Node3D=_new_gag_node("ComicStars")
-	node.position=at
+	node.position=person.to_global(Vector3(0,3.24,0))
+	var surface: SurfaceTool = SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for point in range(10):
+		for vertex in [Vector3.ZERO,Vector3(cos(float(point)*PI/5.0+PI*0.5),sin(float(point)*PI/5.0+PI*0.5),0)*(0.085 if point%2==0 else 0.036),Vector3(cos(float(point+1)*PI/5.0+PI*0.5),sin(float(point+1)*PI/5.0+PI*0.5),0)*(0.085 if (point+1)%2==0 else 0.036)]:
+			surface.add_vertex(vertex)
+	surface.generate_normals()
+	var mesh: ArrayMesh = surface.commit()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color("ffd35d")
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	for i in range(5):
-		var star: MeshInstance3D=_sphere(Vector3(cos(float(i)*TAU/5.0)*0.30,0,sin(float(i)*TAU/5.0)*0.30),0.045,"gag_flame_core",node)
-		star.scale=Vector3(1,0.55,1)
-	_push_gag({"kind":"stars","node":node,"age":0.0,"duration":1.0})
+		var star: MeshInstance3D = MeshInstance3D.new()
+		node.add_child(star)
+		star.mesh = mesh
+		star.material_override = material
+		star.position = Vector3(cos(float(i)*TAU/5.0)*0.36,sin(float(i)*TAU/5.0)*0.06,sin(float(i)*TAU/5.0)*0.29)
+		star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_push_gag({"kind":"stars","node":node,"person":person,"age":0.0,"duration":0.95})
 
 func _reset_gags() -> void:
 	_set_customer_highlight(null)
@@ -3464,6 +3516,6 @@ func _reset_gags() -> void:
 		_neighbor_bell.rotation=Vector3.ZERO
 		_neighbor_bell.position.y=2.60
 	if is_instance_valid(_fire_visual):
-		_fire_visual.visible=false
+		_fire_visual.reset()
 		_foam_visual.visible=false
 		_fire_light.light_energy=0.0

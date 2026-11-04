@@ -4,7 +4,7 @@ A first-person mini-donut stand game for Windows. Work a warm fairground booth:
 scoop fresh donuts, fill bags and buckets, add cinnamon or powdered sugar, and
 hand each order to its customer while keeping the fryer running.
 
-Version **1.0.5** contains the complete fairground campaign: six named shifts,
+Version **1.0.6** contains the complete fairground campaign: six named shifts,
 nineteen earned equipment and service upgrades, Standard and Relaxed difficulty,
 no-pressure practice, an unlockable Endless Rush, career badges and three earned
 stand palettes. All play is local and offline. Purchases and platform services
@@ -15,12 +15,18 @@ up the exit ramp, drop into the tray, collide and settle. Full trays spill onto
 the counter and waste batter. Objects highlight directly, and containers, tools
 and their contents move continuously between the counter and your hands.
 
-Version 1.0.5 adds playful booth surprises: a service bell with an occasional
+The booth surprises introduced in 1.0.5 include a service bell with an occasional
 answer, powdered-sugar sneezes, a donut hat, a cartoon customer punch, and a
 seagull that can catch a real spilled donut. A gentle tray shake spreads stock;
 rapid repeated clicks build momentum and can throw it over the sides. Prolonged
 overheating can start a fryer fire, with a working extinguisher and recovery.
-These events have original animation and eight new synthesized sound cues.
+These events have original animation and eight synthesized sound cues.
+
+Version 1.0.6 replaces solid fire shapes with layered turbulent flames, wispy
+smoke and rising embers. Punch contact takes 0.12 seconds and the hand returns
+by 0.36 seconds, while customers squash, stagger and see stars. Native fullscreen
+uses the full display area with 4x MSAA, 16x anisotropic filtering, higher-detail
+materials, sharper vector labels and threefold world-lettering resolution.
 
 Your free hand can grab a bag or bucket while you keep the scoop ready. The
 small pinhole-center donuts, recessed discard opening, folded kraft bags,
@@ -30,7 +36,7 @@ surfaces, sweeping chute, independent dials and fairground ticket menu remain.
 ## Play
 
 Extract the Windows ZIP from `builds/releases/` and launch `GoldenHour.exe`.
-The unpacked build also lives at `builds/windows/1.0.5/GoldenHour.exe`.
+The unpacked build also lives at `builds/windows/1.0.6/GoldenHour.exe`.
 Keep the included `LICENSES` folder and `Quick Start.txt` with the executable.
 
 Choose **Open the Stand** for the campaign or **Practice** to learn without a
@@ -47,7 +53,7 @@ Independent sliders control sound effects, music and ambience. Reduced Motion
 reduces camera shake and moving effects while preserving gameplay outcomes. Active
 runs and career progress save locally; practice preserves the campaign save.
 
-The companion browser build is `builds/web/1.0.5/`. Serve it over HTTP; it needs
+The companion browser build is `builds/web/1.0.6/`. Serve it over HTTP; it needs
 WebGL 2 and WebAssembly. Windows is the primary platform. Native mobile builds,
 gamepad controls, Steam services and additional venues are future work.
 
@@ -64,7 +70,7 @@ The historical script filename is retained. It imports, runs simulation,
 controller, profile, presentation, world, rigid-body food, hand motion, chute,
 menu, campaign pacing, art, audio and booth gag checks, exports Windows and
 Web, and packages ZIPs with notices and SHA256 checksums. See
-[build instructions](docs/BUILDING.md) and [release validation](docs/RELEASE_1_0_5_VALIDATION.md).
+[build instructions](docs/BUILDING.md) and [release validation](docs/RELEASE_1_0_6_VALIDATION.md).
 
 | File | Responsibility |
 | --- | --- |

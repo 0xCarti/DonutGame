@@ -359,8 +359,8 @@ func _test_gag_capacity_during_punch() -> void:
 	if jabs.is_empty(): return
 	var jab: Dictionary = jabs[0]
 	var person: Node3D = jab.person
-	app.world._update_gags(0.31)
-	check(is_equal_approx(float(jab.age), 0.31), "Jab impact inserting comic effects cannot advance the same animation twice in one frame")
+	app.world._update_gags(0.12)
+	check(is_equal_approx(float(jab.age), 0.12), "Jab impact inserting comic effects cannot advance the same animation twice in one frame")
 	check(app.world._gags.size() <= 16 and sounds.count("punch") == 1, "At-capacity impact keeps the effect bound and emits one punch sound")
 	advance(3.0)
 	check(not app.world._departing.has(person), "At-capacity jab still completes customer departure")
