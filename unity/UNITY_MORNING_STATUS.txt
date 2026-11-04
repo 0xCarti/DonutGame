@@ -6,22 +6,34 @@ The Unity source project and authored assets are prepared. This is NOT a compile
 playable, release-validated Unity game. The prior Godot release remains untouched.
 
 BLOCKER
-The signed Unity 6000.3.28f1 Windows installer was downloaded from Unity's official
-release API. Its MD5 matches Unity's published integrity value and its Authenticode
-signature is valid for Unity Technologies SF.
+Unity Editor 6000.3.28f1 is now installed. The user returned and authorized help
+with installation on 2026-11-04; the signed installer completed successfully.
+Its MD5 matches Unity's published value and its Authenticode signature is valid
+for Unity Technologies SF. Editor version was verified from the installed file.
 
-Windows canceled the installer's elevation request. No further install attempt
-was made after that cancellation. A question is pending in the task asking whether
-to launch it again when the user can approve the Windows prompt.
+The first native build attempt exited with code 198 before project compilation:
+"No valid Unity Editor license found. Please activate your license."
+
+Unity Hub 3.22.5.65535 was installed with winget from Unity's official CDN package;
+winget verified the installer hash. Hub is running for the user to sign in.
+The pending task question asks whether Hub now shows an active license.
+
+In Hub, sign in or create a Unity account. If no license activates automatically,
+use Settings > Licenses > Add license > Get a free personal license, then review
+the terms and activate if applicable. No additional editor download is needed.
+Official instructions: https://docs.unity.com/en-us/hub/manage-license
 
 Installer:
 C:/Users/bryce/.cache/donutsgame/unity/UnitySetup64-6000.3.28f1.exe
 
-Requested install destination:
+Installed editor:
+C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1/Editor/Unity.exe
+
+Install destination:
 C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1
 
-No Unity license was changed. Existing entitlement data was not exported. Editor
-activation and license compatibility cannot be confirmed until the editor runs.
+No Unity license was changed by the agent. Existing entitlement data was not
+exported. License activation is required before Unity can compile the project.
 No reset credit, paid asset, or purchase was used.
 
 IMPLEMENTED IN SOURCE
@@ -54,6 +66,8 @@ IMPLEMENTED IN SOURCE
   The former hand target was inside the bowl and its load exceeded bowl width.
 
 VERIFIED
+- Unity Editor 6000.3.28f1 and Unity Hub are installed; native editor bootstrap
+  reached its license check. Project compilation is still blocked by activation.
 - 21 pure C# acceptance scenarios pass; compiler reports zero warnings/errors.
 - 12,000 chaotic core actions conserve food.
 - A paced core simulation finishes Opening Day with $237 / 7 served.
@@ -86,7 +100,7 @@ NOT VERIFIED / REQUIRED NEXT
   reach/hover selection, render clarity, performance, HUD scaling, and sound mix.
 - The player-side acceptance harness has been authored but has NOT been run.
 
-BUILD AFTER UNITY IS INSTALLED AND LICENSED
+BUILD AFTER LICENSE ACTIVATION
 From the DonutsGame directory:
 
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity/build_windows.ps1
