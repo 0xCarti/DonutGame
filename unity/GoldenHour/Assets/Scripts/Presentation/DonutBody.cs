@@ -29,11 +29,10 @@ namespace GoldenHour.Presentation
             var cols=GetComponents<SphereCollider>();
             if(cols.Length==0)
             {
-                var physics=new PhysicsMaterial("Warm dough") { dynamicFriction=.42f,staticFriction=.48f,bounciness=.07f };
                 for(int i=0;i<5;i++)
                 {
                     var col=gameObject.AddComponent<SphereCollider>();col.radius=.013f;
-                    float angle=i*Mathf.PI*2/5;col.center=new Vector3(Mathf.Cos(angle)*.017f,0,Mathf.Sin(angle)*.017f);col.sharedMaterial=physics;
+                    float angle=i*Mathf.PI*2/5;col.center=new Vector3(Mathf.Cos(angle)*.017f,0,Mathf.Sin(angle)*.017f);col.sharedMaterial=Owner.DoughPhysics;
                 }
             }
             foreach(var col in GetComponents<Collider>())col.enabled=true;

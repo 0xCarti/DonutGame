@@ -81,16 +81,17 @@ for key,name,xyz in re.findall(pattern,SOURCE):
 if 'Paper bags' in instances:
     p=positions['Paper bags']['unityPosition']
     for i in range(1,4):model('bag','Folded bag '+str(i),(p[0]+i*.027,p[1],p[2]+i*.011),scale=(1,1,.22))
+if 'The scoop' in instances and 'Scoop.rotation=Quaternion.Euler(0,180,0)' in SOURCE:
+    instances['The scoop'].rotation_euler.z=math.pi
 
 camera_pos=vals(re.search(r'Camera\.transform\.position = new Vector3\(([^)]+)\)',SOURCE)[1]);target=vals(re.search(r'LookRotation\(new Vector3\(([^)]+)\)',SOURCE)[1]);fov=float(re.search(r'Camera\.fieldOfView=(\d+)',SOURCE)[1])
-if REVISED:camera_pos=(0,1.70,-1.40);target=(0,1.18,.15);fov=67
 data=bpy.data.cameras.new('Exact WorldBuilder camera');camera=bpy.data.objects.new('Exact WorldBuilder camera',data);scene.collection.objects.link(camera);scene.camera=camera;camera.location=U(camera_pos);camera.rotation_euler=(U(target)-camera.location).to_track_quat('-Z','Y').to_euler();data.type='PERSP';data.sensor_fit='VERTICAL';data.sensor_height=24;data.lens=24/(2*math.tan(math.radians(fov)/2));data.clip_start=.035;data.clip_end=70
 
 if (ART/'Characters/BakerHands.fbx').exists():
     hands=model('hands','Operator hands',(0,0,0));hands.matrix_world=camera.matrix_world@Matrix(((1,0,0,0),(0,0,1,0),(0,1,0,0),(0,0,0,1)))
 
 box('Fairground',(0,-.08,5),(70,.15,70),'Ground')
-matpos=vals(re.search(r'PackageSpot\.position=new Vector3\(([^)]+)\)',SOURCE)[1]);box('Packing mat',matpos,(.35,.009,.32),'GH_Teal')
+matpos=vals(re.search(r'PackageSpot\.position=new Vector3\(([^)]+)\)',SOURCE)[1]);box('Packing mat',(matpos[0],matpos[1]-.0045,matpos[2]),(.35,.009,.32),'GH_Teal')
 for i in range(7):
     x=(i-3)*3.7
     if REVISED:model('marketStall','Authored market stall '+str(i),(x,0,7.5+i%2))

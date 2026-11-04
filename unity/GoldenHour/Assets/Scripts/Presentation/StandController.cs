@@ -37,16 +37,25 @@ namespace GoldenHour.Presentation
         float saveCheck;
         int lastCustomer;
         ParticleSystem fire,foam,score;
+        Material softParticleMaterial,flameMaterial;
+        Texture2D softParticleTexture;
+        public PhysicsMaterial DoughPhysics {get;private set;}
         Light fireLight;
+        Coroutine trayJiggle;
+        static readonly Vector3 ScoopGrip=new Vector3(0,.075f,.172f);
+        static readonly Quaternion ScoopRotation=Quaternion.Euler(0,180,0);
+        static readonly Vector3[] ScoopLoad={new Vector3(0,.022f,-.062f),new Vector3(0,.051f,-.014f),new Vector3(0,.026f,.034f)};
         readonly System.Random visualRandom=new System.Random(411);
         readonly Dictionary<Transform,Vector3> restPositions=new Dictionary<Transform,Vector3>();
         readonly Dictionary<Transform,Quaternion> restRotations=new Dictionary<Transform,Quaternion>();
         void Awake()
         {
+            Application.runInBackground=Environment.GetCommandLineArgs().Any(arg=>arg=="--gh-smoke"||arg=="--gh-acceptance");
             Application.targetFrameRate=120; QualitySettings.vSyncCount=1;
             ReducedMotion=PlayerPrefs.GetInt("motion",0)==1;
             Volume=PlayerPrefs.GetFloat("volume",.75f); MusicVolume=PlayerPrefs.GetFloat("music",.25f);
             Model=new StandSimulation(20261104);
+            DoughPhysics=new PhysicsMaterial("Warm dough") { dynamicFriction=.42f,staticFriction=.48f,bounciness=.07f };
             World=new WorldBuilder(assets,transform); World.Build();
             foreach(var station in World.Stations.Values){restPositions[station.transform]=station.transform.position;restRotations[station.transform]=station.transform.rotation;}
             cameraRest=World.Camera.transform.position; cameraRotation=World.Camera.transform.rotation;
@@ -60,7 +69,8 @@ namespace GoldenHour.Presentation
             var main=fire.main; main.startSpeed=new ParticleSystem.MinMaxCurve(.24f,.8f); main.startSize=new ParticleSystem.MinMaxCurve(.055f,.18f); main.gravityModifier=-.12f;
             if(assets.flame)
             {
-                fire.GetComponent<ParticleSystemRenderer>().material.mainTexture=assets.flame;
+                flameMaterial=new Material(softParticleMaterial);flameMaterial.SetTexture("_BaseMap",assets.flame);
+                fire.GetComponent<ParticleSystemRenderer>().sharedMaterial=flameMaterial;
                 main.startColor=Color.white;main.startSize3D=true;main.startSizeX=new ParticleSystem.MinMaxCurve(.16f,.24f);main.startSizeY=new ParticleSystem.MinMaxCurve(.25f,.47f);main.startSizeZ=.2f;
                 var emission=fire.emission;emission.rateOverTime=18;
                 var fireColor=fire.colorOverLifetime;var fireGradient=new Gradient();fireGradient.SetKeys(new[]{new GradientColorKey(Color.white,0),new GradientColorKey(new Color(1,.55f,.25f),1)},new[]{new GradientAlphaKey(0,0),new GradientAlphaKey(.75f,.2f),new GradientAlphaKey(0,1)});fireColor.color=fireGradient;
@@ -78,6 +88,7 @@ namespace GoldenHour.Presentation
         public void StartShift(GameMode mode,bool relaxed=false)
         {
             StopAllCoroutines(); Busy=false;
+            trayJiggle=null;
             foreach(var pair in restPositions)if(pair.Key){pair.Key.position=pair.Value;pair.Key.rotation=restRotations[pair.Key];}
             if(fire)fire.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
             if(foam)foam.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
@@ -88,7 +99,7 @@ namespace GoldenHour.Presentation
             foreach(var f in Food.Values)if(f)Destroy(f.gameObject); Food.Clear();
             if(Package)Destroy(Package.gameObject); Package=null;
             Model.Start(mode,relaxed); Menu=false;Paused=false;Time.timeScale=1;ScoopEquipped=false;PackageLifted=false;
-            World.Scoop.SetParent(transform); World.Scoop.position=scoopRest;World.Scoop.rotation=Quaternion.identity;World.Scoop.gameObject.SetActive(true);
+            World.Scoop.SetParent(transform); World.Scoop.position=scoopRest;World.Scoop.rotation=ScoopRotation;World.Scoop.gameObject.SetActive(true);
             World.Customer.position=customerRest;World.Customer.rotation=Quaternion.identity;World.Customer.gameObject.SetActive(true);
             int index=0; foreach(int id in Model.StockIds)
             {
@@ -165,8 +176,7 @@ namespace GoldenHour.Presentation
                 case StationKind.Bag: ChoosePackage(PackageKind.Bag);break;
                 case StationKind.Bucket: ChoosePackage(PackageKind.Bucket);break;
                 case StationKind.Scoop:
-                    ScoopEquipped=!ScoopEquipped;PackageLifted=false;
-                    if(ScoopEquipped)TrackHand(World.Scoop,"R",new Vector3(0,.03f,-.08f));else handWork?.ClearToolTarget("R");
+                    ScoopEquipped=!ScoopEquipped;
                     StartCoroutine(MoveTool(World.Scoop,ScoopEquipped?HeldScoop:scoopRest,.32f,"Reach"));Cue("click");break;
                 case StationKind.Tray:
                     if(!ScoopEquipped){ShakeTray();break;}
@@ -217,39 +227,57 @@ namespace GoldenHour.Presentation
                 d.Pending=false;d.InTray=Model.StockIds.Contains(id);d.MakePhysical();
                 d.Body.linearVelocity=Vector3.zero;d.Body.angularVelocity=Vector3.zero;index++;
             }
-            if(Package)Destroy(Package.gameObject);Package=null;PackageLifted=false;Cue("drop");
+            if(Package)Destroy(Package.gameObject);Package=null;PackageLifted=false;handWork?.ClearToolTarget("L");Cue("drop");
         }
         IEnumerator MoveTool(Transform item,Vector3 target,float duration,string action)
         {
+            if(item==Package)TrackHand(item,"L",new Vector3(-.08f,.13f,0));
+            if(item==World.Scoop)TrackHand(item,"R",ScoopGrip);
             Busy=true;handDriver?.PlayAction(action,duration);var from=item.position;var rot=item.rotation;
-            for(float t=0;t<duration;t+=Time.deltaTime){if(!item)break;float f=Smooth(t/duration);item.position=Vector3.Lerp(from,target,f)+Vector3.up*(Mathf.Sin(f*Mathf.PI)*.09f);item.rotation=Quaternion.Slerp(rot,Quaternion.identity,f);yield return null;}
-            if(item)item.position=target;Busy=false;
+            var endRotation=item==World.Scoop?ScoopRotation:Quaternion.identity;
+            for(float t=0;t<duration;t+=Time.deltaTime){if(!item)break;float f=Smooth(t/duration);item.position=Vector3.Lerp(from,target,f)+Vector3.up*(Mathf.Sin(f*Mathf.PI)*.09f);item.rotation=Quaternion.Slerp(rot,endRotation,f);yield return null;}
+            if(item){item.position=target;item.rotation=endRotation;}
+            if(item==Package&&!PackageLifted)handWork?.ClearToolTarget("L");
+            if(item==World.Scoop&&!ScoopEquipped)handWork?.ClearToolTarget("R");
+            Busy=false;
         }
         IEnumerator ScoopMotion(IReadOnlyList<int> ids)
         {
             Busy=true;handDriver?.PlayAction("Scoop",.65f);
             Vector3 from=World.Scoop.position,target=World.TrayCenter+new Vector3(0,.025f,-.02f);
-            for(float t=0;t<.26f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(from,target,Smooth(t/.26f));World.Scoop.rotation=Quaternion.Euler(Mathf.Sin(t/.26f*Mathf.PI)*-25,0,0);yield return null;}
-            int i=0;foreach(int id in ids)if(Food.TryGetValue(id,out var d)&&d){d.Hold();d.transform.SetParent(World.Scoop);d.transform.localPosition=new Vector3((i-1)*.042f,.045f,.07f);d.transform.localRotation=Quaternion.Euler(0,i*67,0);i++;}
+            for(float t=0;t<.26f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(from,target,Smooth(t/.26f));World.Scoop.rotation=ScoopRotation*Quaternion.AngleAxis(Mathf.Sin(t/.26f*Mathf.PI)*-25,Vector3.right);yield return null;}
+            int i=0;foreach(int id in ids)if(Food.TryGetValue(id,out var d)&&d){d.Hold();d.transform.SetParent(World.Scoop);d.transform.localPosition=ScoopLoad[i];d.transform.localRotation=Quaternion.Euler(0,i*67,0);i++;}
             Cue("scoop");
-            for(float t=0;t<.34f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(target,HeldScoop,Smooth(t/.34f));World.Scoop.rotation=Quaternion.Slerp(World.Scoop.rotation,Quaternion.identity,.15f);yield return null;}
-            Busy=false;
+            Quaternion returnRotation=World.Scoop.rotation;
+            for(float t=0;t<.34f;t+=Time.deltaTime){float f=Smooth(t/.34f);World.Scoop.position=Vector3.Lerp(target,HeldScoop,f);World.Scoop.rotation=Quaternion.Slerp(returnRotation,ScoopRotation,f);yield return null;}
+            World.Scoop.position=HeldScoop;World.Scoop.rotation=ScoopRotation;Busy=false;
         }
         IEnumerator PourMotion(IReadOnlyList<int> ids)
         {
-            Busy=true;handDriver?.PlayAction("Pour",.82f);Vector3 start=World.Scoop.position;Vector3 target=Package.position+new Vector3(-.07f,.38f,0);
+            Busy=true;handDriver?.PlayAction("Pour",.82f);Vector3 start=World.Scoop.position;
+            Vector3 gripWorld=Package.position+new Vector3(0,.61f,-.04f);
+            Vector3 target=gripWorld-ScoopRotation*ScoopGrip;
             for(float t=0;t<.30f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(start,target,Smooth(t/.30f));yield return null;}
             var destinations=new List<KeyValuePair<DonutBody,Vector3>>();int i=Model.PackageCount-ids.Count;
             foreach(int id in ids)if(Food.TryGetValue(id,out var d)&&d){d.transform.SetParent(Package);destinations.Add(new KeyValuePair<DonutBody,Vector3>(d,new Vector3(Mathf.Sin(i*2.4f)*.055f,.04f+(i/3)*.034f,Mathf.Cos(i*2.4f)*.035f)));i++;}
             var starts=destinations.Select(x=>x.Key.transform.localPosition).ToArray();
-            for(float t=0;t<.27f;t+=Time.deltaTime){float f=Smooth(t/.27f);World.Scoop.rotation=Quaternion.Euler(0,0,-f*65);for(i=0;i<destinations.Count;i++)destinations[i].Key.transform.localPosition=Vector3.Lerp(starts[i],destinations[i].Value,f);yield return null;}
+            for(float t=0;t<.27f;t+=Time.deltaTime){float f=Smooth(t/.27f);World.Scoop.rotation=ScoopRotation*Quaternion.AngleAxis(-65*f,Vector3.right);World.Scoop.position=gripWorld-World.Scoop.rotation*ScoopGrip;for(i=0;i<destinations.Count;i++)destinations[i].Key.transform.localPosition=Vector3.Lerp(starts[i],destinations[i].Value,f);yield return null;}
+            foreach(var destination in destinations)destination.Key.transform.localPosition=destination.Value;
             Cue("pour");
-            for(float t=0;t<.24f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(target,start,Smooth(t/.24f));World.Scoop.rotation=Quaternion.Euler(0,0,-65*(1-Smooth(t/.24f)));yield return null;}
-            World.Scoop.rotation=Quaternion.identity;Busy=false;
+            var returnPosition=World.Scoop.position;var returnRotation=World.Scoop.rotation;
+            for(float t=0;t<.24f;t+=Time.deltaTime){float f=Smooth(t/.24f);World.Scoop.position=Vector3.Lerp(returnPosition,start,f);World.Scoop.rotation=Quaternion.Slerp(returnRotation,ScoopRotation,f);yield return null;}
+            World.Scoop.position=start;World.Scoop.rotation=ScoopRotation;Busy=false;
         }
         IEnumerator SeasonMotion(Transform shaker,Coating coating)
         {
-            Busy=true;handDriver?.PlayAction("Shake",.85f);Vector3 start=shaker.position;Quaternion rotation=shaker.rotation;Vector3 target=Package.position+new Vector3(0,.40f,0);
+            Busy=true;
+            if(PackageLifted)
+            {
+                PackageLifted=false;
+                yield return MoveTool(Package,World.PackageSpot.position,.32f,"Reach");
+                Busy=true;
+            }
+            handDriver?.PlayAction("Shake",.85f);Vector3 start=shaker.position;Quaternion rotation=shaker.rotation;Vector3 target=Package.position+new Vector3(0,.40f,0);
             TrackHand(shaker,"L",new Vector3(0,.06f,0));
             for(float t=0;t<.23f;t+=Time.deltaTime){shaker.position=Vector3.Lerp(start,target,Smooth(t/.23f));shaker.rotation=Quaternion.Euler(0,0,Smooth(t/.23f)*135);yield return null;}
             var dust=Particles("Sugar dust",target-Vector3.up*.10f,coating==Coating.Powdered?Color.white:new Color(.69f,.38f,.12f),.008f,80,.35f);var m=dust.main;m.startSpeed=.15f;m.gravityModifier=.6f;
@@ -283,9 +311,10 @@ namespace GoldenHour.Presentation
                 d.Body.AddForce((away.normalized*Rand(.12f,.35f)+Vector3.up*(.22f+shakeCombo*.17f))*(shakeCombo>3?1.6f:1),ForceMode.VelocityChange);
                 d.Body.AddTorque(new Vector3(Rand(-2,2),Rand(-2,2),Rand(-2,2)),ForceMode.VelocityChange);
             }
-            StartCoroutine(TrayJiggle());Cue("tray_shake");if(shakeCombo>=4)Notify("DONUT WEATHER ADVISORY");
+            if(trayJiggle!=null)StopCoroutine(trayJiggle);
+            trayJiggle=StartCoroutine(TrayJiggle());Cue("tray_shake");if(shakeCombo>=4)Notify("DONUT WEATHER ADVISORY");
         }
-        IEnumerator TrayJiggle(){Vector3 p=World.Tray.position;for(float t=0;t<.14f;t+=Time.deltaTime){World.Tray.position=p+new Vector3(Mathf.Sin(t*90)*.012f,0,0);yield return null;}World.Tray.position=p;}
+        IEnumerator TrayJiggle(){Vector3 p=restPositions[World.Tray];for(float t=0;t<.14f;t+=Time.deltaTime){World.Tray.position=p+new Vector3(Mathf.Sin(t*90)*.012f,0,0);yield return null;}World.Tray.position=p;trayJiggle=null;}
         IEnumerator StopFoam(){yield return new WaitForSeconds(1.3f);foam.Stop();}
         public void MarkWaste(DonutBody donut){donut.InTray=false;donut.Pending=false;donut.Age=0;}
         Vector3 HeldScoop {get{return World.Camera.transform.TransformPoint(new Vector3(.22f,-.28f,.60f));}}
@@ -293,6 +322,7 @@ namespace GoldenHour.Presentation
         {
             if(!handWork||!tool)return;var grasp=tool.Find("GH_Grasp_"+side);
             if(!grasp){grasp=new GameObject("GH_Grasp_"+side).transform;grasp.SetParent(tool,false);grasp.localPosition=gripOffset;}
+            if(tool==World.Scoop)grasp.localRotation=Quaternion.Euler(0,180,0);
             handWork.SetToolTarget(grasp,1,side);
         }
         DonutBody CreateDonut(int id,bool pending)
@@ -341,10 +371,23 @@ namespace GoldenHour.Presentation
             var go=new GameObject(name,typeof(ParticleSystem));go.transform.SetParent(transform);go.transform.position=p;var ps=go.GetComponent<ParticleSystem>();ps.Stop();
             var main=ps.main;main.startColor=color;main.startLifetime=lifetime;main.startSize=size;main.startSpeed=.4f;main.simulationSpace=ParticleSystemSimulationSpace.World;main.maxParticles=400;
             var emission=ps.emission;emission.rateOverTime=rate;var shape=ps.shape;shape.shapeType=ParticleSystemShapeType.Cone;shape.angle=25;shape.radius=.08f;
-            var renderer=ps.GetComponent<ParticleSystemRenderer>();var mat=assets.particle?new Material(assets.particle):new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));mat.SetFloat("_Surface",1);mat.SetFloat("_Blend",0);mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");mat.SetInt("_SrcBlend",(int)UnityEngine.Rendering.BlendMode.SrcAlpha);mat.SetInt("_DstBlend",(int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);mat.SetInt("_ZWrite",0);mat.renderQueue=3000;
-            var tex=new Texture2D(64,64,TextureFormat.RGBA32,false);for(int y=0;y<64;y++)for(int x=0;x<64;x++){float r=Vector2.Distance(new Vector2(x,y),new Vector2(31.5f,31.5f))/31.5f;tex.SetPixel(x,y,new Color(1,1,1,Mathf.Pow(Mathf.Clamp01(1-r),1.8f)));}tex.Apply();mat.mainTexture=tex;renderer.material=mat;
+            if(!softParticleMaterial)
+            {
+                softParticleMaterial=new Material(assets.particle);
+                softParticleTexture=new Texture2D(64,64,TextureFormat.RGBA32,false){name="Soft particle falloff",wrapMode=TextureWrapMode.Clamp};
+                for(int y=0;y<64;y++)for(int x=0;x<64;x++){float r=Vector2.Distance(new Vector2(x,y),new Vector2(31.5f,31.5f))/31.5f;softParticleTexture.SetPixel(x,y,new Color(1,1,1,Mathf.Pow(Mathf.Clamp01(1-r),1.8f)));}
+                softParticleTexture.Apply(false,true);softParticleMaterial.SetTexture("_BaseMap",softParticleTexture);
+            }
+            ps.GetComponent<ParticleSystemRenderer>().sharedMaterial=softParticleMaterial;
             var col=ps.colorOverLifetime;col.enabled=true;var gradient=new Gradient();gradient.SetKeys(new[]{new GradientColorKey(color,0),new GradientColorKey(color,1)},new[]{new GradientAlphaKey(.1f,0),new GradientAlphaKey(.85f,.15f),new GradientAlphaKey(0,1)});col.color=gradient;
             ps.Play();return ps;
+        }
+        void OnDestroy()
+        {
+            if(softParticleMaterial)Destroy(softParticleMaterial);
+            if(flameMaterial)Destroy(flameMaterial);
+            if(softParticleTexture)Destroy(softParticleTexture);
+            if(DoughPhysics)Destroy(DoughPhysics);
         }
         IEnumerator SmokeRun()
         {

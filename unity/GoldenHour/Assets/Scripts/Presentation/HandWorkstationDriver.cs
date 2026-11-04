@@ -39,6 +39,8 @@ namespace GoldenHour
         public bool LeftTargetWithinReach => left.WithinReach;
         public float RightWeight => right.Weight;
         public float LeftWeight => left.Weight;
+        public bool RightTracking => right.Target != null && right.DesiredWeight > .25f;
+        public bool LeftTracking => left.Target != null && left.DesiredWeight > .25f;
 
         private void Awake() => EnsureComponents();
 

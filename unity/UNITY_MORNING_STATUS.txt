@@ -40,6 +40,18 @@ IMPLEMENTED IN SOURCE
   field guide, audio/reduced-motion settings, and end receipt.
 - Original/existing texture maps, packed URP metal/smoothness maps, 36 sounds,
   generated transparent fire sprite, dusk sky shader, light/score feedback.
+- URP 17.3 source audit corrections: supported lighting APIs, connected post-
+  processing resources, saved transparent particle variant and exponential fog,
+  and refreshed authored color multipliers during material generation.
+- Shared particle textures/materials and donut physics material avoid per-order
+  native allocations; tray shake animations return to a stable resting position.
+- Setting down the scoop keeps the hand target through the motion. Seasoning a
+  held bag lowers it onto the mat first; held packaging survives scoop toggling.
+- Prop feet, countertop collision and tray floor now match authored geometry;
+  the prior tray collider would have held donuts 13 mm above its visible floor.
+- Scoop grip now targets the wooden handle, with three donuts loaded along the
+  bowl, handle facing the operator, and forward pouring around the palm pivot.
+  The former hand target was inside the bowl and its load exceeded bowl width.
 
 VERIFIED
 - 21 pure C# acceptance scenarios pass; compiler reports zero warnings/errors.
@@ -57,7 +69,19 @@ NOT VERIFIED / REQUIRED NEXT
 - FBX facing/handedness, imported pivot axes, material conversion and animation
   take names. Offline Blender previews are NOT Unity screenshots.
 - Hand/tool contact throughout scoop/pour/shake/handoff; camera and workstation
-  spacing may need further adjustment to keep actions within natural arm reach.
+  spacing MUST be adjusted to keep actions within natural arm reach. Offline
+  measurement found 0.666 m usable arm reach, while existing stationary-camera
+  targets require 1.31-2.38 m. The IK clamp prevents stretching but cannot make
+  those targets physically reachable. This is a known unfinished integration
+  issue, not a verified animation solution.
+  A bounded offline solution uses a persistent central camera at (.15,1.50,-.60)
+  and a right packing camera at (1.22,1.48,-.22), unpitched operator shoulders,
+  and a nearer service release. This needs native camera/interaction tuning;
+  it has not been substituted blindly into the existing overview presentation.
+  With the corrected scoop grip/pivot, the proposed central held-bag pour still
+  requires 0.787 m and fails the 0.666 m limit; the right-side mat pour is within
+  reach at 0.640 m. The central held-package staging needs further adjustment.
+  See playtest-reports/unity-assets/hand-reach-audit.md and its corrected results.
 - Native physics stability, food travel over the incline, physical tray overflow,
   reach/hover selection, render clarity, performance, HUD scaling, and sound mix.
 - The player-side acceptance harness has been authored but has NOT been run.
@@ -82,6 +106,8 @@ Launch GoldenHour.exe --gh-acceptance for a real-time automated physical serving
 run, fault/gag checks and a full timed Opening Day. It writes screenshots and
 result.json under the Unity player's persistent-data Acceptance directory.
 Require GH_ACCEPTANCE passed=true, no errors, and inspect the screenshots.
+The harness now rejects sustained unreachable hand targets. It is expected to
+flag the documented stationary-camera reach issue until that staging is fixed.
 Then manually play the loop and review animation feel before calling it ready.
 
 CONTROLS IN SOURCE
@@ -98,7 +124,8 @@ Its release package and existing player saves were preserved.
 ART PREVIEW
 playtest-reports/unity-assets/workstation-revised-nonunity.png
 This is an offline Blender composition preview, not the Unity player. The final
-source includes subsequent customer refinement and bell/extinguisher relocation.
+preview includes the latest customer, bell/extinguisher relocation and seating
+corrections. It does not validate hand-to-tool contact during gameplay.
 
 FIRE ASSET PROVENANCE
 GoldenHour/Assets/Art/Textures/oil_flame.png

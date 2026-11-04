@@ -20,6 +20,7 @@ namespace GoldenHour.Editor
             if(assetPath.Contains("_normal")){t.textureType=TextureImporterType.NormalMap;t.convertToNormalmap=false;}
             if(assetPath.Contains("_roughness")||assetPath.Contains("_metallic_smoothness")){t.sRGBTexture=false;}
             if(assetPath.Contains("label")||assetPath.Contains("seal")){t.alphaIsTransparency=true;}
+            if(assetPath.EndsWith("oil_flame.png",StringComparison.OrdinalIgnoreCase)){t.alphaIsTransparency=true;t.wrapMode=TextureWrapMode.Clamp;}
         }
         void OnPreprocessModel()
         {
@@ -59,11 +60,21 @@ namespace GoldenHour.Editor
             a.glow=Material("GH_Bulb",new Color(1,.7f,.3f));a.glow.EnableKeyword("_EMISSION");a.glow.SetColor("_EmissionColor",new Color(1,.55f,.15f)*3);
             a.font=AssetDatabase.LoadAssetAtPath<Font>("Assets/AudioAndBrand/Fredoka-Medium.ttf");
             a.keyArt=AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/AudioAndBrand/title_keyart.png");a.seal=Texture("brand_seal.png");a.sign=Texture("counter_sign.png");
-            a.flame=Texture("oil_flame.png");a.particle=new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));Save(a.particle,Generated+"/Materials/GH_Particles.mat");
+            a.flame=Texture("oil_flame.png");a.particle=new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
+            a.particle.SetFloat("_Surface",1);a.particle.SetFloat("_Blend",0);a.particle.SetFloat("_AlphaClip",0);
+            a.particle.SetInt("_SrcBlend",(int)BlendMode.SrcAlpha);a.particle.SetInt("_DstBlend",(int)BlendMode.OneMinusSrcAlpha);
+            a.particle.SetInt("_SrcBlendAlpha",(int)BlendMode.One);a.particle.SetInt("_DstBlendAlpha",(int)BlendMode.OneMinusSrcAlpha);
+            a.particle.SetInt("_ZWrite",0);a.particle.SetOverrideTag("RenderType","Transparent");a.particle.renderQueue=3000;
+            a.particle.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            a.particle.DisableKeyword("_ALPHAPREMULTIPLY_ON");a.particle.DisableKeyword("_ALPHAMODULATE_ON");a.particle.DisableKeyword("_ALPHATEST_ON");
+            Save(a.particle,Generated+"/Materials/GH_Particles.mat");
             a.sky=new Material(Shader.Find("GoldenHour/DuskSky"));Save(a.sky,Generated+"/Materials/GH_DuskSky.mat");
             a.sounds=AssetDatabase.FindAssets("t:AudioClip",new[]{"Assets/AudioAndBrand"}).Select(AssetDatabase.GUIDToAssetPath).Select(p=>AssetDatabase.LoadAssetAtPath<AudioClip>(p)).ToArray();
             Save(a,Generated+"/StandAssets.asset");
             var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            // The workstation is assembled at runtime; keep its fog variant in the player.
+            RenderSettings.fog=true;RenderSettings.fogMode=FogMode.Exponential;
+            RenderSettings.fogDensity=.022f;RenderSettings.fogColor=new Color(.17f,.20f,.28f);
             var game=new GameObject("Golden Hour");game.AddComponent<StandController>().assets=a;
             Directory.CreateDirectory("Assets/Scenes");EditorSceneManager.SaveScene(scene,"Assets/Scenes/Fairground.unity");
             EditorBuildSettings.scenes=new[]{new EditorBuildSettingsScene("Assets/Scenes/Fairground.unity",true)};
@@ -82,9 +93,12 @@ namespace GoldenHour.Editor
             PlayerSettings.fullScreenMode=FullScreenMode.FullScreenWindow;PlayerSettings.resizableWindow=true;PlayerSettings.runInBackground=false;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone,ScriptingImplementation.Mono2x);
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64,false);PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64,new[]{GraphicsDeviceType.Direct3D11});
-            QualitySettings.antiAliasing=4;QualitySettings.anisotropicFiltering=AnisotropicFiltering.ForceEnable;QualitySettings.shadowDistance=35;QualitySettings.shadowResolution=ShadowResolution.High;QualitySettings.vSyncCount=1;
-            var renderer=ScriptableObject.CreateInstance<UniversalRendererData>();Save(renderer,Generated+"/GoldenRenderer.asset");
-            var pipeline=UniversalRenderPipelineAsset.Create(renderer);pipeline.msaaSampleCount=4;pipeline.renderScale=1;pipeline.supportsHDR=true;pipeline.shadowDistance=35;pipeline.mainLightShadowmapResolution=2048;pipeline.additionalLightsRenderingMode=LightRenderingMode.PerPixel;pipeline.additionalLightsPerObjectLimit=8;
+            QualitySettings.antiAliasing=4;QualitySettings.anisotropicFiltering=AnisotropicFiltering.ForceEnable;QualitySettings.shadowDistance=35;QualitySettings.shadowResolution=UnityEngine.ShadowResolution.High;QualitySettings.vSyncCount=1;
+            var renderer=ScriptableObject.CreateInstance<UniversalRendererData>();
+            renderer.postProcessData=AssetDatabase.LoadAssetAtPath<PostProcessData>("Packages/com.unity.render-pipelines.universal/Runtime/Data/PostProcessData.asset");
+            if(!renderer.postProcessData)throw new Exception("URP post-processing resources are missing. Resolve the Universal RP package before building.");
+            Save(renderer,Generated+"/GoldenRenderer.asset");
+            var pipeline=UniversalRenderPipelineAsset.Create(renderer);pipeline.msaaSampleCount=4;pipeline.renderScale=1;pipeline.supportsHDR=true;pipeline.shadowDistance=35;pipeline.mainLightShadowmapResolution=2048;pipeline.maxAdditionalLightsCount=8;
             Save(pipeline,Generated+"/GoldenPipeline.asset");GraphicsSettings.defaultRenderPipeline=pipeline;QualitySettings.renderPipeline=pipeline;
             Physics.defaultSolverIterations=10;Physics.defaultSolverVelocityIterations=4;Physics.gravity=new Vector3(0,-9.81f,0);
         }
@@ -96,7 +110,9 @@ namespace GoldenHour.Editor
             foreach(var d in defs.materials)
             {
                 var c=d.color??new[]{1f,1f,1f,1f};var m=Material(d.name,new Color(c[0],c[1],c[2],c.Length>3?c[3]:1),d.metallic,1-d.roughness);
-                if(!string.IsNullOrEmpty(d.albedo)){m.SetTexture("_BaseMap",Texture(d.albedo));m.SetColor("_BaseColor",Color.white);}
+                m.SetColor("_BaseColor",new Color(c[0],c[1],c[2],c.Length>3?c[3]:1));
+                m.SetFloat("_Metallic",d.metallic);m.SetFloat("_Smoothness",1-d.roughness);
+                if(!string.IsNullOrEmpty(d.albedo))m.SetTexture("_BaseMap",Texture(d.albedo));
                 if(!string.IsNullOrEmpty(d.normal)){m.SetTexture("_BumpMap",Texture(d.normal));m.SetFloat("_BumpScale",.5f);m.EnableKeyword("_NORMALMAP");}
                 if(!string.IsNullOrEmpty(d.metallicSmoothnessMap)){m.SetTexture("_MetallicGlossMap",Texture(d.metallicSmoothnessMap));m.EnableKeyword("_METALLICSPECGLOSSMAP");m.SetFloat("_Smoothness",1);}
                 if(d.alphaClip){m.SetFloat("_AlphaClip",1);m.SetFloat("_Cutoff",.15f);m.EnableKeyword("_ALPHATEST_ON");m.renderQueue=2450;}
