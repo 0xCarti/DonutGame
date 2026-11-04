@@ -2,18 +2,31 @@
 
 ## Original project assets
 
-The donut machine, donuts, counter, trays, signage, customers, first-person hands,
-scoop, packaging, background props, materials, and animations are original
-procedural geometry and animation authored for this
-project. No commercial game models or textures are included. Equipment names in
-the design discussion are references; the prototype uses an original fictional
-machine design.
+The donut machine, donuts, counter, trays, customers, first-person hands, scoop,
+packaging geometry, background props, materials, and animations were authored
+for this project. The game uses original procedural geometry, surface textures
+and shaders. No models or textures from the reference commercial games are
+included. Equipment names in the design discussion are references; the game
+uses an original fictional machine design.
 
-All WAV files in `assets/audio/` were synthesized specifically for this project
-with `tools/generate_audio.py`. The thirteen effects and the original 30-second
-fairground waltz use mathematical oscillators and deterministic generated noise.
-They contain no sampled recordings, downloaded sound effects, or third-party
-music. The generator is included so the assets can be reproduced and modified.
+Three bitmap illustrations were generated for Golden Hour using OpenAI's built-in
+image generation tool on 2026-11-04 UTC: `assets/art/title_keyart.png` (title
+illustration), `assets/art/brand_seal.png` (packaging emblem), and
+`assets/art/counter_sign.png` (enamel sign artwork). Prompts requested original
+art without source-game imagery or machine-brand logos. The prompts and asset
+paths are recorded in `docs/ART_PROMPTS.json`, included in the distribution's
+LICENSES folder. These are generated illustrations, not photographs of real
+equipment. The original outputs are retained separately from the project copies.
+
+All WAV files were synthesized specifically for this project. The original
+service/reward effects and 30-second fairground loop are reproducible with
+`tools/generate_audio.py`. The finished stand uses fourteen additional assets
+from `tools/generate_stand_audio.py`: eleven tactile service and warning cues,
+fryer and evening ambience loops, and a 76.8-second original 32-bar evening
+theme. The generators use mathematical oscillators and deterministic noise;
+there are no sampled recordings, downloaded effects or third-party melodies.
+Asset manifests record sample lengths and measured peaks. Both generators
+remain in the source project.
 
 ## Godot Engine
 

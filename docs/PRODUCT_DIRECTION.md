@@ -8,7 +8,7 @@ The machine automatically drops plain donuts into a catch tray. Customers order 
 
 The challenge should come from reading orders, completing a satisfying physical sequence, maintaining stock, and choosing when to interrupt service. A wrong order should have understandable consequences and a clear recovery path. Avoid replacing the old easy tray button with a new automatic-serve button.
 
-Version 0.3.0 provides three timed shifts, a queue of up to three customers, eight possible upgrades, two container sizes, two coatings, physical scene interactions, visible hands and tools, and local saving. Quotas rise as customers arrive more quickly. Upgrades help production, capacity, patience, repairs, and tips while retaining manual service.
+Version 1.0.0 provides a complete fairground campaign with six timed shifts, a queue of up to three customers, nineteen earned upgrades, two container sizes, two coatings, physical scene interactions, visible hands and tools, and local saving. Standard and Relaxed offer different pacing. Practice teaches service and fault recovery without a timer. Winning unlocks Endless Rush. Career badges and three earned stand palettes persist between runs.
 
 ## Setting and perspective
 
@@ -26,7 +26,7 @@ The user's quality references are CloverPit, RACCOIN, and Bills Must Be Paid: di
 - Keep the customer and active workstation readable. Warm light should reveal materials without washing them out.
 - Use camera movement carefully. Preserve precise pointer targets and provide immediate reduced-motion settings.
 
-Procedural assets establish the playable composition, but are not a claim of final commercial art quality. Assess graphics at gameplay distance and during actual interactions.
+V1 ships its authored stylized booth, textured materials, detailed original machine, irregular browned donuts, generated packaging emblems and sign, animated service actions, and dusk fairground environment. Review graphics at gameplay distance and during actual interactions, including both Windows and browser rendering.
 
 ## Reward feedback
 
@@ -36,13 +36,13 @@ Base effects on the authoritative completed-sale receipt. Do not duplicate the r
 
 Reduced motion should remove shake and disruptive movement while retaining readable outcomes. Sound, music, and motion remain independent settings.
 
-## Purchases: open decision
+## V1 scope and V2 purchases
 
-Leave architectural room for optional purchases, as requested, but the monetization model is **not decided**. No store, checkout, paid entitlements, or gameplay boosts are implemented or approved.
+The user selected a **free game with optional temporary gameplay boosts and cosmetic purchases**, then explicitly deferred all purchase and Steam integration work to **version 2** because no Steamworks account or app exists. V1 must be a finished offline game with at least one complete venue, finalized graphics and the full gameplay loop. Its venue is the fairground, structured as a six-shift campaign.
 
-Cosmetic machine finishes, packaging, canopy designs, signs, and venue themes are a possible starting point. If temporary gameplay boosts are chosen later, specify their effects and limits, and consider separately labeled assisted runs. Those are recommendations for later decisions, not adopted rules.
+V1 has no paid store, checkout, paid entitlements, purchase prompts or usable gameplay boosts. Its equipment, badges, palettes and Endless unlock are earned by play. The dormant future-boost API is disabled. No external platform account is required.
 
-Keep the run simulation, presentation choices, and any future entitlement system separate. The playtest must remain fully usable while the commercial model is explored.
+V2 will specify boost effects, durations, pricing, purchase validation and restore behaviour alongside platform integration. Keep run simulation and presentation independent of any future entitlement system. Do not retroactively charge for V1's earned unlocks. Additional concert and sports venues remain separate future content.
 
 ## What to learn from this pivot
 

@@ -1,0 +1,100 @@
+{
+  "paper": {
+    "seconds": 0.55,
+    "peak": 0.55,
+    "rms": 0.16638863960144623,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "scoop": {
+    "seconds": 0.42,
+    "peak": 0.57,
+    "rms": 0.14340785719586846,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "pour": {
+    "seconds": 0.65,
+    "peak": 0.56,
+    "rms": 0.1179833667186656,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "sugar": {
+    "seconds": 0.6,
+    "peak": 0.48,
+    "rms": 0.18254800960301362,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "refill": {
+    "seconds": 1.2,
+    "peak": 0.52,
+    "rms": 0.11261225824844796,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "repair": {
+    "seconds": 0.7,
+    "peak": 0.55,
+    "rms": 0.17281732893496976,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "jam": {
+    "seconds": 0.85,
+    "peak": 0.58,
+    "rms": 0.2069021259876115,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "overheat": {
+    "seconds": 0.9,
+    "peak": 0.55,
+    "rms": 0.1979331652306736,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "attention": {
+    "seconds": 0.45,
+    "peak": 0.47,
+    "rms": 0.11295962125800123,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "customer": {
+    "seconds": 0.6,
+    "peak": 0.48,
+    "rms": 0.10113979770942508,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "reject": {
+    "seconds": 0.46,
+    "peak": 0.48,
+    "rms": 0.09487212293748636,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "fryer_loop": {
+    "seconds": 4.0,
+    "peak": 0.34,
+    "rms": 0.10880472150308977,
+    "channels": 1,
+    "sample_rate": 32000
+  },
+  "evening_air": {
+    "seconds": 8.0,
+    "peak": 0.23,
+    "rms": 0.04694956938592559,
+    "channels": 2,
+    "sample_rate": 32000
+  },
+  "evening_theme": {
+    "seconds": 76.8,
+    "peak": 0.44,
+    "rms": 0.08440648381035407,
+    "channels": 2,
+    "sample_rate": 32000
+  }
+}

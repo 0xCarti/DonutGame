@@ -1,0 +1,21 @@
+{
+  "project": "Golden Hour",
+  "created_utc": "2026-11-04",
+  "assets": [
+    {
+      "asset": "assets/art/title_keyart.png",
+      "method": "Built-in image generation tool",
+      "prompt": "Use case: stylized-concept. Asset type: original landscape title-screen key art for the commercial game Golden Hour, a warm first-person mini-donut stand game. Create a gorgeous polished stylized 3D illustration at dusk, rich cinematic depth, tactile crafted materials. Subject on the RIGHT two thirds: a beautifully detailed stainless miniature automatic donut fryer with a hopper and channel, golden small ring donuts, a striped kraft paper bag and a red paper bucket full of cinnamon and powdered donuts on a dark walnut counter, a small brass service bell. Beyond the booth: softly out-of-focus carnival string lights, canvas tents, distant ferris wheel with amber bulbs, deep blue evening sky. Emerald teal, brick red, warm amber, cream palette. Warm practical lights make steel edges glint, cool shadows, appetizing browned food, rich but controlled saturation, no blown highlights. Composition: wide landscape about 16:9; LEFT 40% is quiet dark teal shadow and subtle soft bokeh, deliberately reserved for a title and menu which will be rendered by the game. No text, no logos, no watermark, no characters. Premium original indie game title art, not photoreal, not flat vector, not a screenshot, not copied from existing games."
+    },
+    {
+      "asset": "assets/art/brand_seal.png",
+      "method": "Built-in image generation tool",
+      "prompt": "Use case: logo-brand. Asset type: original transparent packaging seal for a warm fairground mini-donut game called Golden Hour. Create a single crisp round vintage carnival bakery emblem with transparent background, no square background, no mockup. Center a charming golden miniature ring donut with subtle browned texture and a strong visible hole, behind it six restrained sunburst rays. Double concentric brass-gold and dark forest-teal circular borders. Curved cream serif lettering across upper arc reads exactly \"GOLDEN HOUR\"; lower arc reads exactly \"HOT MINI DONUTS\". Small burgundy diamond ornaments separate the two phrases. Restrained authentic hand-painted concession-sign style, confident clean contours, beautiful slightly weathered printed-ink character, not cartoon face, no smiling donut, no extra words, no watermark. Square high-resolution transparent PNG artwork, full emblem safely inside margins. Palette cream #fff0d2, golden ochre #dba14d, forest teal #153b3b, brick red #aa403d. Intended to be readable when printed on paper bags, buckets and a metal sign."
+    },
+    {
+      "asset": "assets/art/counter_sign.png",
+      "method": "Built-in image generation tool",
+      "prompt": "Use case: logo-brand. Asset type: original flat front-facing enamel concession sign texture for Golden Hour game, wide horizontal composition about 3:1. Fill the entire image with a rectangular deep forest teal vintage carnival bakery sign, thin double brass-gold border inset from all edges, gently worn satin enamel texture. Large beautiful warm-cream serif lettering centered reads EXACTLY \"GOLDEN HOUR\". Beneath it, in smaller widely spaced uppercase lettering, \"HOT MINI DONUTS\". On both left and right ends small elegant golden ring donut medallions and simple sunburst line ornaments. Accent tiny burgundy diamonds. Balanced sophisticated fairground typography, perfectly legible, professionally hand-painted sign character, no extra text, no perspective, no 3D mockup, no environment, no glow or cast shadows, no watermark. The design must be readable as an actual sign above a small donut machine in a 3D game."
+    }
+  ]
+}

@@ -4,6 +4,30 @@ extends SceneTree
 
 const Controller = preload("res://scripts/stand_main.gd")
 const Model = preload("res://scripts/stand_model.gd")
+const Profile = preload("res://scripts/player_profile.gd")
+
+class SaveProbeController extends Controller:
+	var intercept_persistence: bool = false
+	var captured_writes: Array = []
+	var captured_deletions: int = 0
+	func _write_json_atomic(path: String, data: Dictionary) -> bool:
+		if intercept_persistence:
+			captured_writes.append({"path": path, "data": data.duplicate(true)})
+			return true
+		return super._write_json_atomic(path, data)
+	func _delete_run_files() -> void:
+		if intercept_persistence:
+			captured_deletions += 1
+			return
+		super._delete_run_files()
+
+class FailingProfile extends Profile:
+	var fail_save: bool = true
+	var save_attempts: int = 0
+	func save_profile() -> bool:
+		save_attempts += 1
+		return not fail_save
+
 var app
 var checks: int = 0
 var failures: int = 0
@@ -19,7 +43,7 @@ func _run() -> void:
 	# playtest aspect ratio so world rays and screen event coordinates agree.
 	root.size = Vector2i(1280, 800)
 	disk_before = _persistent_fingerprints()
-	app = Controller.new()
+	app = SaveProbeController.new()
 	app.test_mode = true
 	root.add_child(app)
 	app.set_process(false)
@@ -43,7 +67,11 @@ func _run() -> void:
 	await _test_bucket_and_mistakes()
 	await _test_maintenance_and_pause()
 	await _test_settings_and_continuation()
+	await _test_dashboard_and_practice()
+	await _test_modes_and_atomic_save()
 	await _test_shop_and_results()
+	_test_result_save_failure()
+	_test_save_load_notices()
 	_check(_persistent_fingerprints() == disk_before, "integration leaves real Idea 2 save and settings bytes unchanged")
 	app.audio.stop_music()
 	for player in app.audio.get_children():
@@ -60,7 +88,7 @@ func _run() -> void:
 func _test_first_run() -> void:
 	_check(app.current_view == "title", "test mode starts at the normal title")
 	_check(_has_label(app.screen, "GOLDEN HOUR"), "title identifies the game")
-	await _click_text(app.screen, "STEP BEHIND THE COUNTER  >")
+	await _click_text(app.screen, "OPEN THE STAND  >")
 	_check(is_instance_valid(app.overlay), "new player sees instructions")
 	_check(app.model.phase == "ready", "first-run instructions do not start the shift clock")
 	_check(not app.tutorial_seen, "instructions are not marked seen before confirmation")
@@ -115,6 +143,7 @@ func _test_bag_service() -> void:
 	_check(app.model.scoop_count == 3 and app.model.supply == stock - 3, "loaded scoop cannot duplicate donuts")
 	await _key(KEY_SPACE)
 	_check(app.model.package_count == 3 and app.held_tool == "scoop", "pouring retains the scoop for the next load")
+	_check(app._guide_context().station != "trash", "partly filled correct container remains normal preparation rather than a mistake")
 	await _key(KEY_C)
 	_check(app.model.package_flavor.is_empty(), "half-filled bag cannot be seasoned")
 	await _key(KEY_F)
@@ -158,10 +187,20 @@ func _test_bucket_and_mistakes() -> void:
 	await _key(KEY_E)
 	_check(app.model.served == 0 and app.model.sales == 0.0 and app.model.mistakes == 1, "wrong sugar does not pay and records the mistake")
 	_check(app.model.package_count == 12 and app.model.orders[0]["patience"] < patience, "wrong order preserves food and costs customer patience")
+	app.hover_station = "serve"
+	var recovery: Dictionary = app._guide_context()
+	_check(recovery.station == "trash" and recovery.key == "X" and recovery.prompt == "Discard this order", "wrong coated food points to discard even when hovering the customer")
 	await _key(KEY_P)
 	_check(app.model.package_flavor == "cinnamon", "wrong coating cannot be overwritten")
 	await _key(KEY_X)
 	_check(app.model.package_type.is_empty() and app.model.supply == 6, "discarding coated food does not return edible stock")
+	await _key(KEY_B)
+	await _key(KEY_S)
+	await _key(KEY_F)
+	await _key(KEY_SPACE)
+	recovery = app._guide_context()
+	_check(recovery.station == "trash" and recovery.hint.contains("recover plain donuts"), "wrong container explains safe plain-donut recovery")
+	await _key(KEY_X)
 	app.model.supply = 18
 	await _key(KEY_V)
 	await _key(KEY_S)
@@ -200,6 +239,12 @@ func _test_maintenance_and_pause() -> void:
 	for step in range(15): app._process(0.1)
 	await _key_event(KEY_R, false)
 	_check(not app.model.jammed and app.hold_station.is_empty(), "resumed hold finishes the remaining repair")
+	app.model.production_count = app.model._next_jam_at - 4
+	app.model._refresh_alerts()
+	await _key_event(KEY_R, true)
+	app._process(0.1)
+	_check(app.hud.condition.text == "SERVICING" and not app.model.jammed, "preventive maintenance reports servicing instead of active production")
+	await _key_event(KEY_R, false)
 	app.model.batter = 0
 	await _key_event(KEY_T, true)
 	for step in range(6): app._process(0.1)
@@ -230,6 +275,19 @@ func _test_settings_and_continuation() -> void:
 	_check(app.music_on, "music preference can be enabled independently of master mute")
 	await _click_text(app.overlay, "Music: ON")
 	_check(not app.music_on, "music preference can be disabled")
+	var sliders: Array = _find_sliders(app.overlay)
+	_check(sliders.size() == 4, "settings exposes effects, music, ambience and look sliders")
+	if sliders.size() == 4:
+		sliders[0].value = 26
+		sliders[2].value = 42
+		sliders[3].value = 80
+		_check(is_equal_approx(app.sfx_volume, 0.26) and is_equal_approx(app.audio.sfx_volume, 0.26), "effects slider reaches the live audio mix")
+		_check(is_equal_approx(app.ambience_volume, 0.42) and is_equal_approx(app.audio.ambience_volume, 0.42), "ambience slider reaches the machine and fairground mix")
+		_check(is_equal_approx(app.look_sensitivity, 1.67), "look sensitivity slider changes camera input scale")
+	await _click_text(app.overlay, "Look: NORMAL")
+	_check(app.invert_look, "vertical mouse look can be inverted")
+	await _click_text(app.overlay, "Look: INVERTED")
+	_check(not app.invert_look, "normal mouse look can be restored")
 	await _click_text(app.overlay, "DONE")
 	_check(not app.paused and not is_instance_valid(app.overlay), "settings Done returns to play")
 	_reset_shift(735)
@@ -240,7 +298,7 @@ func _test_settings_and_continuation() -> void:
 	app.saved_run = {"model": snapshot.duplicate(true), "held_tool": "scoop"}
 	app._show_title()
 	app.model.new_run(736)
-	await _click_text(app.screen, "CONTINUE SHIFT")
+	await _click_text(app.screen, "CONTINUE YOUR SHIFT")
 	_check(app.current_view == "play" and app.model.phase == "playing", "continue restores the running shift")
 	_check(app.held_tool == "scoop" and app.model.scoop_count == 3 and app.model.package_type == "bag", "continue preserves loaded scoop and the prepared container")
 	_check(app.model.time_left == snapshot["time_left"], "continue preserves remaining shift time")
@@ -248,11 +306,112 @@ func _test_settings_and_continuation() -> void:
 	app._save_settings()
 	_check(_persistent_fingerprints() == disk_before, "test mode suppresses explicit run and settings writes")
 	app._show_title()
-	await _click_text(app.screen, "STEP BEHIND THE COUNTER  >")
-	_check(is_instance_valid(app.overlay) and _has_label(app.overlay, "Start a fresh shift?"), "new run asks before replacing an existing saved run")
+	await _click_text(app.screen, "OPEN THE STAND  >")
+	_check(is_instance_valid(app.overlay) and _has_label(app.overlay, "A fresh start?"), "new run asks before replacing an existing saved run")
 	await _click_text(app.overlay, "Keep my run")
 	_check(app.current_view == "title" and not app.saved_run.is_empty(), "cancelling a fresh run preserves continuation")
 	app.saved_run.clear()
+
+
+func _test_dashboard_and_practice() -> void:
+	_reset_shift(739)
+	app.hover_station = ""
+	app._refresh_hud()
+	_check(app.hud.progress.text == "$0" and app.hud.target.text == "/ $110", "dashboard clearly separates sales and quota")
+	_check(app.hud.clock.text == "1:45", "dashboard uses the actual shift countdown")
+	_check(app.hud.orders[0].order.text == "Bag  ·  6" and app.hud.orders[0].flavor.text == "Cinnamon sugar", "current ticket names container quantity and sugar")
+	_check(app.hud.orders[1].flavor.text.is_empty(), "empty queued tickets remain visually quiet")
+	_check(app.hud.key.text == "B" and app.hud.prompt.text == "Take the right container", "guide identifies the next useful physical action and its shortcut")
+	app.model.jammed = true
+	app._refresh_hud()
+	_check(app.hud.fault.visible and app.hud.warning.text == "FEEDER JAMMED", "jam produces a persistent prominent fault card")
+	_check(app.hud.fault_action.text.contains("Hold R") and app.dashboard.fault_target.x >= 0, "jam alert explains the exact action and points to the physical lever")
+	var notices_before: int = app.toast_layer.get_child_count()
+	for tick in range(30): app._process(0.1)
+	_check(app.hud.warning.text == "FEEDER JAMMED" and app.toast_layer.get_child_count() <= notices_before, "unresolved jam remains visible without per-frame toast spam")
+	app.model.jammed = false
+	app.model.overheated = true
+	app.model.temperature = 210
+	app._refresh_hud()
+	_check(app.hud.warning.text == "OIL TOO HOT" and app.hud.fault_action.text.contains("190"), "overheat has a distinct cause and cooldown instruction")
+	app.hold_station = "refill"
+	app.model.refill_progress = 0.4
+	app._refresh_hud()
+	_check(app.hud.fault_action.text.contains("190") and not app.hud.hold.visible, "refilling cannot replace an unrelated overheat instruction")
+	_check(app.hud.hint.text.contains("40%"), "active maintenance progress stays visible below even when another fault has priority")
+	app.hold_station = ""
+	app.model.refill_progress = 0.0
+	app.model.overheated = false
+	app.model.temperature = 175
+	app.model.batter = 4
+	app._refresh_hud()
+	_check(app.hud.warning.text == "BATTER RUNNING LOW" and app.hud.fault_action.text.contains("Hold T"), "low batter warning arrives before production stops")
+	var retained_save: Dictionary = {"model": app.model.to_save(), "held_tool": "none", "run_id": "fixture-campaign"}
+	app.saved_run = retained_save.duplicate(true)
+	app._start_practice()
+	_check(app.practice and app.current_view == "play", "practice opens a functioning physical counter")
+	var clock_before: float = app.model.time_left
+	var patience_before: float = app.model.orders[0].patience
+	for tick in range(50): app._process(0.1)
+	_check(app.model.time_left == clock_before and app.model.orders[0].patience == patience_before, "practice freezes both quota time and customer patience")
+	_check(app.hud.clock.text == "OPEN" and app.hud.clock_caption.text == "NO CLOCK" and app.hud.mode.text.contains("PRESSURE"), "practice visibly explains its nonpunitive rules with portable font glyphs")
+	app._save_run()
+	_check(app.saved_run == retained_save, "practice does not replace the saved campaign wrapper")
+	app._show_pause()
+	await _click_text(app.overlay, "Try a jam")
+	_check(app.model.jammed and not app.paused, "practice offers a repeatable hands-on jam lesson")
+	app._show_pause()
+	await _click_text(app.overlay, "LEAVE PRACTICE")
+	_check(app.current_view == "title" and app.practice and app.saved_run == retained_save, "leaving practice preserves campaign continuation and marks its model as practice")
+	# Exercise the production close path, intercepting only the disk boundary.
+	# test_mode alone would hide this regression by returning before the practice guard.
+	app.intercept_persistence = true
+	app.captured_writes.clear()
+	app.test_mode = false
+	app._notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	app.test_mode = true
+	app.intercept_persistence = false
+	_check(app.captured_writes.is_empty() and app.saved_run == retained_save, "closing from title after practice cannot save practice over the campaign")
+	app._show_collection()
+	_check(app.current_view == "collection" and _has_label(app.screen, "A stand with a story."), "collection displays earned stand appearances and career progress")
+	_check(_find_button(app.screen, "BACK TO THE STAND") != null, "collection has a clear return path")
+	app.saved_run.clear()
+
+
+func _test_modes_and_atomic_save() -> void:
+	app.saved_run.clear()
+	app.tutorial_seen = true
+	var previous_wins: int = app.profile.campaign_wins
+	app.profile.campaign_wins = 0
+	app._show_title()
+	var endless = _find_button(app.screen, "ENDLESS  ·  WIN A CAMPAIGN")
+	_check(endless != null and endless.disabled, "Endless clearly explains its earned unlock condition")
+	await _click_text(app.screen, "RELAXED")
+	await _click_text(app.screen, "OPEN THE STAND  >")
+	_check(app.model.difficulty == "relaxed" and app.model.target < Model.TARGETS[0] and app.model.shift_duration > Model.SHIFT_TIMES[0], "Relaxed selection applies real model difficulty changes")
+	app.profile.campaign_wins = 1
+	app._show_title()
+	await _click_text(app.screen, "ENDLESS RUSH")
+	_check(app.model.mode == "endless" and app.hud.shift.text.begins_with("ROUND 1"), "earned Endless starts an actual endless run with round-specific HUD")
+	app.model.sales = app.model.target
+	app.model.finish_shift()
+	app._process(0.0)
+	_check(app.model.phase == "shop" and app.current_view == "shop", "Endless progression continues through the earned equipment shop")
+	app.profile.campaign_wins = previous_wins
+	var directory = ProjectSettings.globalize_path("res://builds/controller-save-tests")
+	DirAccess.make_dir_recursive_absolute(directory)
+	var path = directory.path_join("fixture-%d.json" % Time.get_ticks_usec())
+	_check(not FileAccess.file_exists(path), "atomic-save fixture uses a fresh workspace-only path")
+	_check(app._write_json_atomic(path, {"revision": 1}), "atomic save writes its first complete document")
+	_check(app._write_json_atomic(path, {"revision": 2}), "atomic save replaces the document successfully")
+	var current = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var backup = JSON.parse_string(FileAccess.get_file_as_string(path + ".backup"))
+	_check(current is Dictionary and current.get("revision") == 2 and backup is Dictionary and backup.get("revision") == 1, "atomic replacement retains the prior valid document as a recovery backup")
+	_check(not FileAccess.file_exists(path + ".tmp"), "successful atomic save leaves no pending temporary file")
+	for suffix in ["", ".backup", ".tmp"]:
+		if FileAccess.file_exists(path + suffix): DirAccess.remove_absolute(path + suffix)
+	_check(app._safe_setting({"value": INF}, "value", 0.5, 0.0, 1.0) == 0.5, "nonfinite saved preference falls back safely")
+	_check(app._safe_setting({"value": 7.0}, "value", 0.5, 0.0, 1.0) == 1.0, "out-of-range saved preference is clamped")
 
 
 func _test_shop_and_results() -> void:
@@ -274,26 +433,107 @@ func _test_shop_and_results() -> void:
 	await _click_text(app.screen, "START NEXT SHIFT  >")
 	_check(app.current_view == "play" and app.model.shift_index == 1 and app.model.phase == "playing", "next shift advances from the shop")
 	_check(app.model.owned == owned_before and app.model.sales == 0.0 and app.model.time_left == Model.SHIFT_TIMES[1], "next shift keeps upgrades and resets the working clock and sales")
-	app.model.shift_index = 2
-	app.model.target = Model.TARGETS[2]
+	app.model.shift_index = Model.TARGETS.size() - 1
+	app.model.target = Model.TARGETS[-1]
 	app.model.sales = app.model.target
 	app.model.finish_shift()
 	app._process(0.0)
-	_check(app.model.phase == "won" and app.current_view == "result" and _has_label(app.screen, "Rush handled."), "third completed shift shows the success result")
-	_check(_has_label_containing(app.screen, "SHIFT 3 / 3"), "success reports the actual third shift")
+	_check(app.model.phase == "won" and app.current_view == "result" and _has_label(app.screen, "Rush handled."), "final campaign shift shows the success result")
+	_check(_has_label_containing(app.screen, "SHIFT 6 / 6"), "success reports the actual final campaign shift")
 	await _click_text(app.screen, "Back to the stand")
 	_check(app.current_view == "title", "result can return to the title")
 	_reset_shift(738)
 	app.model.time_left = 0.05
 	app._process(0.1)
 	_check(app.model.phase == "lost" and app.current_view == "result" and _has_label(app.screen, "Closing time."), "missed quota opens the failure result")
-	_check(_has_label_containing(app.screen, "SHIFT 1 / 3"), "failure reports the actual failed shift")
-	await _click_text(app.screen, "TRY ANOTHER RUN")
+	_check(_has_label_containing(app.screen, "SHIFT 1 / 6"), "failure reports the actual failed shift")
+	await _click_text(app.screen, "OPEN AGAIN")
 	_check(app.current_view == "play" and app.model.phase == "playing" and app.model.shift_index == 0, "replay starts a fresh first shift")
 	_check(app.model.sales == 0.0 and app.model.owned.is_empty() and app.held_tool == "none", "replay clears earnings, upgrades and held tools")
 
 
+func _test_result_save_failure() -> void:
+	_reset_shift(740)
+	var original_profile = app.profile
+	var failing_profile = FailingProfile.new()
+	app.profile = failing_profile
+	app.run_id = "result-save-failure-fixture"
+	app.saved_run = {"model": app.model.to_save(), "held_tool": "none", "run_id": app.run_id}
+	var checkpoint: Dictionary = app.saved_run.duplicate(true)
+	app.model.finish_shift()
+	app.intercept_persistence = true
+	app.captured_writes.clear()
+	app.captured_deletions = 0
+	app.test_mode = false
+	app._finish_run()
+	_check(failing_profile.total_runs == 1 and failing_profile.save_attempts == 1, "finished result is recorded once before its first persistence attempt")
+	_check(app.saved_run == checkpoint and app.captured_deletions == 0, "failed career write retains the last playable checkpoint and its backup")
+	_check(_find_button(app.screen, "RETRY SAVING CAREER") != null and _has_label_containing(app.screen, "Career could not be saved"), "failed career write has an actionable retry and truthful status")
+	app._finish_run()
+	_check(failing_profile.total_runs == 1 and failing_profile.save_attempts == 2, "retrying a failed result write does not double-count the run")
+	failing_profile.fail_save = false
+	app._finish_run()
+	_check(failing_profile.total_runs == 1 and failing_profile.save_attempts == 3, "successful retry persists the already-recorded result")
+	_check(app.saved_run.is_empty() and app.captured_deletions == 1, "completed checkpoint is removed only after career persistence succeeds")
+	_check(_find_button(app.screen, "RETRY SAVING CAREER") == null, "successful save removes the retry prompt")
+	app.test_mode = true
+	app.intercept_persistence = false
+	app.profile = original_profile
+
+
+func _test_save_load_notices() -> void:
+	var directory = ProjectSettings.globalize_path("res://builds/controller-save-tests")
+	DirAccess.make_dir_recursive_absolute(directory)
+	var path = directory.path_join("load-fixture-%d.json" % Time.get_ticks_usec())
+	var backup: String = path + ".backup"
+	var paths: Array = [path, backup]
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("{interrupted save")
+	file.close()
+	var broken_hash: String = FileAccess.get_sha256(path)
+	app._load_saved_run(paths)
+	_check(app.saved_run.is_empty() and app._run_load_notice.contains("could not be read"), "corrupt primary save explains why Continue is unavailable")
+	app._show_title()
+	_check(_has_label_containing(app.screen, "could not be read") and _find_button(app.screen, "CONTINUE YOUR SHIFT") == null, "corrupt-save explanation is visible on the title")
+	_check(FileAccess.get_sha256(path) == broken_hash, "loading a corrupt save keeps its original bytes")
+	var recoverable = Model.new()
+	recoverable.new_run(741)
+	recoverable.start_shift()
+	var valid: Dictionary = {"model": recoverable.to_save(), "held_tool": "none", "run_id": "backup-fixture"}
+	file = FileAccess.open(backup, FileAccess.WRITE)
+	file.store_string(JSON.stringify(valid))
+	file.close()
+	var backup_hash: String = FileAccess.get_sha256(backup)
+	app._load_saved_run(paths)
+	app._show_title()
+	_check(app.saved_run.get("run_id") == "backup-fixture" and app._run_load_notice.contains("restored"), "valid backup recovers continuation with an explicit notice")
+	_check(_has_label_containing(app.screen, "restored") and _find_button(app.screen, "CONTINUE YOUR SHIFT") != null, "backup recovery and Continue are visible together")
+	_check(FileAccess.get_sha256(path) == broken_hash and FileAccess.get_sha256(backup) == backup_hash, "recovery reads without overwriting either original or backup")
+	DirAccess.remove_absolute(backup)
+	valid.model.version = 999
+	file = FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(valid))
+	file.close()
+	var unsupported_hash: String = FileAccess.get_sha256(path)
+	app._load_saved_run(paths)
+	app._show_title()
+	_check(app.saved_run.is_empty() and _has_label_containing(app.screen, "unsupported version"), "unsupported model version surfaces its validation explanation on title")
+	_check(FileAccess.get_sha256(path) == unsupported_hash, "unsupported save remains untouched")
+	var previous_warning: String = app.profile.load_warning
+	app.profile.load_warning = "Career progress was restored from its backup."
+	app._show_title()
+	_check(_has_label_containing(app.screen, app.profile.load_warning), "career recovery warning is also shown on the title")
+	app.profile.load_warning = previous_warning
+	app._run_load_notice = ""
+	DirAccess.remove_absolute(path)
+	app.saved_run.clear()
+
+
 func _reset_shift(seed: int) -> void:
+	app.practice = false
+	app.selected_difficulty = "normal"
+	app.selected_mode = "campaign"
+	app._result_recorded = false
 	app.model.new_run(seed)
 	app.model.start_shift()
 	app.held_tool = "none"
@@ -377,6 +617,13 @@ func _has_label_containing(parent: Node, text: String) -> bool:
 
 func _persistent_fingerprints() -> Dictionary:
 	var result: Dictionary = {}
-	for path in [Controller.SAVE_PATH, Controller.SETTINGS_PATH]:
+	for path in [Controller.SAVE_PATH, Controller.SETTINGS_PATH, Controller.LEGACY_SAVE_PATH, Controller.LEGACY_SETTINGS_PATH, "user://career.json", "user://career.json.backup", Controller.SAVE_PATH + ".backup", Controller.SETTINGS_PATH + ".backup"]:
 		result[path] = FileAccess.get_sha256(path) if FileAccess.file_exists(path) else "ABSENT"
+	return result
+
+
+func _find_sliders(parent: Node) -> Array:
+	var result: Array = []
+	if parent is HSlider: result.append(parent)
+	for child in parent.get_children(): result.append_array(_find_sliders(child))
 	return result

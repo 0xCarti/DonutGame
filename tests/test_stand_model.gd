@@ -16,6 +16,9 @@ func _run() -> void:
 	_test_machine_and_holds()
 	_test_orders_and_phases()
 	_test_save_and_corruption()
+	_test_campaign_content_and_practice()
+	_test_upgrade_synergies_and_receipts()
+	_test_preventive_service_and_legacy_save()
 	_test_paced_runs()
 	print("STAND MODEL: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
@@ -181,15 +184,15 @@ func _test_orders_and_phases() -> void:
 	var restored = Stand.new()
 	_check(restored.from_save(JSON.parse_string(JSON.stringify(model.to_save()))), "purchased-upgrade intermission can be saved and restored")
 	model.start_shift()
-	_check(model.shift_index == 1 and model.target == 180 and model.time_left == 110.0 and model.served == 0, "next shift advances pressure while resetting shift counters")
+	_check(model.shift_index == 1 and model.target == Stand.TARGETS[1] and model.time_left == 110.0 and model.served == 0, "next shift advances pressure while resetting shift counters")
 	model.tick(1000.0)
 	_check(model.phase == "lost" and model.time_left == 0.0, "missing timed quota loses cleanly")
 	model.new_run(131)
-	for index in range(3):
+	for index in range(6):
 		model.start_shift()
 		model.sales = model.target
 		model.finish_shift()
-	_check(model.phase == "won" and model.shift_index == 2, "third completed shift wins without a fourth shift")
+	_check(model.phase == "won" and model.shift_index == 5, "sixth completed shift wins without a seventh shift")
 	var old_credits: int = model.credits
 	model.finish_shift()
 	_check(model.credits == old_credits and not model.scoop().ok, "completed game cannot award credits twice or keep serving")
@@ -231,8 +234,149 @@ func _test_save_and_corruption() -> void:
 	var duplicate: Dictionary = valid.duplicate(true)
 	duplicate.orders.append(duplicate.orders[0].duplicate(true))
 	_check(not copy.from_save(duplicate), "duplicated customer IDs rejected")
+	var invalid_offer: Dictionary = model.to_save()
+	invalid_offer._offers = ["deep_scoop"]
+	_check(not copy.from_save(invalid_offer), "saved shop cannot bypass equipment prerequisites")
+	var invalid_result: Dictionary = model.to_save()
+	invalid_result.last_result.best_streak = NAN
+	_check(not copy.from_save(invalid_result), "saved career result cannot carry nonfinite best streak")
 	var empty = Stand.new()
 	_check(empty.from_save(JSON.parse_string(JSON.stringify(Stand.new().to_save()))), "ready stand state restores")
+
+
+func _test_campaign_content_and_practice() -> void:
+	var model = Stand.new()
+	_check(model.total_shifts() == 6 and Stand.UPGRADES.size() >= 16, "complete campaign has six shifts and at least sixteen equipment choices")
+	var names: Dictionary = {}
+	for index in range(6):
+		model.start_shift()
+		var info: Dictionary = model.get_campaign_info()
+		names[model.shift_name] = true
+		_check(not model.shift_description.is_empty() and info.modifiers.size() >= 1 and int(info.display_round) == index + 1, "shift has explanatory name, rules and round metadata")
+		model.sales = model.target
+		model.finish_shift()
+	_check(names.size() == 6, "all six rushes have distinct names")
+	model.new_run(301, "relaxed")
+	model.start_shift()
+	_check(model.target == 88 and model.time_left == 126.0 and model.supply == 24, "relaxed mode grants explicit time, quota and opening-stock relief")
+	_check(model.orders[0].max_patience > 56.0, "relaxed customers are more patient")
+	var old_time: float = model.time_left
+	var old_patience: float = model.orders[0].patience
+	model.tick_practice(8.0)
+	_check(model.time_left == old_time and model.orders[0].patience == old_patience and model.production_count > 0, "practice advances physical machine without spending clock or patience")
+	_fill(model, "bag", "cinnamon")
+	model.serve()
+	model.tick_practice(0.1)
+	_check(model.orders.size() == 1 and model.orders[0].flavor == "powdered", "practice supplies a new customer after service")
+	model.sales = 99999.0
+	model.tick_practice(30.0)
+	_check(model.phase == "playing" and model.time_left == old_time, "practice cannot accidentally finish a scored run")
+	model.new_run(302, "normal", "endless")
+	_check(model.total_shifts() == 0 and model.get_campaign_info().endless, "endless exposes unlimited-round metadata")
+	var old_target: int = 0
+	for index in range(9):
+		model.start_shift()
+		_check(model.target > old_target, "endless quota grows every round")
+		old_target = model.target
+		model.sales = model.target
+		model.finish_shift()
+		_check(model.phase == "shop", "endless completion opens equipment shop instead of campaign victory")
+	var restored = Stand.new()
+	_check(restored.from_save(JSON.parse_string(JSON.stringify(model.to_save()))) and restored.mode == "endless" and restored.shift_index == 8, "endless rounds beyond campaign can resume from save")
+	model.new_run(303)
+	model.start_shift()
+	var unassisted: Dictionary = model.to_save()
+	_check(not model.apply_boost("coolant").ok and model.to_save() == unassisted, "deferred V2 boost API is explicitly disabled and cannot change V1 gameplay")
+
+
+func _test_upgrade_synergies_and_receipts() -> void:
+	var model = Stand.new()
+	model.new_run(310)
+	model.owned = {"wide_scoop": 1, "deep_scoop": 1, "generous_tips": 2, "rush_tips": 1, "loyal_customers": 1, "bag_deals": 1, "warm_welcome": 1}
+	model.start_shift()
+	model.streak = 2
+	model.choose_package("bag")
+	model.scoop()
+	_check(model.scoop_count == 6 and model.scoop_capacity() == 6, "handling upgrades combine into a one-scoop bag")
+	model.dump()
+	model.coat("cinnamon")
+	var preview: Dictionary = model.get_tip_breakdown()
+	var before: Dictionary = model.to_save()
+	model.get_tip_breakdown()
+	_check(model.to_save() == before, "tip preview does not mutate gameplay or RNG")
+	var receipt: Dictionary = model.serve()
+	var sum: float = 0.0
+	for line in receipt.tip_breakdown: sum += float(line.amount)
+	_check(is_equal_approx(sum, receipt.amount) and is_equal_approx(receipt.amount, preview.amount), "displayed earnings breakdown sums to exact authoritative payout")
+	_check(receipt.amount == 37.0 and receipt.streak_tip == 1.0 and receipt.upgrade_tip == 14.0, "fast bag, regulars, welcome and tip upgrades combine through explicit dollar bonuses")
+	_check(model.get_stats().best_streak == 3, "run-wide best streak captures successful service")
+	model.sales = model.target
+	model.finish_shift()
+	model.start_shift()
+	_check(model.streak == 0 and model.get_stats().best_streak == 3, "best streak survives shift reset while current chain restarts")
+	var restored = Stand.new()
+	_check(restored.from_save(JSON.parse_string(JSON.stringify(model.to_save()))) and restored.get_stats().best_streak == 3, "best streak survives save and resume")
+	model.new_run(311)
+	model.owned["thermostat"] = 1
+	model.start_shift()
+	model.tick(80.0)
+	_check(not model.overheated and model.temperature < 195.0, "thermostat makes recommended heat3 stable without removing manual heat4 risk")
+	model.new_run(312)
+	model.start_shift()
+	model.sales = model.target
+	model.finish_shift()
+	_check(model.get_shop_offers()[0].id == "wide_scoop", "first shop guarantees useful handling upgrade")
+	model.credits = 100
+	model.buy_upgrade("wide_scoop")
+	model.start_shift()
+	model.sales = model.target
+	model.finish_shift()
+	_check(model.get_shop_offers()[0].id == "deep_scoop", "second shop offers prerequisite-compatible handling continuation")
+	model.buy_upgrade("deep_scoop")
+	model.start_shift()
+	model.sales = model.target
+	model.finish_shift()
+	_check(model.get_shop_offers()[0].id == "fast_motor", "later shop guarantees throughput support for bigger scoop")
+
+
+func _test_preventive_service_and_legacy_save() -> void:
+	var model = Stand.new()
+	model.start_shift()
+	model.production_count = model._next_jam_at - 4
+	model._refresh_alerts()
+	_check(model.jam_risk > 0.72 and not model.jammed, "feed risk warns before a jam rather than springing an unseen failure")
+	_check(model.events.any(func(event): return event.type == "jam_warning"), "rising risk emits one actionable warning")
+	model.repair(0.6)
+	var progress: float = model.jam_progress
+	model.tick(0.4)
+	_check(model.jam_progress == progress, "interrupting preventive service retains hold progress")
+	var serviced: Dictionary = model.repair(0.6)
+	_check(serviced.ok and serviced.code == "serviced" and model.jam_risk == 0.0 and not model.jammed, "proactive hold resets feed risk without requiring a breakdown")
+	model.temperature = 196.0
+	model.tick(0.1)
+	_check(model.heat_warning and not model.overheated, "heat warning appears before thermal shutdown")
+	model.new_run(320)
+	model.start_shift()
+	model.choose_package("bag")
+	model.scoop()
+	model.dump()
+	model.tick(4.0)
+	var old: Dictionary = model.to_save()
+	old.version = 1
+	for key in ["difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts"]: old.erase(key)
+	for order in old.orders:
+		order.erase("menu_premium")
+		order.erase("welcome")
+	var migrated = Stand.new()
+	_check(migrated.from_save(JSON.parse_string(JSON.stringify(old))), "version1 active save migrates into expanded campaign")
+	_check(migrated.package_count == 3 and migrated.supply == model.supply and migrated.target == 110 and is_equal_approx(migrated.time_left, model.time_left), "migration protects work-in-progress, stock, target and remaining time")
+	_check(migrated._legacy_shift and migrated.total_shifts() == 6, "migration marks preserved legacy shift inside full campaign")
+	migrated.sales = migrated.target
+	migrated.finish_shift()
+	migrated.start_shift()
+	_check(not migrated._legacy_shift and migrated.shift_name == "Powdered Parade" and migrated.target == 175, "next shift adopts expanded campaign after finishing legacy work")
+	old.phase = "won"
+	_check(not migrated.from_save(old) and not migrated.last_save_error.is_empty(), "already-finished old save returns a clear unsupported-save explanation")
 
 
 func _test_paced_runs() -> void:
@@ -240,21 +384,28 @@ func _test_paced_runs() -> void:
 		var wins: int = 0
 		var first_clears: int = 0
 		var example: Dictionary = {}
-		for seed_index in range(12):
+		var sample_count: int = 64 if action_seconds == 0.65 else 12
+		for seed_index in range(sample_count):
 			var result: Dictionary = _simulate_run(1600 + seed_index, action_seconds)
 			if bool(result.won): wins += 1
+			elif action_seconds == 0.65: print("FAST DRAFT REVIEW seed%d: %s" % [1600 + seed_index, str(result)])
 			if int(result.cleared) >= 1: first_clears += 1
 			if seed_index == 0: example = result
-			_check(result.steps < 5000, "paced run terminates %.2fs/action seed%d" % [action_seconds, seed_index])
+			_check(result.steps < 12000, "paced run terminates %.2fs/action seed%d" % [action_seconds, seed_index])
 		if action_seconds == 0.65:
-			_check(wins == 12, "competent tool-aware play can complete all three shifts across12seeds")
-		_check(first_clears == 12, "learnable opening is clearable at %.2fs per physical action" % action_seconds)
-		print("STAND BALANCE %.2fs/action: %d/12 wins; example %s" % [action_seconds, wins, str(example)])
+			_check(wins == sample_count, "competent tool-aware play can complete all six shifts across64seeds")
+		_check(first_clears == sample_count, "learnable opening is clearable at %.2fs per physical action" % action_seconds)
+		print("STAND BALANCE %.2fs/action: %d/%d wins; example %s" % [action_seconds, wins, sample_count, str(example)])
+	var relaxed_wins: int = 0
+	for seed_index in range(12):
+		if bool(_simulate_run(1800 + seed_index, 1.2, "relaxed").won): relaxed_wins += 1
+	_check(relaxed_wins == 12, "relaxed difficulty supports deliberate1.2second physical actions across12seeds")
+	print("RELAXED BALANCE 1.20s/action: %d/12 wins" % relaxed_wins)
 
 
-func _simulate_run(seed_number: int, action_seconds: float) -> Dictionary:
+func _simulate_run(seed_number: int, action_seconds: float, difficulty: String = "normal") -> Dictionary:
 	var model = Stand.new()
-	model.new_run(seed_number)
+	model.new_run(seed_number, difficulty)
 	model.start_shift()
 	var tool: String = "none"
 	var action_clock: float = 0.0
@@ -267,12 +418,12 @@ func _simulate_run(seed_number: int, action_seconds: float) -> Dictionary:
 	var refill_time: float = 0.0
 	while model.phase == "playing" or model.phase == "shop":
 		steps += 1
-		if steps >= 5000: break
+		if steps >= 12000: break
 		if model.phase == "shop":
 			history.append({"sales": model.sales, "served": model.served, "walkouts": model.missed, "stock_wait": snappedf(stock_wait, 0.1)})
 			cleared += 1
 			var offers: Array = model.get_shop_offers()
-			for preferred in ["wide_scoop", "fast_motor", "calm_queue", "steady_feed", "easy_repair", "large_hopper", "extra_tray", "generous_tips"]:
+			for preferred in ["wide_scoop", "deep_scoop", "fast_motor", "rush_tips", "loyal_customers", "bucket_sign", "generous_tips", "bag_deals", "calm_queue", "thermostat", "steady_feed", "easy_repair", "large_hopper", "quick_refill", "extra_tray", "warm_welcome", "crowd_pleaser", "opening_stock", "second_chance"]:
 				for offer in offers:
 					if str(offer.id) == preferred: model.buy_upgrade(preferred)
 			model.start_shift()

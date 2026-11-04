@@ -1,77 +1,90 @@
-GOLDEN HOUR - MINI DONUT CLUB
-Playtest 0.2.0
+# Golden Hour
 
-OPEN YOUR STAND
+Version 1.0.0 · Windows
 
-On Windows, open GoldenHour.exe and choose OPEN THE STAND. No account or
-internet connection is required. Keep the LICENSES folder with the game.
+Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
+coat and hand over each order. Keep your customers happy, care for the machine,
+and build a stand that can handle the fairground rush.
 
-For the web build, host this folder over HTTP or HTTPS and open index.html
-through that server. Opening the HTML directly from disk will not work.
-WebGL 2 and WebAssembly are required. A desktop Chromium browser or Firefox
-is the initial playtest target. Click once to allow browser audio playback.
+## Open your stand
 
-This is an early playable build. It has one fairground, six escalating shifts,
-and twenty upgrades. Steam integration, controller support, native phone
-packages, and additional venues are not included in this version.
+Launch GoldenHour.exe, choose Standard or Relaxed, and select Open the Stand.
+Relaxed gives you more time and more patient customers. Practice is available
+from the title and instructions: its clock and customer patience are frozen,
+and it preserves your saved campaign.
 
-MAKE THE QUOTA
+## Your first order
 
-1. Choose cinnamon, powdered sugar, or cocoa.
-2. Choose destination tray 1, 2, or 3, then drop six donuts into the hopper.
-3. Watch them fry, flip, and land. Several batches can cook at once.
-4. Sell six matching donuts for a base 2x payout. Full mixed trays start at
-   1.6x. Partial trays also sell, but usually earn less.
-5. Meet the sales target before closing. Full trays hold up arriving donuts;
-   sell them to make room. The fryer holds eighteen donuts at a time.
-6. Between shifts, buy upgrades using separate shop coins. Look for effects
-   that work together. Unspent coins carry forward.
+1. Read the cream ticket at the top: it belongs to your current customer.
+2. Click the bag stack for six donuts, or the bucket stack for twelve.
+3. Pick up the scoop, then click the fresh donut tray to load it.
+4. Click your container to pour. Repeat until it is full; the scoop stays in hand.
+5. Click the requested cinnamon or powdered sugar.
+6. Click the finished package to lift it, then click the customer or serving mat.
 
-Clear all six shifts to win. After reaching a target, you may close that shift
-early or keep selling to earn more shop coins. Unsold donuts do not count
-toward the target when the shift ends.
+The starting scoop carries three donuts. Bags take two scoops; buckets take
+four. Equipment can raise capacity to four or six. A nearly empty tray gives
+you a partial scoop, so watch the contents shown on the dashboard.
 
-CONTROLS
+The bottom guide explains your next useful action. Point at an object to see
+its interaction and keyboard shortcut. You can put a lifted order down by
+clicking the packing area again.
 
-All actions work with the mouse. Touch also controls the onscreen buttons;
-native mobile packaging and phone-sized interface polish are still planned.
+## Read your dashboard
 
-  A / S / D       Cinnamon / powdered / cocoa
-  1 / 2 / 3       Destination tray
-  Space           Drop six donuts
-  Q / W / E       Sell tray 1 / 2 / 3
-  Escape          Pause or close a popup
-  H               How to play
-  M               Mute all sound
-  F11             Fullscreen (a browser may handle this shortcut itself)
+- Top left: sales, quota, remaining time and your current shift.
+- Top tickets: container, quantity, sugar and each customer's patience.
+- Bottom left: oil temperature, heater setting, batter and fresh donut stock.
+- Bottom centre: current interaction, shortcut and next order step.
+- Bottom right: held tool, package contents and coating.
 
-The pause and settings buttons are available onscreen. Music can be switched
-off independently of sound effects.
+Fault alerts stay visible until fixed and point to the affected control.
+Hold the repair lever to clear a jam. Service it early when wear rises to
+prevent trouble. Lower the heat if the oil gets too hot; production resumes
+after it cools. Hold the batter hopper to refill it. Released holds keep their
+partial progress. Pause stops the clock and cancels any active hold.
 
-Larger payouts and rapid full-tray sales build into stronger celebrations.
-Settings > Motion switches between full celebrations and reduced motion.
-Reduced motion keeps readable payouts and removes camera shake and flying coins.
+Wrong orders do not earn money. The package stays on your counter, and the
+customer loses patience. Use the discard bin to start again. Plain donuts can
+be recovered; coated mistakes are discarded.
 
-SAVE & CONTINUE
+## Controls
 
-Active runs and shop purchases save locally. Use Save & return to title or
-Save & take a break, then Continue your run. Starting a fresh run asks before
-replacing an existing saved run. A lost or completed run ends that save.
+Click the physical objects to work. Hold the right mouse button and drag to
+look around. Home recentres the view. Esc pauses and F11 toggles fullscreen.
+Settings include sound effects, music, fairground ambience, reduced motion,
+look sensitivity and inverted look.
 
-The browser stores saves in that browser's local site storage. Clearing site
-data removes them, and private browsing may not retain them between sessions.
-The Windows save is local to your Windows account. Saves are not synced.
+Optional keys: B bag; V bucket; S pick up scoop; F scoop from tray;
+Space pour, lift or put down; C cinnamon; P powdered; E hand over;
+hold R repair or service; hold T refill; - / + heat; X discard; H help.
 
-SEND USEFUL PLAYTEST FEEDBACK
+Practice's pause menu can create a jam, hot oil or an empty hopper, so you can
+learn each repair at your own pace.
 
-On the result screen, Copy playtest report copies your run seed, upgrades,
-score, platform, and frame rate. Paste it alongside your feedback. Tell us
-what felt good, what was confusing, which upgrade you liked, and how to
-repeat any bug. No analytics or personal information is sent by the game.
+## Build your rhythm
 
-CREDITS & LICENSES
+The campaign has six named shifts, each with its own crowd and opportunities.
+Meet the displayed sales target before closing time. Between shifts, spend
+coins earned in that run on equipment and service improvements. The shop
+explains the next shift before you commit to an upgrade.
 
-The procedural art, animations, synthesized effects, and fairground music
-were made for this game. The engine is Godot 4.7.2 (MIT). The Fredoka typeface
-is licensed under the SIL Open Font License 1.1. Full notices are included in
-LICENSES, including Godot's third-party copyright notices.
+Complete the campaign to unlock Endless Rush. Your career records, badges and
+three stand palettes are earned through play and saved across runs. Choose
+your look in Collection. Stand colours do not change the gameplay rules.
+
+Your active run saves automatically. Pause and choose Save & return to title
+to continue later. Practice never replaces it. New runs replace only the active
+run, preserving career progress and unlocked colours.
+
+## Files and credits
+
+Keep GoldenHour.exe and its LICENSES folder together. The game needs no account
+or internet connection. Save data lives in Godot's user-data folder for Golden
+Hour. Existing earlier-development saves are read for migration without
+changing their original files.
+
+The stand, donuts, characters, interface, animation, illustration and
+synthesized sound are original project assets. Godot is MIT-licensed and
+Fredoka is provided under SIL OFL 1.1. Full engine, third-party and font notices
+are supplied in LICENSES beside the game.

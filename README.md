@@ -1,68 +1,69 @@
-# Golden Hour — Behind the Counter
+# Golden Hour
 
-A first-person mini-donut stand playtest based on **Game Idea #2**. The machine makes plain donuts while you scoop, package, season, and hand over customers' orders. Queues, heat, jams, and batter compete for your attention in a warm fairground booth.
+A first-person mini-donut stand game for Windows. Work a warm fairground booth:
+scoop fresh donuts, fill bags and buckets, add cinnamon or powdered sugar, and
+hand each order to its customer while keeping the fryer running.
 
-The previous Idea #1 tray-builder prototype remains in the repository and its 0.2.0 release folders for comparison. Version **0.3.0** is the active direction.
+Version **1.0.0** contains the complete fairground campaign: six named shifts,
+nineteen earned equipment and service upgrades, Standard and Relaxed difficulty,
+no-pressure practice, an unlockable Endless Rush, career badges and three earned
+stand palettes. All play is local and offline. Purchases and platform services
+are reserved for version 2.
 
 ## Play
 
-After export, launch `builds/windows/0.3.0-playtest/GoldenHour.exe`. Choose **Step behind the counter** and follow the short tutorial. The Windows build runs without an account or internet connection.
+Extract the Windows ZIP from `builds/releases/` and launch `GoldenHour.exe`.
+The unpacked build also lives at `builds/windows/1.0.0/GoldenHour.exe`.
+Keep the included `LICENSES` folder and `Quick Start.txt` with the executable.
 
-The browser build is in `builds/web/0.3.0-playtest/`. Serve that directory over HTTP; opening `index.html` directly from disk will not work. It requires WebGL 2 and WebAssembly. Windows is the primary playtest target; Steam integration and native iOS/Android releases are future work.
+Choose **Open the Stand** for the campaign or **Practice** to learn without a
+clock. Read the cream customer ticket, pick the matching container, scoop and
+pour until full, coat it, lift the package and hand it over. Fault alerts point
+to the control that needs attention. The dashboard always shows your next step.
 
-## Work the stand
+Click the actual 3D objects. Right-drag looks around; Home recentres. Esc pauses;
+F11 toggles fullscreen. Optional keyboard shortcuts are listed in the in-game
+instructions and [player guide](docs/IDEA2_PLAYTEST.md).
 
-1. Read the first customer's ticket and take a bag (6 donuts) or bucket (12).
-2. Pick up the scoop, click the fresh donut tray, and click your container to pour. Repeat until full. The scoop stays in your hand between loads.
-3. Click the requested cinnamon or powdered sugar to season the order.
-4. Click the completed package to lift it, then click the customer to hand it over.
-5. Hold the repair lever to free jams, adjust the heat, and hold the hopper to refill batter. Partly completed maintenance can be interrupted and resumed.
-6. Meet each shift's sales quota. Buy improvements between three increasingly busy shifts.
+Independent sliders control sound effects, music and ambience. Reduced Motion
+removes shake and moving celebration particles while preserving outcomes. Active
+runs and career progress save locally; practice preserves the campaign save.
 
-Customers lose patience; mismatched orders cost time. If you make a mistake, the scrap bin clears the package. Plain donuts can be recovered, while coated donuts are discarded. Successful service earns tips, and consecutive correct orders increase rewards and celebration.
+The companion browser build is `builds/web/1.0.0/`. Serve it over HTTP; it needs
+WebGL 2 and WebAssembly. Windows is the primary platform. Native mobile builds,
+gamepad controls, Steam services and additional venues are future work.
 
-Click the actual objects in the 3D scene. Right-drag to look around; **Home** recentres. Keyboard shortcuts are optional:
+## Build and maintain
 
-| Action | Key |
-| --- | --- |
-| Take bag / bucket | B / V |
-| Pick up scoop / scoop fresh donuts | S / F |
-| Pour, lift, or set down package | Space |
-| Cinnamon / powdered sugar | C / P |
-| Hand over order | E |
-| Lower / raise heat | - / = |
-| Hold to repair / refill | R / T |
-| Clear package | X |
-| Pause / help / fullscreen | Escape / H / F11 |
-
-Active shifts and shop decisions save locally. Losing focus pauses the native game. **Save & return to title** preserves the run. Idea 2 uses separate save and settings files from Idea 1. Sound, music, and reduced motion can be set independently.
-
-## Development
-
-Engine: Godot **4.7.2 stable**, GDScript, Compatibility renderer. Open `project.godot`; the active scene is `scenes/stand_main.tscn`.
+Godot **4.7.2 stable**, GDScript, Compatibility renderer. Open `project.godot`;
+the active scene is `scenes/stand_main.tscn`.
 
 ```powershell
 pwsh -File tools/build_stand_playtest.ps1
 ```
 
-The script imports, tests simulation and controller behavior, checks audio, exports Windows and Web, and packages shareable ZIPs with license notices and SHA256 checksums under `builds/releases/`. Matching export templates must be installed. See [BUILDING.md](docs/BUILDING.md) and the [playtest guide](docs/IDEA2_PLAYTEST.md).
+The historical script filename is retained. It imports, runs simulation,
+controller, profile, presentation, world and audio checks, exports Windows and
+Web, and packages ZIPs with notices and SHA256 checksums. See
+[build instructions](docs/BUILDING.md) and [release validation](docs/RELEASE_1_0_VALIDATION.md).
 
-- `scripts/stand_model.gd`: orders, portions, heat, production, maintenance, upgrades, and save validation.
-- `scripts/stand_world.gd`: first-person booth, raycast interactions, customers, visible tools, animations, and reward effects.
-- `scripts/stand_main.gd`: interaction flow, HUD, tutorial, pause, shop, results, and persistence.
-- `scripts/stand_audio.gd`: service sounds using the existing original audio library.
-- `tests/test_stand_model.gd`: simulation, balance, recovery, and persistence checks.
-- `tests/test_stand_controller.gd`: physical station selection, input, UI transitions, and manual serving flow.
-- `docs/ASSET_LICENSES.md`: asset provenance and license notices.
+| File | Responsibility |
+| --- | --- |
+| `scripts/stand_model.gd` | Seeded simulation, production, orders, faults, saves |
+| `scripts/stand_content.gd` | Campaign shifts and earned upgrades |
+| `scripts/stand_world.gd` | 3D booth, physical interaction, animation, effects |
+| `scripts/stand_main.gd` | Input, menus, progression and persistence |
+| `scripts/stand_hud.gd` | Tickets, gauges, contextual guidance and fault pointers |
+| `scripts/stand_feedback.gd` | Exact receipt amounts and escalating celebrations |
+| `scripts/stand_audio.gd` | Tactile service sounds and bounded audio mixer |
+| `scripts/player_profile.gd` | Career records, badges and earned palettes |
 
-The earlier `main.gd`, `run_model.gd`, `donut_world.gd`, and `build_playtest.ps1` retain the Idea 1 prototype. To rebuild that historical release, use its committed source rather than the current active export configuration.
+Original generated artwork and synthesized audio are documented in
+[asset provenance](docs/ASSET_LICENSES.md). Engine and font notices accompany
+every package. There is no account system, telemetry, network purchase flow or
+advertising in V1.
 
-## Playtest scope
-
-This build tests whether manual service and queue pressure make a more engaging foundation. Automated checks establish functional behavior; human playtesting must establish enjoyment and difficulty. Art is an original procedural prototype, with further modeling, animation, and polish still needed for a commercial release.
-
-The first venue is the fairground. Concerts, sports venues, persistent venue unlocks, controller support, Steam features, and mobile packaging remain future work. The [product direction](docs/PRODUCT_DIRECTION.md) records these plans and the open purchase-design decision. There are no payments or purchase prompts in this playtest.
-
-The results screen can copy a local playtest report. Share it with feedback about the serving rhythm, unclear interactions, difficulty, performance, and bugs. No analytics or personal data is sent anywhere.
-
-Version 0.3.0 passed **442 automated checks**, extracted Windows package startup, and a browser order-serving and save/reload check. See the [validation record](docs/PLAYTEST_0_3_VALIDATION.md) for evidence and limits.
+The earlier Idea 1 prototype and 0.3 first-person development build remain in
+source history and existing release folders. They are excluded from the V1
+export. The [product direction](docs/PRODUCT_DIRECTION.md) records the chosen
+game and the separate V2 scope.

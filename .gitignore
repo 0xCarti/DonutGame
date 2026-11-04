@@ -5,3 +5,5 @@ playtest-reports/
 *.log
 .DS_Store
 .openai/state/
+__pycache__/
+*.pyc

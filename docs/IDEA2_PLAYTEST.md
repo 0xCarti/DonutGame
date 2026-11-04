@@ -1,82 +1,90 @@
-# Golden Hour: work the donut stand
+# Golden Hour
 
-Idea 2 playtest - version 0.3.0
+Version 1.0.0 · Windows
 
-You are the operator behind a mini-donut stand. The machine fills a tray while
-you portion, coat, and hand over orders. Your job is to keep the serving rhythm
-going while attending to the machine and the waiting customers.
+Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
+coat and hand over each order. Keep your customers happy, care for the machine,
+and build a stand that can handle the fairground rush.
+
+## Open your stand
+
+Launch GoldenHour.exe, choose Standard or Relaxed, and select Open the Stand.
+Relaxed gives you more time and more patient customers. Practice is available
+from the title and instructions: its clock and customer patience are frozen,
+and it preserves your saved campaign.
 
 ## Your first order
 
-1. Read the customer's requested container and sugar.
-2. Take a bag or bucket from the counter.
-3. Pick up the scoop, then click the tray to collect up to three cooked donuts.
-4. Pour those donuts into your container, then scoop and pour again as needed.
-5. Add the requested cinnamon sugar or powdered sugar.
-6. Click the finished package to lift it, then click the waiting customer to
-   hand it over. Clicking the package again puts it down.
+1. Read the cream ticket at the top: it belongs to your current customer.
+2. Click the bag stack for six donuts, or the bucket stack for twelve.
+3. Pick up the scoop, then click the fresh donut tray to load it.
+4. Click your container to pour. Repeat until it is full; the scoop stays in hand.
+5. Click the requested cinnamon or powdered sugar.
+6. Click the finished package to lift it, then click the customer or serving mat.
 
-A bag holds **six donuts**: two full scoops. A bucket holds **twelve donuts**:
-four full scoops. A scoop taken from an almost-empty tray may contain fewer
-than three, so watch the actual portion count. The wider-scoop upgrade changes
-the scoop size to four.
+The starting scoop carries three donuts. Bags take two scoops; buckets take
+four. Equipment can raise capacity to four or six. A nearly empty tray gives
+you a partial scoop, so watch the contents shown on the dashboard.
 
-Use the physical counter objects to perform the work. The order display and
-machine indicators tell you what needs attention. The scoop stays selected
-between loads so filling a bucket feels like a continuous sequence.
+The bottom guide explains your next useful action. Point at an object to see
+its interaction and keyboard shortcut. You can put a lifted order down by
+clicking the packing area again.
 
-Click or tap an object to use it. Hold the repair lever or batter hopper until
-its progress bar completes. On a computer, hold the right mouse button and drag
-to look around; **Home** recentres the view. **Esc** pauses. The pause menu has
-instructions, sound/music controls, reduced motion, and save-and-return.
+## Read your dashboard
 
-Optional keyboard controls: **B** bag, **V** bucket, **S** pick up scoop,
-**F** scoop from tray, **Space** pour/lift/put down, **C** cinnamon,
-**P** powdered, **E** hand over, hold **R** repair, hold **T** refill,
-**- / +** adjust heat, **X** discard, **H** help.
+- Top left: sales, quota, remaining time and your current shift.
+- Top tickets: container, quantity, sugar and each customer's patience.
+- Bottom left: oil temperature, heater setting, batter and fresh donut stock.
+- Bottom centre: current interaction, shortcut and next order step.
+- Bottom right: held tool, package contents and coating.
 
-## Keep the stand moving
+Fault alerts stay visible until fixed and point to the affected control.
+Hold the repair lever to clear a jam. Service it early when wear rises to
+prevent trouble. Lower the heat if the oil gets too hot; production resumes
+after it cools. Hold the batter hopper to refill it. Released holds keep their
+partial progress. Pause stops the clock and cancels any active hold.
 
-- Customers have limited patience. Finish an order before starting unnecessary
-  extra work, and watch the waiting line.
-- Match the front customer's container and sugar. A wrong order stays with you
-  and costs patience. Use the discard bin to start again; plain donuts can be
-  recovered, but coated mistakes are wasted.
-- Clear a jam by holding the machine's repair interaction until it completes.
-- If the oil gets too hot, reduce the heat using the machine control. Watch the
-  indicator to see the effect of the adjustment.
-- Refill the hopper when batter runs low. Production and the ready-donut tray
-  give you a buffer while your hands are busy serving.
-- Work through three shifts. Reach the displayed sales target before the clock
-  runs out, then choose improvements between shifts. Later shifts test how well
-  you balance serving, supplies, and maintenance.
+Wrong orders do not earn money. The package stays on your counter, and the
+customer loses patience. Use the discard bin to start again. Plain donuts can
+be recovered; coated mistakes are discarded.
 
-This is a hands-on serving prototype. The useful playtest question is whether
-scooping, pouring, coating, and handing over an order feels satisfying enough
-to repeat while the queue makes you choose what to do next.
+## Controls
 
-## Start the build
+Click the physical objects to work. Hold the right mouse button and drag to
+look around. Home recentres the view. Esc pauses and F11 toggles fullscreen.
+Settings include sound effects, music, fairground ambience, reduced motion,
+look sensitivity and inverted look.
 
-On Windows, open `GoldenHour.exe` from the version 0.3.0 folder or its Idea 2 ZIP.
-Keep the included LICENSES folder with the game. No account is needed.
+Optional keys: B bag; V bucket; S pick up scoop; F scoop from tray;
+Space pour, lift or put down; C cinnamon; P powdered; E hand over;
+hold R repair or service; hold T refill; - / + heat; X discard; H help.
 
-The Web build must be served over HTTP or HTTPS; opening `index.html` directly
-from disk will not work. Use a browser supporting WebGL 2 and WebAssembly, and
-click the game to let it receive input and play audio.
+Practice's pause menu can create a jam, hot oil or an empty hopper, so you can
+learn each repair at your own pace.
 
-The previous Idea 1 version 0.2.0 builds remain available separately for
-comparison. This version changes the loop to manual service; it does not ship
-Steam integration or native iOS/Android packages.
+## Build your rhythm
 
-## Useful feedback
+The campaign has six named shifts, each with its own crowd and opportunities.
+Meet the displayed sales target before closing time. Between shifts, spend
+coins earned in that run on equipment and service improvements. The shop
+explains the next shift before you commit to an upgrade.
 
-Tell us where an interaction felt satisfying, where you lost track of the held
-tool or container, and what caused a missed order. Note whether waiting for the
-machine felt purposeful or idle, and whether maintenance created a worthwhile
-decision or merely interrupted you. Include your platform and the shift number.
+Complete the campaign to unlock Endless Rush. Your career records, badges and
+three stand palettes are earned through play and saved across runs. Choose
+your look in Collection. Stand colours do not change the gameplay rules.
 
-## Credits
+Your active run saves automatically. Pause and choose Save & return to title
+to continue later. Practice never replaces it. New runs replace only the active
+run, preserving career progress and unlocked colours.
 
-The machine, stand, donuts, animations, and synthesized audio are original
-project assets. Godot is MIT-licensed. The Fredoka typeface is supplied under
-SIL OFL 1.1. Complete engine, third-party, and font notices accompany the build.
+## Files and credits
+
+Keep GoldenHour.exe and its LICENSES folder together. The game needs no account
+or internet connection. Save data lives in Godot's user-data folder for Golden
+Hour. Existing earlier-development saves are read for migration without
+changing their original files.
+
+The stand, donuts, characters, interface, animation, illustration and
+synthesized sound are original project assets. Godot is MIT-licensed and
+Fredoka is provided under SIL OFL 1.1. Full engine, third-party and font notices
+are supplied in LICENSES beside the game.
