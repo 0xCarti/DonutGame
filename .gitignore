@@ -1,0 +1,7 @@
+.godot/
+builds/
+dist/
+playtest-reports/
+*.log
+.DS_Store
+.openai/state/

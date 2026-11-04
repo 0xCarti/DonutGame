@@ -1,0 +1,73 @@
+GOLDEN HOUR - MINI DONUT CLUB
+Playtest 0.1.0
+
+OPEN YOUR STAND
+
+On Windows, open GoldenHour.exe and choose OPEN THE STAND. No account or
+internet connection is required. Keep the LICENSES folder with the game.
+
+For the web build, host this folder over HTTP or HTTPS and open index.html
+through that server. Opening the HTML directly from disk will not work.
+WebGL 2 and WebAssembly are required. A desktop Chromium browser or Firefox
+is the initial playtest target. Click once to allow browser audio playback.
+
+This is an early playable build. It has one fairground, six escalating shifts,
+and twenty upgrades. Steam integration, controller support, native phone
+packages, and additional venues are not included in this version.
+
+MAKE THE QUOTA
+
+1. Choose cinnamon, powdered sugar, or cocoa.
+2. Choose destination tray 1, 2, or 3, then drop six donuts into the hopper.
+3. Watch them fry, flip, and land. Several batches can cook at once.
+4. Sell six matching donuts for a base 2x payout. Full mixed trays start at
+   1.6x. Partial trays also sell, but usually earn less.
+5. Meet the sales target before closing. Full trays hold up arriving donuts;
+   sell them to make room. The fryer holds eighteen donuts at a time.
+6. Between shifts, buy upgrades using separate shop coins. Look for effects
+   that work together. Unspent coins carry forward.
+
+Clear all six shifts to win. After reaching a target, you may close that shift
+early or keep selling to earn more shop coins. Unsold donuts do not count
+toward the target when the shift ends.
+
+CONTROLS
+
+All actions work with the mouse. Touch also controls the onscreen buttons;
+native mobile packaging and phone-sized interface polish are still planned.
+
+  A / S / D       Cinnamon / powdered / cocoa
+  1 / 2 / 3       Destination tray
+  Space           Drop six donuts
+  Q / W / E       Sell tray 1 / 2 / 3
+  Escape          Pause or close a popup
+  H               How to play
+  M               Mute all sound
+  F11             Fullscreen (a browser may handle this shortcut itself)
+
+The pause and settings buttons are available onscreen. Music can be switched
+off independently of sound effects.
+
+SAVE & CONTINUE
+
+Active runs and shop purchases save locally. Use Save & return to title or
+Save & take a break, then Continue your run. Starting a fresh run asks before
+replacing an existing saved run. A lost or completed run ends that save.
+
+The browser stores saves in that browser's local site storage. Clearing site
+data removes them, and private browsing may not retain them between sessions.
+The Windows save is local to your Windows account. Saves are not synced.
+
+SEND USEFUL PLAYTEST FEEDBACK
+
+On the result screen, Copy playtest report copies your run seed, upgrades,
+score, platform, and frame rate. Paste it alongside your feedback. Tell us
+what felt good, what was confusing, which upgrade you liked, and how to
+repeat any bug. No analytics or personal information is sent by the game.
+
+CREDITS & LICENSES
+
+The procedural art, animations, synthesized effects, and fairground music
+were made for this game. The engine is Godot 4.7.2 (MIT). The Fredoka typeface
+is licensed under the SIL Open Font License 1.1. Full notices are included in
+LICENSES, including Godot's third-party copyright notices.
