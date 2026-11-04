@@ -1,4 +1,5 @@
 extends Node3D
+const FoodGeometry = preload("res://scripts/stand_food_physics.gd")
 signal delivery_settled(delivery_id: int, kept: bool)
 signal stock_spilled(delivery_id: int)
 signal action_finished
@@ -40,6 +41,9 @@ var _dial_velocities: Array[float] = [0.0, 0.0]
 var _arm_rigs: Array[Dictionary] = []
 var _hand_tracks: Array[Dictionary] = []
 var _finger_joints: Array[Array] = []
+var _finger_chains: Array[Array] = []
+var _thumb_chains: Array[Array] = []
+var _player_glove_materials: Dictionary = {}
 const UPPER_ARM_LENGTH: float = 1.12
 const FOREARM_LENGTH: float = 1.04
 const GRASP_TIME: float = 0.20
@@ -49,6 +53,7 @@ var _tool_home: Transform3D
 var _shakers: Dictionary = {}
 var _shaker_homes: Dictionary = {}
 var _package_stacks: Dictionary = {}
+var _paper_bag_scene: PackedScene
 var _action_duration: float = 0.45
 var _action_reach: Vector3 = Vector3.ZERO
 var _scoop_pose: Transform3D
@@ -127,6 +132,7 @@ func _ready() -> void:
 		_world_font = load("res://assets/fonts/Fredoka-Medium.ttf")
 	_make_materials()
 	_stand_materials()
+	_apply_authored_materials()
 	_stand_lighting()
 	_make_fairground()
 	_build_counter()
@@ -236,6 +242,33 @@ func _apply_procedural_materials() -> void:
 				material.normal_scale = 0.12
 				material.roughness = 0.28
 
+
+func _apply_authored_materials() -> void:
+	for kind in ["counter_wood", "kraft_paper"]:
+		var prefix: String = "res://assets/materials/" + kind
+		if not ResourceLoader.exists(prefix + "_color.png"): continue
+		var keys: Array = ["wood", "wood_light", "wood_dark"] if kind == "counter_wood" else ["paper_bag", "paper_fold", "package_inside"]
+		for key in keys:
+			var material: StandardMaterial3D = _mat[key]
+			material.albedo_texture = load(prefix + "_color.png")
+			material.normal_enabled = true
+			material.normal_texture = load(prefix + "_normal.png")
+			material.normal_scale = 0.45 if kind == "counter_wood" else 0.30
+			material.roughness_texture = load(prefix + "_roughness.png")
+			material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+			material.roughness = 1.0
+			material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+			material.uv1_triplanar = kind == "counter_wood"
+			material.uv1_scale = Vector3.ONE * (0.65 if kind == "counter_wood" else 1.0)
+		_mat["wood_light"].albedo_color = Color(0.80, 0.82, 0.86)
+		_mat["wood"].albedo_color = Color(0.67, 0.70, 0.75)
+		_mat["wood_dark"].albedo_color = Color(0.32, 0.36, 0.40)
+		_mat["paper_bag"].albedo_color = Color(1.0, 0.98, 0.92)
+		_mat["paper_fold"].albedo_color = Color(0.79, 0.77, 0.72)
+		_mat["package_inside"].albedo_color = Color(0.71, 0.68, 0.62)
+	for key in ["steel", "steel_light", "steel_dark"]:
+		_mat[key].normal_scale = 0.42
+		_mat[key].roughness = 0.54 if key == "steel_light" else 0.68
 
 func _bake_surface(kind: String) -> Dictionary:
 	var resolution: int = 192
@@ -653,8 +686,8 @@ func _make_fairground() -> void:
 
 
 func _make_donut_resources() -> void:
-	_donut_mesh = _organic_donut_mesh(0.181, 0.073)
-	_coating_mesh = _organic_donut_mesh(0.181, 0.075)
+	_donut_mesh = _organic_donut_mesh(FoodGeometry.MODEL_RING_RADIUS, FoodGeometry.MODEL_TUBE_RADIUS, FoodGeometry.MODEL_HALF_HEIGHT)
+	_coating_mesh = _organic_donut_mesh(FoodGeometry.MODEL_RING_RADIUS, FoodGeometry.MODEL_TUBE_RADIUS + 0.0015, FoodGeometry.MODEL_HALF_HEIGHT + 0.0015)
 	_donut_crust = ShaderMaterial.new()
 	_donut_crust.shader = load("res://assets/shaders/donut_crust.gdshader")
 	_powder_sugar = ShaderMaterial.new()
@@ -668,14 +701,15 @@ func _make_donut_resources() -> void:
 		mm.instance_count = 11 if recipe == "cocoa" else 36
 		for i in range(mm.instance_count):
 			var angle: float = float(i) / float(mm.instance_count) * TAU + _rng.randf_range(-0.12, 0.12)
-			var radius: float = _rng.randf_range(0.13, 0.20)
-			var position_value: Vector3 = Vector3(cos(angle) * radius, 0.082 + _rng.randf_range(-0.004, 0.004), sin(angle) * radius)
+			var phi: float = _rng.randf_range(PI * 0.25, PI * 0.75)
+			var radius: float = FoodGeometry.MODEL_RING_RADIUS + cos(phi) * FoodGeometry.MODEL_TUBE_RADIUS
+			var position_value: Vector3 = Vector3(cos(angle) * radius, sin(phi) * FoodGeometry.MODEL_HALF_HEIGHT + 0.003, sin(angle) * radius)
 			var basis_value: Basis = Basis(Vector3.UP, _rng.randf_range(0, TAU))
 			mm.set_instance_transform(i, Transform3D(basis_value, position_value))
 		_sprinkle_meshes[recipe] = mm
 
 
-func _organic_donut_mesh(major: float, minor: float) -> ArrayMesh:
+func _organic_donut_mesh(major: float, minor: float, half_height: float) -> ArrayMesh:
 	var vertices: PackedVector3Array = PackedVector3Array()
 	var normals: PackedVector3Array = PackedVector3Array()
 	var uvs: PackedVector2Array = PackedVector2Array()
@@ -684,12 +718,16 @@ func _organic_donut_mesh(major: float, minor: float) -> ArrayMesh:
 	var sides: int = 14
 	for i in range(rings + 1):
 		var theta: float = float(i) / float(rings) * TAU
-		var width: float = minor * (1.0 + sin(theta * 5.0 + 0.7) * 0.085 + cos(theta * 9.0) * 0.038)
+		var outer: float = (major + minor) * (1.0 + sin(theta * 5.0 + 0.7) * 0.028 + cos(theta * 9.0) * 0.012)
+		var inner: float = (major - minor) * (1.0 + sin(theta * 3.0 + 0.4) * 0.20)
+		var center: float = (outer + inner) * 0.5
+		var width: float = (outer - inner) * 0.5
+		var height: float = half_height * (1.0 + sin(theta * 5.0 + 0.7) * 0.035)
 		for j in range(sides + 1):
 			var phi: float = float(j) / float(sides) * TAU
-			var radial: float = major + cos(phi) * width
-			vertices.append(Vector3(cos(theta) * radial, sin(phi) * width + sin(theta * 3.0) * 0.004, sin(theta) * radial))
-			normals.append(Vector3(cos(theta) * cos(phi), sin(phi), sin(theta) * cos(phi)).normalized())
+			var radial: float = center + cos(phi) * width
+			vertices.append(Vector3(cos(theta) * radial, sin(phi) * height + sin(theta * 3.0) * 0.0015, sin(theta) * radial))
+			normals.append(Vector3(cos(theta) * cos(phi) / width, sin(phi) / height, sin(theta) * cos(phi) / width).normalized())
 			uvs.append(Vector2(float(i) / float(rings), float(j) / float(sides)))
 			if i < rings and j < sides:
 				var a: int = i * (sides + 1) + j
@@ -718,9 +756,9 @@ func _create_donut(data: Dictionary, at: Vector3) -> Node3D:
 		recipe = "cinnamon"
 	var is_golden: bool = bool(data.get("golden", false))
 	var body: MeshInstance3D = _mesh_node(_donut_mesh, Vector3.ZERO, _mat["golden"] if is_golden else _donut_crust, node)
-	body.scale = Vector3(1.0, 1.08, 1.0)
+	body.scale = Vector3.ONE
 	var icing: MeshInstance3D = _mesh_node(_coating_mesh, Vector3.ZERO, _powder_sugar if recipe == "powdered" else _mat["golden" if is_golden else recipe], node)
-	icing.scale = Vector3(1.0, 1.08, 1.0)
+	icing.scale = Vector3.ONE
 	icing.visible = recipe != "cinnamon" or is_golden
 	var sprinkles: MultiMeshInstance3D = MultiMeshInstance3D.new()
 	sprinkles.multimesh = _sprinkle_meshes[recipe]
@@ -833,9 +871,25 @@ func _stand_lighting() -> void:
 		_detail_lights.append(task_light)
 
 func _build_counter() -> void:
-	_box(Vector3(0, 1.48, 0.70), Vector3(10.2, 0.27, 5.1), "wood_dark")
+	# Four substrate panels and individually cut boards leave a genuine opening
+	# through the worktop. Its dimensions also define the physical aperture.
+	var opening: Rect2 = Rect2(-3.70, 1.84, 1.10, 1.02)
+	var counter: Rect2 = Rect2(-5.10, -1.85, 10.20, 5.10)
+	var panels: Array[Rect2] = [
+		Rect2(counter.position, Vector2(opening.position.x - counter.position.x, counter.size.y)),
+		Rect2(Vector2(opening.end.x, counter.position.y), Vector2(counter.end.x - opening.end.x, counter.size.y)),
+		Rect2(Vector2(opening.position.x, counter.position.y), Vector2(opening.size.x, opening.position.y - counter.position.y)),
+		Rect2(Vector2(opening.position.x, opening.end.y), Vector2(opening.size.x, counter.end.y - opening.end.y))]
+	for panel in panels:
+		var substrate: MeshInstance3D = _box(Vector3(panel.get_center().x, 1.48, panel.get_center().y), Vector3(panel.size.x, 0.27, panel.size.y), "wood_dark")
+		substrate.set_meta("counter_panel", true)
 	for i in range(17):
-		_box(Vector3(-4.8 + float(i) * 0.6, 1.65, 0.70), Vector3(0.585, 0.10, 5.1), "wood_light" if i % 3 else "wood")
+		var plank: Rect2 = Rect2(-4.8 + float(i) * 0.6 - 0.2925, -1.85, 0.585, 5.10)
+		for panel in panels:
+			var piece: Rect2 = plank.intersection(panel)
+			if not piece.has_area(): continue
+			var board: MeshInstance3D = _box(Vector3(piece.get_center().x, 1.65, piece.get_center().y), Vector3(piece.size.x, 0.10, piece.size.y), "wood_light" if i % 3 else "wood")
+			board.set_meta("counter_panel", true)
 	_box(Vector3(0, 0.85, -1.88), Vector3(10.2, 1.4, 0.16), "red_dark")
 	_tube(Vector3(-5.1, 1.72, -1.88), Vector3(5.1, 1.72, -1.88), 0.055, "brass")
 	for x in [-4.95, 4.95]:
@@ -907,7 +961,7 @@ func _build_discharge_chute() -> void:
 	_discharge_chute.name = "SweepingDeliveryChute"
 	_discharge_chute.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
 	add_child(_discharge_chute)
-	_discharge_chute_floor = _box(Vector3(0, -0.0575, length * 0.5), Vector3(0.40, 0.025, length), "steel_light", _discharge_chute)
+	_discharge_chute_floor = _box(Vector3(0, -FoodGeometry.CRUST_RADIUS - 0.0125, length * 0.5), Vector3(0.40, 0.025, length), "steel_light", _discharge_chute)
 	_discharge_chute_floor.name = "DeliveryFloor"
 	for side in [-1.0, 1.0]:
 		_box(Vector3(side * 0.205, -0.025, length * 0.5), Vector3(0.025, 0.080, length), "steel", _discharge_chute)
@@ -933,6 +987,7 @@ func set_discharge_chute_pose(start: Vector3, end: Vector3) -> void:
 	_discharge_chute.transform = Transform3D(Basis(right, up, forward), start)
 
 func _build_stations() -> void:
+	_prewarm_paper_bag()
 	# Bulk tray contains visible individual donuts, with a scoop resting beside it.
 	_tray_visual = Node3D.new()
 	_tray_visual.name = "CatchTray"
@@ -961,9 +1016,7 @@ func _build_stations() -> void:
 		bag.position = Vector3(2.25, 1.74 + float(i) * 0.032, 2.24)
 		bag.rotation_degrees.y = -8.0 + float(i) * 3.0
 		_package_stacks["bag"].append(bag)
-		_box(Vector3.ZERO, Vector3(0.67, 0.026, 0.85), "paper_bag", bag)
-		_box(Vector3(0, 0.016, 0.03), Vector3(0.39, 0.009, 0.40), "red", bag)
-		_box(Vector3(0, 0.016, 0.36), Vector3(0.62, 0.009, 0.06), "cream", bag)
+		_make_flat_paper_bag(bag)
 	_station("bag", Vector3(2.25, 1.89, 2.24), Vector3(0.80, 0.38, 0.90), "BAGS · 6 DONUTS")
 	for i in range(3):
 		var bucket: Node3D = _make_package("bucket", self)
@@ -1032,11 +1085,25 @@ func _build_stations() -> void:
 	_pitcher_home = _maintenance_prop.global_transform
 	_batter_stream = _tube(hopper_target + Vector3(0, 0.50, 0), hopper_target + Vector3(0, 0.02, 0), 0.028, "dough")
 	_batter_stream.visible = false
-	# A real bin at the operator's left; it never overlaps the food tray.
-	_cylinder(Vector3(-3.15, 1.94, 2.35), 0.39, 0.53, "red_dark", self, 0.47)
-	_cylinder(Vector3(-3.15, 2.22, 2.35), 0.48, 0.045, "steel_light")
-	_cylinder(Vector3(-3.15, 2.24, 2.35), 0.41, 0.018, "black")
-	_station("trash", Vector3(-3.15, 2.15, 2.35), Vector3(0.98, 0.55, 0.98), "DISCARD")
+	# Flush drop-through scrap well: open rim, deep walls, and an inset floor.
+	# The opening is cut through both the wood boards and the collision surface.
+	var discard: Node3D = Node3D.new()
+	discard.name = "RecessedDiscard"
+	discard.position = Vector3(-3.15, 1.70, 2.35)
+	add_child(discard)
+	for side in [-1.0, 1.0]:
+		_box(Vector3(side * 0.585, 0.008, 0), Vector3(0.07, 0.025, 1.16), "steel_light", discard)
+		_box(Vector3(0, 0.008, side * 0.545), Vector3(1.10, 0.025, 0.07), "steel_light", discard)
+		_box(Vector3(side * 0.5675, -0.48, 0), Vector3(0.035, 0.94, 1.02), "steel_dark", discard)
+		_box(Vector3(0, -0.48, side * 0.5275), Vector3(1.10, 0.94, 0.035), "steel_dark", discard)
+		for depth in [-0.545, 0.545]:
+			_cylinder(Vector3(side * 0.585, 0.022, depth), 0.014, 0.004, "steel_dark", discard)
+	_box(Vector3(0, -0.965, 0), Vector3(1.10, 0.04, 1.02), "black", discard)
+	_station("trash", Vector3(-3.15, 1.72, 2.35), Vector3(1.24, 0.20, 1.16), "DISCARD", false)
+	_register_highlight("trash", discard)
+	var discard_label: Label3D = _label("DISCARD", Vector3(-3.15, 1.708, 3.03), 16, Color("6e4c32"))
+	discard_label.rotation_degrees.x = -90.0
+	_station_labels["trash"] = discard_label
 
 func _station(id: String, at: Vector3, dimensions: Vector3, label_text: String, show_label: bool = true) -> void:
 	var area: Area3D = Area3D.new()
@@ -1071,6 +1138,11 @@ func _station(id: String, at: Vector3, dimensions: Vector3, label_text: String, 
 		_station_labels[id] = text_label
 
 func _make_package(kind: String, parent: Node3D) -> Node3D:
+	if kind != "bucket":
+		if _paper_bag_scene == null: _prewarm_paper_bag()
+		var bag: Node3D = _paper_bag_scene.instantiate() as Node3D
+		parent.add_child(bag)
+		return bag
 	var package: Node3D = Node3D.new()
 	parent.add_child(package)
 	if kind == "bucket":
@@ -1093,24 +1165,142 @@ func _make_package(kind: String, parent: Node3D) -> Node3D:
 		_cylinder(Vector3(0, 0.025, 0), 0.265, 0.012, "package_inside", package)
 		if not _add_brand_decal(package, Vector3(0, 0.30, 0), Vector2(0.32, 0.32), 0.35):
 			_label("GOLDEN\nHOUR", Vector3(0, 0.29, 0.405), 15, Color("6c4130"), package)
-	else:
-		_box(Vector3(0, 0.31, -0.235), Vector3(0.58, 0.62, 0.035), "paper_bag", package)
-		_box(Vector3(0, 0.27, 0.235), Vector3(0.58, 0.54, 0.035), "paper_bag", package)
-		for x in [-0.28, 0.28]:
-			_box(Vector3(x, 0.27, 0), Vector3(0.028, 0.54, 0.47), "paper_bag", package)
-		_box(Vector3(0, 0.035, 0), Vector3(0.56, 0.04, 0.45), "package_inside", package)
-		# Folded lips, side gussets and a pressed bottom seam make it read as paper.
-		for x in [-0.285, 0.285]:
-			_tube(Vector3(x, 0.06, -0.19), Vector3(x, 0.47, 0.0), 0.005, "paper_fold", package)
-			_tube(Vector3(x, 0.06, 0.19), Vector3(x, 0.47, 0.0), 0.005, "paper_fold", package)
-			_box(Vector3(x, 0.52, 0), Vector3(0.035, 0.028, 0.45), "paper_fold", package)
-		_box(Vector3(0, 0.535, 0.237), Vector3(0.59, 0.035, 0.043), "paper_bag", package)
-		_box(Vector3(0, 0.615, -0.237), Vector3(0.59, 0.035, 0.043), "paper_bag", package)
-		_box(Vector3(0, 0.065, 0.255), Vector3(0.54, 0.016, 0.012), "paper_fold", package)
-		if not _add_brand_decal(package, Vector3(0, 0.29, 0.270), Vector2(0.37, 0.37)):
-			_box(Vector3(0, 0.28, 0.258), Vector3(0.40, 0.34, 0.012), "dark_enamel", package)
-			_label("GOLDEN\nHOUR", Vector3(0, 0.29, 0.27), 18, Color("e1c99f"), package)
 	return package
+
+func _prewarm_paper_bag() -> void:
+	if _paper_bag_scene != null: return
+	# Build the detailed paper once while the stand loads. Each order receives
+	# independent nodes and overlays while sharing immutable meshes/materials.
+	# PackedScene retains resources only; the temporary template is freed here.
+	var template: Node3D = Node3D.new()
+	template.name = "PaperBag"
+	_make_paper_bag(template)
+	for child in template.get_children(): child.owner = template
+	_paper_bag_scene = PackedScene.new()
+	var packed: Error = _paper_bag_scene.pack(template)
+	template.free()
+	assert(packed == OK, "The paper bag template must be packable")
+
+func _bag_surface_point(u: float, v: float) -> Vector3:
+	var angle: float = u * TAU
+	var c: float = cos(angle)
+	var s: float = sin(angle)
+	var half_width: float = 0.270 + 0.025 * sin(minf(v * 2.5, PI * 0.5))
+	var depth: float = 0.205 + 0.037 * sin(v * PI) + 0.01 * v
+	var x: float = signf(c) * pow(absf(c), 0.32) * half_width
+	var z: float = signf(s) * pow(absf(s), 0.32) * depth
+	# Soft front/back panels bulge; both side gussets crease inward at the mouth.
+	x -= signf(c) * exp(-pow(z / 0.12, 2.0)) * pow(absf(c), 8.0) * (0.004 + 0.045 * smoothstep(0.60, 1.0, v))
+	x += sin(angle * 9.0 + v * 8.0) * 0.004 * sin(v * PI)
+	z += cos(angle * 7.0 - v * 10.0) * 0.004 * sin(v * PI)
+	var lip_height: float = 0.58 - 0.035 * s + 0.006 * sin(angle * 7.0) + 0.003 * sin(angle * 19.0)
+	return Vector3(x, 0.03 + v * lip_height, z)
+
+func _bag_surface_normal(u: float, v: float) -> Vector3:
+	var along: Vector3 = _bag_surface_point(u + 0.001, v) - _bag_surface_point(u - 0.001, v)
+	var vertical: Vector3 = _bag_surface_point(u, v + 0.001) - _bag_surface_point(u, v - 0.001)
+	return vertical.cross(along).normalized()
+
+func _make_paper_bag(package: Node3D) -> void:
+	# A 2.5 mm open paper shell, rather than four thick rectangular walls.
+	for inside in [false, true]:
+		var shell: SurfaceTool = SurfaceTool.new()
+		shell.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var corners: Array[Vector2i] = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 0), Vector2i(1, 1), Vector2i(0, 1)]
+		if inside: corners.reverse()
+		for row in range(12):
+			for segment in range(64):
+				for corner in corners:
+					var u: float = float(segment + corner.x) / 64.0
+					var v: float = float(row + corner.y) / 12.0
+					var normal: Vector3 = _bag_surface_normal(u, v)
+					shell.set_uv(Vector2(u * 2.0, v))
+					shell.set_normal(-normal if inside else normal)
+					shell.add_vertex(_bag_surface_point(u, v) - normal * (0.0025 if inside else 0.0))
+		shell.generate_tangents()
+		var paper: MeshInstance3D = _mesh_node(shell.commit(), Vector3.ZERO, _mat["paper_bag"], package)
+		paper.name = "PaperBagInner" if inside else "PaperBagShell"
+		paper.set_meta("paper_shell", true)
+	var bottom: SurfaceTool = SurfaceTool.new()
+	bottom.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var lip: SurfaceTool = SurfaceTool.new()
+	lip.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for segment in range(64):
+		var u0: float = float(segment) / 64.0
+		var u1: float = float(segment + 1) / 64.0
+		_surface_triangle(bottom, Vector3(0, 0.03, 0), _bag_surface_point(u0, 0), _bag_surface_point(u1, 0), Vector3.UP)
+		var a: Vector3 = _bag_surface_point(u0, 1)
+		var b: Vector3 = _bag_surface_point(u1, 1)
+		_surface_quad(lip, a, b, b - _bag_surface_normal(u1, 1) * 0.0025, a - _bag_surface_normal(u0, 1) * 0.0025, Vector3.UP)
+	_mesh_node(bottom.commit(), Vector3.ZERO, _mat["package_inside"], package).name = "PaperBottom"
+	_mesh_node(lip.commit(), Vector3.ZERO, _mat["paper_fold"], package).name = "CrimpedPaperRim"
+	# Pressed gusset folds run diagonally from the folded bottom into each side.
+	for side_u in [0.0, 0.5]:
+		for direction in [-1.0, 1.0]:
+			var a: Vector3 = _bag_surface_point(side_u + direction * 0.11, 0.06)
+			var b: Vector3 = _bag_surface_point(side_u + direction * 0.018, 0.43)
+			var c: Vector3 = _bag_surface_point(side_u, 0.94)
+			_tube(a, b, 0.0014, "paper_fold", package)
+			_tube(b, c, 0.0012, "paper_fold", package)
+	_add_bag_print(package)
+
+func _bag_print_point(uv: Vector2) -> Vector3:
+	var x: float = (uv.x - 0.5) * 0.36
+	var y: float = 0.47 - uv.y * 0.34
+	var v: float = (y - 0.03) / 0.545
+	var u: float = 0.25
+	for iteration in range(3):
+		var half_width: float = 0.270 + 0.025 * sin(minf(v * 2.5, PI * 0.5))
+		u = acos(signf(x) * pow(absf(x) / half_width, 1.0 / 0.32)) / TAU
+		v = (y - 0.03) / (_bag_surface_point(u, 1).y - 0.03)
+	return _bag_surface_point(u, v) + _bag_surface_normal(u, v) * 0.0015
+
+func _add_bag_print(package: Node3D) -> void:
+	if not ResourceLoader.exists("res://assets/art/brand_seal.png"):
+		_label("GOLDEN\nHOUR", Vector3(0, 0.30, 0.255), 18, Color("6c4130"), package)
+		return
+	var print_mesh: SurfaceTool = SurfaceTool.new()
+	print_mesh.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(12):
+		for column in range(12):
+			for corner in [Vector2i(0, 0), Vector2i(1, 1), Vector2i(0, 1), Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1)]:
+				var uv: Vector2 = Vector2(column + corner.x, row + corner.y) / 12.0
+				print_mesh.set_uv(uv)
+				print_mesh.set_normal(Vector3(0, 0, 1))
+				print_mesh.add_vertex(_bag_print_point(uv))
+	var ink: StandardMaterial3D = StandardMaterial3D.new()
+	ink.albedo_texture = load("res://assets/art/brand_seal.png")
+	ink.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ink.roughness = 0.98
+	ink.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var print_node: MeshInstance3D = _mesh_node(print_mesh.commit(), Vector3.ZERO, ink, package)
+	print_node.set_meta("branding", true)
+	print_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+func _make_flat_paper_bag(parent: Node3D) -> void:
+	# Thin, slightly curled folded stock, including a pressed gusset and ink seal.
+	var sheet: SurfaceTool = SurfaceTool.new()
+	sheet.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(8):
+		for column in range(8):
+			for corner in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 0), Vector2i(1, 1), Vector2i(0, 1)]:
+				var uv: Vector2 = Vector2(column + corner.x, row + corner.y) / 8.0
+				var x: float = (uv.x - 0.5) * 0.65
+				var z: float = (uv.y - 0.5) * 0.84
+				var y: float = 0.012 + pow(absf(uv.x - 0.5) * 2.0, 4.0) * 0.006 + pow(maxf(0, uv.y - 0.8) * 5.0, 2.0) * 0.010
+				sheet.set_uv(uv)
+				sheet.set_normal(Vector3.UP)
+				sheet.add_vertex(Vector3(x, y, z))
+	sheet.generate_tangents()
+	var material: StandardMaterial3D = _mat["paper_bag"].duplicate()
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_mesh_node(sheet.commit(), Vector3.ZERO, material, parent)
+	for side in [-1.0, 1.0]:
+		_tube(Vector3(side * 0.325, 0.015, -0.40), Vector3(side * 0.325, 0.015, 0.38), 0.0017, "paper_fold", parent)
+		_tube(Vector3(side * 0.325, 0.016, 0.26), Vector3(0, 0.016, 0.37), 0.0015, "paper_fold", parent)
+	_tube(Vector3(-0.325, 0.016, 0.26), Vector3(0.325, 0.016, 0.26), 0.0014, "paper_fold", parent)
+	if _add_brand_decal(parent, Vector3(0, 0.022, -0.05), Vector2(0.34, 0.34)):
+		parent.get_child(parent.get_child_count() - 1).rotation_degrees.x = -90.0
 
 func _add_brand_decal(parent: Node3D, at: Vector3, size: Vector2, curved_radius: float = 0.0) -> bool:
 	if not ResourceLoader.exists("res://assets/art/brand_seal.png"):
@@ -1162,15 +1352,47 @@ func _make_scoop(parent: Node3D) -> Node3D:
 
 func _make_shaker(flavor: String, parent: Node3D) -> Node3D:
 	var shaker: Node3D = Node3D.new()
+	shaker.name = "Shaker_" + flavor
 	parent.add_child(shaker)
-	_cylinder(Vector3(0, 0.29, 0), 0.22, 0.58, "cream", shaker)
+	_cylinder(Vector3(0, 0.29, 0), 0.22, 0.58, "steel", shaker)
 	_cylinder(Vector3(0, 0.61, 0), 0.235, 0.08, "steel_light", shaker)
-	_box(Vector3(0, 0.29, 0.221), Vector3(0.35, 0.31, 0.015), flavor, shaker)
-	_label("CINNAMON\nSUGAR" if flavor == "cinnamon" else "POWDERED\nSUGAR", Vector3(0, 0.29, 0.237), 12, Color("fff1ce") if flavor == "cinnamon" else Color("694c35"), shaker)
+	for y in [0.027, 0.565, 0.655]:
+		var rim: TorusMesh = TorusMesh.new()
+		rim.inner_radius = 0.218 if y < 0.1 else 0.229
+		rim.outer_radius = rim.inner_radius + 0.012
+		rim.rings = 40
+		rim.ring_segments = 8
+		_mesh_node(rim, Vector3(0, y, 0), _mat["steel_light"], shaker)
+	_make_shaker_label(flavor, shaker)
 	for i in range(5):
 		var a: float = float(i) * TAU / 5.0
 		_cylinder(Vector3(cos(a) * 0.105, 0.655, sin(a) * 0.105), 0.023, 0.006, "black", shaker)
 	return shaker
+
+func _make_shaker_label(flavor: String, parent: Node3D) -> void:
+	var surface: SurfaceTool = SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for segment in range(28):
+		var u0: float = float(segment) / 28.0
+		var u1: float = float(segment + 1) / 28.0
+		for uv in [Vector2(u0, 0), Vector2(u1, 1), Vector2(u0, 1), Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, 1)]:
+			var angle: float = (uv.x - 0.5) * 0.60 / 0.223
+			surface.set_normal(Vector3(sin(angle), 0, cos(angle)))
+			surface.set_uv(uv)
+			surface.add_vertex(Vector3(sin(angle) * 0.223, 0.30 + (0.5 - uv.y) * 0.46, cos(angle) * 0.223))
+	surface.generate_tangents()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_texture = load("res://assets/art/shaker_" + flavor + ".svg")
+	material.roughness = 0.93
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	material.normal_enabled = true
+	material.normal_texture = _mat["tray_paper"].normal_texture
+	material.normal_scale = 0.12
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var label: MeshInstance3D = _mesh_node(surface.commit(), Vector3.ZERO, material, parent)
+	label.name = "PrintedPaperLabel"
+	label.set_meta("printed_flavor", flavor)
+	label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_view() -> void:
 	camera = Camera3D.new()
@@ -1355,34 +1577,148 @@ func _build_hands() -> void:
 		for segment in [upper, fore, elbow]: segment.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_arm_rigs.append({"upper": upper, "fore": fore, "joint": elbow, "upper_material": upper_material, "fore_material": fore_material, "shoulder": Vector3.ZERO, "elbow": Vector3.ZERO, "wrist": Vector3.ZERO})
 		_hand_tracks.append({"node": null, "from": hand.global_transform, "age": 1.0, "duration": GRASP_TIME})
-		_tube(Vector3(0, -0.025, 0.03), Vector3(0, 0.005, -0.025), 0.103, "stitched_cuff", hand)
-		var palm: MeshInstance3D = _sphere(Vector3(0, 0.025, -0.07), 0.095, "glove", hand)
-		palm.scale = Vector3(0.89, 0.57, 1.15)
-		var finger_joints: Array = []
-		for i in range(4):
-			var finger_x: float = -0.059 + float(i) * 0.039
-			var length: float = 0.082 if i in [1, 2] else 0.062
-			var knuckle: Vector3 = Vector3(finger_x, 0.049, -0.12)
-			var bend: Vector3 = Vector3(finger_x, 0.068, -0.12 - length * 0.55)
-			var tip: Vector3 = Vector3(finger_x, 0.025, -0.12 - length)
-			var joint: Node3D = Node3D.new()
-			hand.add_child(joint)
-			joint.position = knuckle
-			finger_joints.append(joint)
-			_tube(Vector3.ZERO, bend - knuckle, 0.022, "glove", joint)
-			_tube(bend - knuckle, tip - knuckle, 0.020, "glove", joint)
-			_sphere(bend - knuckle, 0.024, "glove", joint)
-			_sphere(tip - knuckle, 0.021, "glove", joint)
-			_tube(Vector3(-0.011, 0.010, 0.002), Vector3(0.011, 0.010, 0.002), 0.002, "paper_fold", joint)
-		_finger_joints.append(finger_joints)
-		_tube(Vector3(-side * 0.065, 0.015, -0.03), Vector3(-side * 0.104, 0.02, -0.085), 0.033, "glove", hand)
-		_tube(Vector3(-side * 0.104, 0.02, -0.085), Vector3(-side * 0.08, 0.043, -0.125), 0.028, "glove", hand)
-		_sphere(Vector3(-side * 0.08, 0.043, -0.125), 0.028, "glove", hand)
-		for stitch in range(5):
-			_box(Vector3(-0.066 + float(stitch) * 0.033, 0.063, -0.004), Vector3(0.014, 0.003, 0.009), "paper_fold", hand)
+		_build_player_glove(hand, side)
 	_scoop_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(12), deg_to_rad(-10), deg_to_rad(-5))).scaled(Vector3.ONE * 0.78), Vector3(0.48, -0.62, -1.64))
 	_package_pose = Transform3D(Basis.from_euler(Vector3(deg_to_rad(6), deg_to_rad(-12), 0)).scaled(Vector3.ONE * 0.78), Vector3(0.43, -0.82, -1.64))
 	_update_hands(1.0)
+
+func _build_player_glove(hand: Node3D, side: float) -> void:
+	var palm_material: ShaderMaterial = _player_glove_material("palm")
+	var finger_material: ShaderMaterial = _player_glove_material("finger")
+	# Cross sections follow the narrow wrist, palm heel and metacarpal fan. This
+	# gives the glove a hand silhouette instead of a sphere with tubes attached.
+	var palm: MeshInstance3D = _mesh_node(_hand_loft([
+		Vector4(0.031, 0.014, 0.001, 0.001), Vector4(0.025, 0.014, 0.054, 0.031),
+		Vector4(0.002, 0.016, 0.061, 0.034), Vector4(-0.033, 0.020, 0.077, 0.034),
+		Vector4(-0.075, 0.025, 0.082, 0.031), Vector4(-0.111, 0.027, 0.079, 0.027),
+		Vector4(-0.137, 0.025, 0.070, 0.022), Vector4(-0.148, 0.023, 0.001, 0.001)
+	]), Vector3.ZERO, palm_material, hand)
+	palm.name = "AnatomicalPalm"
+	# Thenar pad and a slimmer hypothenar edge make the thumbs genuinely opposed
+	# and distinguish left from right, even when both gloves are at rest.
+	_hand_ellipsoid(hand, Vector3(-side * 0.056, 0.006, -0.044), Vector3(0.036, 0.028, 0.055), palm_material, "ThumbPad")
+	_hand_ellipsoid(hand, Vector3(side * 0.057, 0.016, -0.072), Vector3(0.025, 0.024, 0.055), palm_material, "PalmEdge")
+	var cuff: MeshInstance3D = _mesh_node(_hand_loft([
+		Vector4(0.060, 0.012, 0.059, 0.038), Vector4(0.056, 0.012, 0.066, 0.043),
+		Vector4(0.048, 0.012, 0.066, 0.043), Vector4(0.042, 0.012, 0.061, 0.038),
+		Vector4(0.018, 0.014, 0.059, 0.034), Vector4(0.010, 0.015, 0.061, 0.034)
+	]), Vector3.ZERO, _player_glove_material("cuff"), hand)
+	cuff.name = "RolledGloveCuff"
+	var roots: Array = []
+	var fingers: Array = []
+	var proportions: Array = [Vector3(0.043, 0.029, 0.021), Vector3(0.048, 0.032, 0.023), Vector3(0.045, 0.030, 0.021), Vector3(0.034, 0.023, 0.018)]
+	var starts: Array = [Vector3(-0.055, 0.027, -0.126), Vector3(-0.018, 0.030, -0.140), Vector3(0.019, 0.028, -0.137), Vector3(0.054, 0.023, -0.119)]
+	for digit in range(4):
+		var root_joint: Node3D = Node3D.new()
+		root_joint.name = ["Index", "Middle", "Ring", "Little"][digit]
+		root_joint.position = Vector3(starts[digit].x * side, starts[digit].y, starts[digit].z)
+		root_joint.rotation.y = side * [-0.055, -0.015, 0.025, 0.10][digit]
+		hand.add_child(root_joint)
+		roots.append(root_joint)
+		var joints: Array = [root_joint]
+		var parent_joint: Node3D = root_joint
+		var radius: float = 0.0176 if digit < 3 else 0.0148
+		for phalanx in range(3):
+			var length: float = proportions[digit][phalanx]
+			var bone_radius: float = radius * [1.0, 0.87, 0.75][phalanx]
+			var segment: MeshInstance3D = _mesh_node(_finger_segment_mesh(length, bone_radius), Vector3.ZERO, finger_material, parent_joint)
+			segment.name = "Phalanx%d" % (phalanx + 1)
+			if phalanx < 2:
+				var next: Node3D = Node3D.new()
+				next.name = "PIP" if phalanx == 0 else "DIP"
+				next.position = Vector3(0, 0, -length)
+				parent_joint.add_child(next)
+				joints.append(next)
+				parent_joint = next
+		fingers.append(joints)
+		_hand_ellipsoid(hand, root_joint.position + Vector3(0, 0.008, 0.008), Vector3(radius * 1.02, 0.012, 0.021), palm_material, "Knuckle%d" % digit)
+	_finger_joints.append(roots)
+	_finger_chains.append(fingers)
+	var thumb: Node3D = Node3D.new()
+	thumb.name = "OpposedThumb"
+	thumb.position = Vector3(-side * 0.059, 0.008, -0.036)
+	thumb.rotation = Vector3(-0.12, side * 0.84, -side * 0.16)
+	hand.add_child(thumb)
+	_mesh_node(_finger_segment_mesh(0.047, 0.023), Vector3.ZERO, finger_material, thumb).name = "ThumbProximal"
+	var thumb_tip: Node3D = Node3D.new()
+	thumb_tip.name = "ThumbIP"
+	thumb_tip.position = Vector3(0, 0, -0.047)
+	thumb.add_child(thumb_tip)
+	_mesh_node(_finger_segment_mesh(0.038, 0.0185), Vector3.ZERO, finger_material, thumb_tip).name = "ThumbDistal"
+	_thumb_chains.append([thumb, thumb_tip])
+	hand.set_meta("anatomical_glove", true)
+
+func _hand_ellipsoid(parent: Node3D, at: Vector3, size: Vector3, material: Material, label: String) -> MeshInstance3D:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	sphere.radial_segments = 24
+	sphere.rings = 12
+	var part: MeshInstance3D = _mesh_node(sphere, at, material, parent)
+	part.scale = size
+	part.name = label
+	return part
+
+func _finger_segment_mesh(length: float, radius: float) -> ArrayMesh:
+	return _hand_loft([
+		Vector4(radius * 0.40, 0, 0.001, 0.001), Vector4(radius * 0.16, 0, radius * 0.87, radius * 0.72),
+		Vector4(0, 0, radius, radius * 0.83), Vector4(-length * 0.45, -0.001, radius * 0.96, radius * 0.81),
+		Vector4(-length * 0.90, -0.001, radius * 0.91, radius * 0.77), Vector4(-length, -0.001, radius * 0.89, radius * 0.75),
+		Vector4(-length - radius * 0.30, -0.001, radius * 0.77, radius * 0.65), Vector4(-length - radius * 0.52, -0.001, radius * 0.445, radius * 0.375),
+		Vector4(-length - radius * 0.60, -0.001, 0.001, 0.001)
+	])
+
+func _hand_loft(profile: Array) -> ArrayMesh:
+	var surface: SurfaceTool = SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for ring in range(profile.size() - 1):
+		for segment in range(24):
+			for corner in [Vector2i(0, 0), Vector2i(1, 1), Vector2i(0, 1), Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1)]:
+				var row: int = ring + corner.y
+				var angle: float = float(segment + corner.x) * TAU / 24.0
+				var current: Vector4 = profile[row]
+				var before: Vector4 = profile[maxi(0, row - 1)]
+				var after: Vector4 = profile[mini(profile.size() - 1, row + 1)]
+				var around: Vector3 = Vector3(-sin(angle) * current.z, cos(angle) * current.w, 0)
+				var along: Vector3 = Vector3(cos(angle) * (after.z - before.z), after.y - before.y + sin(angle) * (after.w - before.w), after.x - before.x)
+				surface.set_normal(along.cross(around).normalized())
+				surface.set_uv(Vector2(float(segment + corner.x) / 24.0, float(row) / float(profile.size() - 1)))
+				surface.add_vertex(Vector3(cos(angle) * current.z, current.y + sin(angle) * current.w, current.x))
+	surface.index()
+	return surface.commit()
+
+func _player_glove_material(part: String) -> ShaderMaterial:
+	if _player_glove_materials.has(part): return _player_glove_materials[part]
+	var shader: Shader = Shader.new()
+	shader.code = """shader_type spatial;
+uniform vec4 glove_color : source_color = vec4(0.72, 0.70, 0.64, 1.0);
+uniform int part = 0;
+float hash21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void fragment() {
+ float grain = hash21(floor(UV * vec2(190.0, 145.0))) - 0.5;
+ float back = 1.0 - smoothstep(0.12, 0.23, abs(UV.x - 0.25));
+ float palm = 1.0 - smoothstep(0.12, 0.23, abs(UV.x - 0.75));
+ float crease = 0.0;
+ if (part == 0) {
+   crease += palm * (1.0 - smoothstep(0.006, 0.020, abs(UV.y - (0.45 + 0.07 * sin(UV.x * 9.0)))));
+   crease += palm * (1.0 - smoothstep(0.004, 0.017, abs(UV.y - (0.64 + 0.04 * cos(UV.x * 14.0)))));
+   crease += back * (1.0 - smoothstep(0.006, 0.020, abs(UV.y - 0.80))) * 0.5;
+ } else if (part == 1) {
+   crease += back * (1.0 - smoothstep(0.008, 0.027, abs(UV.y - 0.23)));
+   crease += back * (1.0 - smoothstep(0.006, 0.023, abs(UV.y - 0.30))) * 0.6;
+ } else {
+   crease = (1.0 - smoothstep(0.01, 0.035, abs(UV.y - 0.55))) * 0.5;
+ }
+ ALBEDO = glove_color.rgb * (1.0 + grain * 0.035 - crease * 0.11);
+ ROUGHNESS = 0.72 + grain * 0.06;
+ SPECULAR = 0.32;
+}
+"""
+	var material: ShaderMaterial = ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("part", 0 if part == "palm" else (1 if part == "finger" else 2))
+	_player_glove_materials[part] = material
+	return material
 
 func _make_sleeve_mesh(length: float, forearm: bool) -> ArrayMesh:
 	# A tailored taper and a few soft cloth folds replace the straight red rods.
@@ -1411,8 +1747,11 @@ render_mode blend_mix, depth_prepass_alpha, cull_back;
 uniform float remote_weight = 0.0;
 uniform bool forearm = false;
 void fragment() {
- ALBEDO = vec3(0.42, 0.105, 0.068);
- ROUGHNESS = 0.86;
+ float weave = sin(UV.x * 1131.0) * sin(UV.y * 1382.0);
+ float visible_weave = clamp(1.0 - length(fwidth(UV)) * 210.0, 0.0, 1.0);
+ float seam = 1.0 - smoothstep(0.004, 0.011, abs(UV.x - 0.16));
+ ALBEDO = vec3(0.42, 0.105, 0.068) * (1.0 + weave * visible_weave * 0.045 - seam * 0.12);
+ ROUGHNESS = 0.86 + weave * visible_weave * 0.035;
  float cuff = forearm ? smoothstep(0.62, 0.94, UV.y) : 0.0;
  ALPHA = mix(1.0, cuff, remote_weight);
 }
@@ -1654,7 +1993,7 @@ func _sync_food(previous: Dictionary) -> void:
 		for donut in donuts:
 			_held_scoop_donuts.append(donut)
 			var index: int = _held_scoop_donuts.size() - 1
-			var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), Vector3(-0.10 + float(index % 2) * 0.19, 0.085 + float(index / 2) * 0.10, -0.15 + float(index / 2) * 0.12))
+			var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * FoodGeometry.DONUT_SCALE), Vector3(-0.10 + float(index % 2) * 0.19, 0.085 + float(index / 2) * 0.10, -0.15 + float(index / 2) * 0.12))
 			_move_node(donut, _held_scoop.global_transform * local, 0.22, 0.065, func():
 				if is_instance_valid(donut):
 					donut.reparent(_held_scoop, true)
@@ -1709,7 +2048,7 @@ func _sync_package() -> void:
 		else:
 			donut = _plain_donut(500 + index, Vector3.ZERO)
 		_prep_donuts.append(donut)
-		var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.60), _package_donut_position(index, kind))
+		var local: Transform3D = Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * FoodGeometry.DONUT_SCALE), _package_donut_position(index, kind))
 		var package: Node3D = _prep
 		if transferred:
 			_move_node(donut, package.global_transform * local, 0.26 + float(index % 3) * 0.025, 0.025, func():
@@ -1809,93 +2148,442 @@ func _depart_customer(person: Node3D) -> void:
 		if _served_person == person: _served_person = null
 		person.queue_free())
 
+const CUSTOMER_GEOMETRY_VERSION: int = 1
+var _customer_mesh_cache: Dictionary = {}
+var _customer_cache_initialized: bool = false
+var _customer_bake_mode: bool = false
+
+func _customer_initialize_geometry() -> void:
+	if _customer_cache_initialized: return
+	_customer_cache_initialized=true
+	if _customer_bake_mode: return
+	var path: String = "res://assets/models/fairgoer_geometry.res"
+	if ResourceLoader.exists(path):
+		var library: Resource = load(path)
+		if int(library.format_version)==CUSTOMER_GEOMETRY_VERSION:
+			_customer_mesh_cache=library.meshes.duplicate()
+
+func _customer_store_mesh(key: String,mesh: Mesh) -> Mesh:
+	mesh.set_meta("customer_geometry_key",key)
+	_customer_mesh_cache[key]=mesh
+	return mesh
+
 func _make_customer(id: int) -> Node3D:
+	_customer_initialize_geometry()
+	# A small cast of original sculpted fairgoers. The anatomical surface is one
+	# continuous mesh: cheeks, socket recesses, chin, nose and jaw are not balls.
 	var person: Node3D = Node3D.new()
+	person.name = "Fairgoer_%d" % id
 	add_child(person)
-	var skin: String = ["skin_light", "skin_warm", "skin_dark"][posmod(id, 3)]
-	var shirt: String = ["shirt_mint", "shirt_gold", "shirt_blue", "red"][posmod(id, 4)]
-	_cylinder(Vector3(0, 2.13, 0), 0.34, 0.88, shirt, person, 0.27)
-	var head: MeshInstance3D = _sphere(Vector3(0, 2.82, 0), 0.255, skin, person)
-	head.scale = Vector3(1.0, 1.12, 0.94)
-	_cylinder(Vector3(0, 2.50, 0), 0.10, 0.22, skin, person)
-	# Layered lapels, shoulder volume and tiny seams make distinct clothes, rather
-	# than a single unbroken cone. Hands are linked at elbow/shoulder pivots.
-	for side in [-1.0, 1.0]:
-		var collar: MeshInstance3D = _box(Vector3(side * 0.10, 2.50, 0.18), Vector3(0.17, 0.11, 0.05), "cream", person)
-		collar.rotation_degrees.z = side * 24
-	_box(Vector3(0, 2.27, 0.291), Vector3(0.018, 0.40, 0.018), "cream", person)
-	for y in [2.37, 2.23, 2.10]:
-		_sphere(Vector3(0.035, y, 0.305), 0.015, "brass", person)
-	_box(Vector3(-0.19, 2.30, 0.27), Vector3(0.16, 0.11, 0.025), shirt, person)
-	_tube(Vector3(-0.27, 2.34, 0.29), Vector3(-0.11, 2.34, 0.29), 0.005, "cream", person)
+	var variant: int = posmod(id, 6)
+	var skin: Material = _customer_material("skin", variant)
+	var cloth: Material = _customer_material("cloth", variant)
+	var hair: Material = _customer_material("hair", variant)
+	var seam: Material = _customer_material("seam", variant)
+	var lips: Material = _customer_material("lips", variant)
+	var head: Node3D = Node3D.new()
+	head.name = "Portrait"
+	person.add_child(head)
+	_customer_mesh("SculptedFace", _customer_head_mesh(variant), Vector3.ZERO, skin, head)
+	_customer_loft("Neck", [Vector4(2.40,0.10,0.085,-0.015),Vector4(2.49,0.102,0.085,-0.012),Vector4(2.58,0.082,0.075,0),Vector4(2.69,0.09,0.075,0)], skin, person)
+	_customer_loft("TailoredShirt", [Vector4(1.66,0.29,0.17,0),Vector4(1.70,0.30,0.174,0),Vector4(1.76,0.291,0.168,0),Vector4(1.89,0.286,0.16,0),Vector4(2.04,0.306,0.185,0),Vector4(2.23,0.33,0.192,0),Vector4(2.38,0.36,0.16,-0.01),Vector4(2.44,0.337,0.14,-0.016),Vector4(2.50,0.19,0.095,-0.025),Vector4(2.525,0.112,0.085,-0.014)], cloth, person, true)
+	var trousers: Material = _customer_material("trousers",variant)
+	_customer_loft("TrousersWaist",[Vector4(1.30,0.245,0.15,0),Vector4(1.43,0.29,0.17,0),Vector4(1.67,0.285,0.165,0)],trousers,person,true,16,24)
+	for side in [-1.0,1.0]:
+		_customer_limb("TrouserLeg",Vector3(side*0.145,1.46,0),Vector3(side*0.16,0.07,0.02),[0.137,0.141,0.127,0.105,0.10,0.105],trousers,person,true)
+		_customer_ellipsoid("Shoe",Vector3(side*0.16,-0.05,0.07),Vector3(0.117,0.10,0.23),_mat["black"],person)
+	_customer_loft("CollarBand",[Vector4(2.485,0.117,0.095,-0.014),Vector4(2.515,0.118,0.096,-0.014),Vector4(2.545,0.104,0.086,-0.012)],seam,person,false,8,32)
+	# Real placket, folded collar leaves, pocket edge, buttons and hem stitching.
+	_customer_curve("ShirtPlacket", [Vector3(0,1.74,0.176),Vector3(0,1.94,0.18),Vector3(0,2.20,0.199),Vector3(0,2.41,0.153)], 0.007, seam, person)
+	for side in [-1.0,1.0]:
+		_customer_patch("FoldedCollar", [Vector3(side*0.020,2.46,0.138),Vector3(side*0.108,2.505,0.087),Vector3(side*0.157,2.455,0.119),Vector3(side*0.09,2.395,0.172)], seam, person)
+		_customer_curve("ShoulderSeam", [Vector3(side*0.13,2.48,0.07),Vector3(side*0.26,2.45,0.105),Vector3(side*0.345,2.39,0.073)], 0.0025, seam, person)
+	for y in [2.30,2.15,2.0,1.84]:
+		_customer_ellipsoid("ShirtButton",Vector3(0.0,y,0.20 if y>2.05 else 0.183),Vector3(0.008,0.008,0.004),_mat["cream"],person)
+	_customer_patch("ChestPocket",[Vector3(-0.12,2.28,0.191),Vector3(-0.26,2.26,0.153),Vector3(-0.25,2.13,0.169),Vector3(-0.13,2.13,0.197)],cloth,person)
+	_customer_curve("PocketStitch",[Vector3(-0.12,2.28,0.194),Vector3(-0.20,2.27,0.178),Vector3(-0.26,2.26,0.158)],0.0025,seam,person)
 	var arms: Array[Node3D] = []
-	for side in [-1.0, 1.0]:
+	for side in [-1.0,1.0]:
 		var arm: Node3D = Node3D.new()
-		arm.position = Vector3(side * 0.27, 2.43, 0)
+		arm.name = "CustomerArmLeft" if side < 0 else "CustomerArmRight"
+		arm.position = Vector3(side*0.31,2.405,0)
 		person.add_child(arm)
 		arms.append(arm)
-		_sphere(Vector3.ZERO, 0.13, shirt, arm)
-		_tube(Vector3.ZERO, Vector3(side * 0.20, -0.43, 0.08), 0.11, shirt, arm)
-		_tube(Vector3(side * 0.20, -0.43, 0.08), Vector3(side * 0.02, -0.60, 0.49), 0.075, skin, arm)
-		_tube(Vector3(side * 0.20, -0.41, 0.07), Vector3(side * 0.18, -0.46, 0.13), 0.09, "cream", arm)
-		var palm: MeshInstance3D = _sphere(Vector3(side * 0.02, -0.60, 0.49), 0.09, skin, arm)
-		palm.scale = Vector3(0.8, 0.45, 1.2)
-		for finger in range(3):
-			_tube(Vector3(side * 0.02 - 0.045 + float(finger) * 0.035, -0.59, 0.51), Vector3(side * 0.02 - 0.045 + float(finger) * 0.035, -0.59, 0.61), 0.018, skin, arm)
-		_sphere(Vector3(side * 0.092, 2.85, 0.227), 0.032, "white", person)
-		_sphere(Vector3(side * 0.09, 2.85, 0.251), 0.019, "eye", person)
-		_sphere(Vector3(side * 0.085, 2.858, 0.268), 0.006, "white", person)
-		_tube(Vector3(side * 0.06, 2.93, 0.23), Vector3(side * 0.13, 2.93, 0.22), 0.014, "hair", person)
-		var ear: MeshInstance3D = _sphere(Vector3(side * 0.245, 2.82, 0.0), 0.064, skin, person)
-		ear.scale = Vector3(0.55, 1.0, 0.70)
-		if id % 4 == 0:
-			var glass: TorusMesh = TorusMesh.new()
-			glass.inner_radius = 0.047
-			glass.outer_radius = 0.055
-			glass.rings = 24
-			glass.ring_segments = 6
-			var rim: MeshInstance3D = _mesh_node(glass, Vector3(side * 0.095, 2.85, 0.263), _mat["brass"], person)
-			rim.rotation_degrees.x = 90
-			_tube(Vector3(side * 0.14, 2.86, 0.26), Vector3(side * 0.24, 2.87, 0.02), 0.009, "brass", person)
-	person.set_meta("arms", arms)
-	if id % 4 == 0:
-		_tube(Vector3(-0.04, 2.86, 0.263), Vector3(0.04, 2.86, 0.263), 0.008, "brass", person)
-	_sphere(Vector3(0, 2.78, 0.26), 0.045, skin, person)
-	_tube(Vector3(-0.065, 2.70, 0.226), Vector3(0, 2.68, 0.244), 0.012, "hair", person)
-	_tube(Vector3(0, 2.68, 0.244), Vector3(0.065, 2.70, 0.226), 0.012, "hair", person)
-	if id % 3 == 0:
-		_cylinder(Vector3(0, 3.05, 0), 0.29, 0.14, shirt, person, 0.22)
-		_box(Vector3(0, 3.015, 0.22), Vector3(0.39, 0.045, 0.25), shirt, person)
-	elif id % 3 == 1:
-		_cylinder(Vector3(0, 3.05, 0), 0.25, 0.20, "cream", person, 0.20)
-		_cylinder(Vector3(0, 2.975, 0), 0.34, 0.04, "cream", person)
-		_cylinder(Vector3(0, 3.0, 0), 0.255, 0.06, "red", person)
-	else:
-		var hair: MeshInstance3D = _sphere(Vector3(0, 2.99, -0.025), 0.245, "hair", person)
-		hair.scale.y = 0.5
-		for i in range(6):
-			var curl: MeshInstance3D = _sphere(Vector3(-0.20 + float(i) * 0.08, 3.04 + sin(float(i) * 1.8) * 0.035, 0.07), 0.085, "hair", person)
-			curl.scale = Vector3(0.85, 1.1, 1.0)
-	# The customer's physical order card and a small readable patience strip.
-	_box(Vector3(0, 2.16, 0.34), Vector3(0.78, 0.49, 0.045), "cream", person)
-	var order_label: Label3D = _label("", Vector3(0, 2.16, 0.371), 23, Color("6a402d"), person)
-	person.set_meta("order_label", order_label)
-	_box(Vector3(0, 3.37, 0), Vector3(0.79, 0.065, 0.03), "black", person)
-	var patience: MeshInstance3D = _box(Vector3(0, 3.37, 0.022), Vector3(0.76, 0.045, 0.02), "gauge_green", person)
-	person.set_meta("patience", patience)
+		_customer_ellipsoid("Shoulder",Vector3(0,-0.04,0),Vector3(0.115,0.13,0.106),cloth,arm)
+		_customer_limb("Sleeve",Vector3(0,-0.005,0),Vector3(side*0.13,-0.33,0.055),[0.115,0.123,0.115,0.103,0.091,0.095],cloth,arm,true)
+		_customer_limb("RolledCuff",Vector3(side*0.115,-0.29,0.05),Vector3(side*0.14,-0.35,0.062),[0.098,0.102,0.101,0.094],seam,arm)
+		var elbow: Vector3 = Vector3(side*0.15,-0.385,0.08)
+		var wrist: Vector3 = Vector3(side*0.035,-0.56,0.405)
+		_customer_limb("UpperForearm",Vector3(side*0.13,-0.32,0.055),elbow,[0.087,0.079,0.071,0.064],skin,arm)
+		_customer_limb("Forearm",elbow,wrist,[0.067,0.077,0.075,0.062,0.052,0.046],skin,arm)
+		_customer_ellipsoid("Elbow",elbow,Vector3(0.067,0.064,0.075),skin,arm)
+		_customer_ellipsoid("Palm",wrist+Vector3(0,-0.005,0.071),Vector3(0.064,0.033,0.095),skin,arm)
+		for finger in range(4):
+			var x: float = side*0.035-0.047+float(finger)*0.030
+			var reach: float = [0.10,0.125,0.118,0.09][finger]
+			var a: Vector3 = Vector3(x,-0.566,0.46)
+			var b: Vector3 = a+Vector3(0,-0.006,reach*0.60)
+			var c: Vector3 = a+Vector3(0,-0.032,reach)
+			_customer_limb("Finger",a,b,[0.018,0.019,0.017],skin,arm)
+			_customer_limb("Fingertip",b,c,[0.017,0.016,0.012,0.001],skin,arm)
+			_customer_ellipsoid("Fingernail",c+Vector3(0,0.011,-0.015),Vector3(0.010,0.003,0.014),_customer_material("nails",variant),arm)
+		_customer_limb("Thumb",wrist+Vector3(-side*0.045,-0.005,0.03),wrist+Vector3(-side*0.091,-0.02,0.10),[0.024,0.025,0.022,0.019,0.001],skin,arm)
+		_customer_batch(arm)
+	person.set_meta("arms",arms)
+	# Shallow almond eyes sit in recessed sockets, with actual lid margins.
+	var eyes: Array[Node3D] = []
+	for side in [-1.0,1.0]:
+		var eye: Node3D = Node3D.new()
+		eye.position = Vector3(side*0.076,2.873,0.151)
+		eye.name = "EyeLeft" if side<0 else "EyeRight"
+		eye.rotation.y=side*0.28
+		head.add_child(eye)
+		eyes.append(eye)
+		_customer_ellipsoid("Sclera",Vector3.ZERO,Vector3(0.038,0.012,0.010),_customer_material("sclera",0),eye)
+		_customer_ellipsoid("Iris",Vector3(-side*0.001,0,0.009),Vector3(0.0105,0.0115,0.003),_customer_material("iris",variant),eye)
+		_customer_ellipsoid("Pupil",Vector3(-side*0.001,0,0.0113),Vector3(0.0044,0.006,0.0015),_mat["eye"],eye)
+		_customer_ellipsoid("Catchlight",Vector3(-0.0035,0.004,0.0125),Vector3(0.0018,0.0018,0.001),_mat["white"],eye)
+		_customer_curve("UpperEyelid",[Vector3(-0.038,-0.001,0),Vector3(-0.020,0.011,0.008),Vector3(0,0.012,0.009),Vector3(0.021,0.008,0.007),Vector3(0.038,-0.002,0)],0.0025,skin,eye)
+		_customer_curve("LowerEyelid",[Vector3(-0.038,-0.001,0),Vector3(-0.017,-0.009,0.008),Vector3(0.01,-0.011,0.008),Vector3(0.038,-0.002,0)],0.0020,skin,eye)
+		_customer_curve("LidCrease",[Vector3(-0.031,0.019,-0.001),Vector3(0,0.022,0.002),Vector3(0.028,0.015,-0.001)],0.00065,lips,eye)
+		_customer_curve("Brow",[Vector3(side*0.038,2.922,0.174),Vector3(side*0.073,2.931,0.180),Vector3(side*0.109,2.925,0.166),Vector3(side*0.132,2.914,0.145)],0.0038,hair,head)
+		_customer_ellipsoid("Ear",Vector3(side*0.193,2.82,-0.008),Vector3(0.028,0.057,0.033),skin,head)
+		_customer_ellipsoid("EarConcha",Vector3(side*0.207,2.82,0.017),Vector3(0.013,0.033,0.008),lips,head)
+		_customer_curve("EarHelix",[Vector3(side*0.202,2.77,0.019),Vector3(side*0.218,2.80,0.022),Vector3(side*0.217,2.854,0.017),Vector3(side*0.198,2.869,0.006)],0.005,skin,head)
+		_customer_ellipsoid("Nostril",Vector3(side*0.019,2.800,_customer_face_depth(side*0.019,2.800,variant)-0.001),Vector3(0.006,0.0025,0.002),_customer_material("shadow",variant),head)
+	# A softly modeled cupid's bow and lower lip replace the old painted smile.
+	_customer_curve("UpperLip",_customer_surface_points([Vector3(-0.049,2.744,0.174),Vector3(-0.024,2.748,0.188),Vector3(-0.009,2.752,0.194),Vector3(0,2.748,0.195),Vector3(0.009,2.752,0.194),Vector3(0.024,2.748,0.188),Vector3(0.049,2.744,0.174)],variant,0.0025),0.003,lips,head)
+	_customer_curve("LowerLip",_customer_surface_points([Vector3(-0.046,2.741,0.176),Vector3(-0.022,2.736,0.190),Vector3(0,2.735,0.195),Vector3(0.022,2.736,0.190),Vector3(0.046,2.741,0.176)],variant,0.0025),0.004,lips,head)
+	_customer_curve("MouthLine",_customer_surface_points([Vector3(-0.046,2.744,0.180),Vector3(-0.021,2.742,0.195),Vector3(0,2.742,0.198),Vector3(0.021,2.742,0.195),Vector3(0.046,2.744,0.180)],variant,0.0025),0.0011,_customer_material("shadow",variant),head)
+	_customer_mesh("SculptedHair",_customer_hair_mesh(variant),Vector3.ZERO,hair,head)
+	for strand in range(22):
+		var u: float = lerpf(-0.23,0.23,float(strand)/21.0)
+		var points: Array[Vector3] = []
+		for step in range(7):
+			var v: float = float(step)/7.0
+			points.append(_customer_hair_point(u+v*0.04,v,variant)+Vector3(0,0.001,0.001))
+		_customer_curve("HairLock",points,0.0016,_customer_material("hair_highlight",variant),head)
+	if variant in [1,4]:
+		_customer_ellipsoid("HairKnot",Vector3(0,2.99,-0.19),Vector3(0.11,0.10,0.11),hair,head)
+	if variant in [0,3]:
+		for side in [-1.0,1.0]:
+			var rim: Array[Vector3] = []
+			for n in range(25):
+				var angle: float = float(n)*TAU/24.0
+				rim.append(Vector3(side*0.076+cos(angle)*0.056,2.873+sin(angle)*0.034,0.190))
+			_customer_curve("SpectacleRim",rim,0.0038,_mat["steel_dark"],head)
+			_customer_curve("SpectacleTemple",[Vector3(side*0.13,2.884,0.19),Vector3(side*0.19,2.889,0.08),Vector3(side*0.198,2.865,0.0)],0.0038,_mat["steel_dark"],head)
+		_customer_curve("SpectacleBridge",[Vector3(-0.019,2.878,0.19),Vector3(0,2.888,0.205),Vector3(0.019,2.878,0.19)],0.0038,_mat["steel_dark"],head)
+	for eye in eyes: _customer_batch(eye)
+	_customer_batch(head)
+	_customer_batch(person)
+	person.set_meta("portrait",head)
+	person.set_meta("eyes",eyes)
+	person.set_meta("detail_version",2)
+	# Preserve the existing order card, patience indicator and service interaction.
+	_box(Vector3(0,2.16,0.34),Vector3(0.78,0.49,0.045),"cream",person)
+	var order_label: Label3D = _label("",Vector3(0,2.16,0.371),23,Color("6a402d"),person)
+	person.set_meta("order_label",order_label)
+	_box(Vector3(0,3.37,0),Vector3(0.79,0.065,0.03),"black",person)
+	var patience: MeshInstance3D = _box(Vector3(0,3.37,0.022),Vector3(0.76,0.045,0.02),"gauge_green",person)
+	person.set_meta("patience",patience)
 	var serve_hit: Area3D = Area3D.new()
-	serve_hit.position = Vector3(0, 2.50, 0.15)
+	serve_hit.position = Vector3(0,2.50,0.15)
 	serve_hit.collision_layer = 1
 	serve_hit.collision_mask = 0
-	serve_hit.set_meta("station_id", "serve")
+	serve_hit.set_meta("station_id","serve")
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var box: BoxShape3D = BoxShape3D.new()
-	box.size = Vector3(0.95, 1.6, 0.75)
+	box.size = Vector3(0.95,1.6,0.75)
 	shape.shape = box
 	serve_hit.add_child(shape)
 	person.add_child(serve_hit)
-	person.set_meta("serve_hit", serve_hit)
+	person.set_meta("serve_hit",serve_hit)
 	return person
+
+func _customer_material(kind: String, variant: int) -> Material:
+	var key: String = "customer_%s_%d" % [kind,variant]
+	if _mat.has(key): return _mat[key]
+	var colors: Array = [Color("d3a389"),Color("af7859"),Color("78513d"),Color("c39077"),Color("ab8066"),Color("674632")]
+	var base: Color = colors[variant]
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.roughness = 0.66
+	if kind == "cloth" or kind == "seam":
+		base = [Color("547b6c"),Color("b78950"),Color("566e8e"),Color("9d5549"),Color("687a7e"),Color("6c7161")][variant]
+		if kind == "seam": base = base.lightened(0.13)
+		material.roughness = 0.94
+	elif kind == "trousers":
+		base = [Color("263b43"),Color("3d3940"),Color("343d44"),Color("4a4138"),Color("3f4243"),Color("2b3740")][variant]
+		material.roughness = 0.94
+	elif kind in ["hair","hair_highlight"]:
+		base = [Color("29231f"),Color("40291f"),Color("201b19"),Color("6d5841"),Color("49342a"),Color("252220")][variant]
+		if kind == "hair_highlight": base = base.lightened(0.075)
+		material.roughness = 0.82
+	elif kind == "lips": base = base.lerp(Color("8a4841"),0.25)
+	elif kind == "nails": base = base.lightened(0.12)
+	elif kind == "shadow": base = base.darkened(0.43)
+	elif kind == "sclera": base = Color("d3c5ad")
+	elif kind == "iris": base = [Color("5b4b31"),Color("624127"),Color("3e3527"),Color("4e665c"),Color("48412b"),Color("33271e")][variant]
+	material.resource_name = key
+	material.albedo_color = base
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if kind in ["skin","cloth"]:
+		var noise: FastNoiseLite = FastNoiseLite.new()
+		noise.seed = 426+variant
+		noise.frequency = 0.12 if kind == "skin" else 0.26
+		var texture: NoiseTexture2D = NoiseTexture2D.new()
+		texture.width = 128
+		texture.height = 128
+		texture.noise = noise
+		texture.as_normal_map = true
+		texture.bump_strength = 0.08 if kind == "skin" else 0.17
+		material.normal_enabled = true
+		material.normal_texture = texture
+		material.normal_scale = 0.18 if kind == "skin" else 0.35
+		material.uv1_scale = Vector3(5,5,1)
+	_mat[key] = material
+	return material
+
+func _customer_mesh(label: String, mesh: Mesh, at: Vector3, material: Material, parent: Node3D) -> MeshInstance3D:
+	var node: MeshInstance3D = _mesh_node(mesh,at,material,parent)
+	node.name = label
+	if (parent.name == "Portrait" or str(parent.name).begins_with("Eye")) and label not in ["SculptedFace","SculptedHair"]:
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return node
+
+func _customer_ellipsoid(label: String, at: Vector3, size: Vector3, material: Material, parent: Node3D) -> MeshInstance3D:
+	if not _customer_mesh_cache.has("unit_sphere"):
+		var sphere: SphereMesh = SphereMesh.new()
+		sphere.radius = 1.0
+		sphere.height = 2.0
+		sphere.radial_segments = 24
+		sphere.rings = 12
+		_customer_store_mesh("unit_sphere",sphere)
+	var node: MeshInstance3D = _customer_mesh(label,_customer_mesh_cache.unit_sphere,at,material,parent)
+	node.scale = size
+	return node
+
+func _customer_profile(rows: Array, y: float) -> Vector4:
+	for i in range(rows.size()-1):
+		if y <= rows[i+1].x:
+			var u: float = clampf((y-rows[i].x)/(rows[i+1].x-rows[i].x),0,1)
+			var p0: Vector4 = rows[maxi(0,i-1)]
+			var p1: Vector4 = rows[i]
+			var p2: Vector4 = rows[i+1]
+			var p3: Vector4 = rows[mini(rows.size()-1,i+2)]
+			var value: Vector4 = 0.5*((2.0*p1)+(-p0+p2)*u+(2.0*p0-5.0*p1+4.0*p2-p3)*u*u+(-p0+3.0*p1-3.0*p2+p3)*u*u*u)
+			value.x=y
+			value.y=maxf(0.001,value.y)
+			value.z=maxf(0.001,value.z)
+			return value
+	return rows.back()
+
+func _customer_loft(label: String, rows: Array, material: Material, parent: Node3D, folds: bool = false, rows_count: int = 40, columns_count: int = 40) -> MeshInstance3D:
+	var key: String = "loft:"+str(hash([rows,folds,rows_count,columns_count]))
+	if _customer_mesh_cache.has(key): return _customer_mesh(label,_customer_mesh_cache[key],Vector3.ZERO,material,parent)
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(rows_count):
+		for col in range(columns_count):
+			for corner in [Vector2i(0,0),Vector2i(0,1),Vector2i(1,1),Vector2i(0,0),Vector2i(1,1),Vector2i(1,0)]:
+				var v: float = float(row+corner.y)/float(rows_count)
+				var u: float = float(col+corner.x)/float(columns_count)
+				var angle: float = u*TAU
+				var shape: Vector4 = _customer_profile(rows,lerpf(rows[0].x,rows.back().x,v))
+				var fold: float = sin(v*36.0+sin(angle*3.0)*1.4)*0.004*(pow(1.0-v,3.0)+0.15) if folds else 0.0
+				st.set_uv(Vector2(u,v))
+				st.add_vertex(Vector3(sin(angle)*(shape.y+fold),shape.x,cos(angle)*(shape.z+fold)+shape.w))
+	st.generate_normals()
+	st.generate_tangents()
+	return _customer_mesh(label,_customer_store_mesh(key,st.commit()),Vector3.ZERO,material,parent)
+
+func _customer_head_point(u: float,v: float,variant: int) -> Vector3:
+	var rows: Array = [Vector4(2.595,0.025,0.045,0.01),Vector4(2.63,0.074,0.095,0.014),Vector4(2.67,0.111,0.129,0.005),Vector4(2.71,0.135,0.144,0),Vector4(2.76,0.163,0.159,-0.007),Vector4(2.82,0.187,0.171,-0.01),Vector4(2.88,0.191,0.181,-0.012),Vector4(2.95,0.188,0.182,-0.014),Vector4(3.02,0.171,0.171,-0.017),Vector4(3.07,0.129,0.138,-0.018),Vector4(3.102,0.063,0.072,-0.021),Vector4(3.112,0.001,0.001,-0.021)]
+	var y: float = lerpf(2.595,3.112,v)
+	var p: Vector4 = _customer_profile(rows,y)
+	var angle: float = u*TAU
+	var x: float = sin(angle)*p.y
+	var z: float = cos(angle)*p.z+p.w
+	if cos(angle)>0:
+		var frontal: float = pow(cos(angle),3.0)
+		# Smooth surface displacements sculpt the bridge/tip/nostril wings, brow,
+		# cheekbone and chin while keeping sockets tucked under the eyelids.
+		z += frontal*(0.032*exp(-pow(x/0.024,2)-pow((y-2.855)/0.071,2)) + 0.045*exp(-pow(x/0.031,2)-pow((y-2.815)/0.024,2)))
+		z += frontal*0.018*exp(-pow((absf(x)-0.028)/0.014,2)-pow((y-2.807)/0.016,2))
+		z -= frontal*0.012*exp(-pow((absf(x)-0.078)/0.048,2)-pow((y-2.875)/0.024,2))
+		z += frontal*0.010*exp(-pow((absf(x)-0.087)/0.057,2)-pow((y-2.922)/0.020,2))
+		z += frontal*0.008*exp(-pow((absf(x)-0.110)/0.050,2)-pow((y-2.817)/0.038,2))
+		z += frontal*0.037*exp(-pow(x/0.073,2)-pow((y-2.741)/0.034,2))
+		z += frontal*0.024*exp(-pow(x/0.066,2)-pow((y-2.677)/0.031,2))
+	# Gentle cast variation preserves eye and mouth attachments.
+	x *= 1.0+sin(v*PI)*float(variant%3-1)*0.018
+	return Vector3(x,y,z)
+
+func _customer_face_depth(x: float,y: float,variant: int) -> float:
+	var low: float = -0.24
+	var high: float = 0.24
+	var v: float = (y-2.595)/0.517
+	for step in range(20):
+		var u: float = (low+high)*0.5
+		if _customer_head_point(u,v,variant).x<x: low=u
+		else: high=u
+	return _customer_head_point((low+high)*0.5,v,variant).z
+
+func _customer_surface_points(points: Array,variant: int,offset: float) -> Array:
+	var result: Array = []
+	for point in points:
+		result.append(Vector3(point.x,point.y,_customer_face_depth(point.x,point.y,variant)+offset))
+	return result
+
+func _customer_head_mesh(variant: int) -> ArrayMesh:
+	var key: String = "head:"+str(variant%3)
+	if _customer_mesh_cache.has(key): return _customer_mesh_cache[key]
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(64):
+		for col in range(64):
+			for corner in [Vector2i(0,0),Vector2i(0,1),Vector2i(1,1),Vector2i(0,0),Vector2i(1,1),Vector2i(1,0)]:
+				var uv: Vector2 = Vector2(float(col+corner.x)/64.0,float(row+corner.y)/64.0)
+				var du: Vector3 = _customer_head_point(uv.x+0.0001,uv.y,variant)-_customer_head_point(uv.x-0.0001,uv.y,variant)
+				var dv: Vector3 = _customer_head_point(uv.x,minf(1.0,uv.y+0.0001),variant)-_customer_head_point(uv.x,maxf(0.0,uv.y-0.0001),variant)
+				st.set_normal(du.cross(dv).normalized())
+				st.set_uv(uv)
+				st.add_vertex(_customer_head_point(uv.x,uv.y,variant))
+	st.generate_tangents()
+	return _customer_store_mesh(key,st.commit())
+
+func _customer_hair_point(u: float,v: float,variant: int) -> Vector3:
+	var angle: float = u*TAU
+	var hairline: float = 2.89+maxf(0,cos(angle))*0.132+0.010*sin(angle*5.0)
+	if variant in [1,4]: hairline -= maxf(0,-cos(angle))*0.12
+	var y: float = lerpf(hairline,3.112,v)
+	var point: Vector3 = _customer_head_point(u,(y-2.595)/0.517,variant)
+	var ripple: float = sin(angle*35.0+v*9.0)*0.0012
+	point.x *= 1.075
+	point.z = -0.021+(point.z+0.021)*1.075
+	point.y += 0.012+ripple
+	return point
+
+func _customer_hair_mesh(variant: int) -> ArrayMesh:
+	var key: String = "hair:"+str(variant%3)
+	if _customer_mesh_cache.has(key): return _customer_mesh_cache[key]
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(24):
+		for col in range(64):
+			for corner in [Vector2i(0,0),Vector2i(0,1),Vector2i(1,1),Vector2i(0,0),Vector2i(1,1),Vector2i(1,0)]:
+				var u: float = float(col+corner.x)/64.0
+				var v: float = float(row+corner.y)/24.0
+				st.set_uv(Vector2(u,v))
+				st.add_vertex(_customer_hair_point(u,v,variant))
+	st.generate_normals()
+	st.generate_tangents()
+	return _customer_store_mesh(key,st.commit())
+
+func _customer_limb(label: String,a: Vector3,b: Vector3,radii: Array,material: Material,parent: Node3D,folds: bool=false) -> MeshInstance3D:
+	var rows: Array = []
+	var length: float = a.distance_to(b)
+	for i in range(radii.size()): rows.append(Vector4(float(i)/float(radii.size()-1)*length,float(radii[i]),float(radii[i])*0.92,0))
+	var node: MeshInstance3D = _customer_loft(label,rows,material,parent,folds,12,16)
+	node.position = a
+	node.quaternion = Quaternion(Vector3.UP,(b-a).normalized())
+	return node
+
+func _customer_curve(label: String,points: Array,radius: float,material: Material,parent: Node3D) -> void:
+	var key: String = "curve:"+str(hash([points,radius]))
+	if _customer_mesh_cache.has(key):
+		_customer_mesh(label,_customer_mesh_cache[key],Vector3.ZERO,material,parent)
+		return
+	# Catmull-Rom sampling gives curved seams and facial edges, not kinked rods.
+	var sampled: Array[Vector3] = []
+	for i in range(points.size()-1):
+		for step in range(3):
+			var t: float = float(step)/3.0
+			sampled.append(points[i].cubic_interpolate(points[i+1],points[maxi(0,i-1)],points[mini(points.size()-1,i+2)],t))
+	sampled.append(points.back())
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(sampled.size()-1):
+		for col in range(6):
+			for corner in [Vector2i(0,0),Vector2i(0,1),Vector2i(1,1),Vector2i(0,0),Vector2i(1,1),Vector2i(1,0)]:
+				var index: int = row+corner.y
+				var tangent: Vector3 = (sampled[mini(index+1,sampled.size()-1)]-sampled[maxi(0,index-1)]).normalized()
+				var axis: Vector3 = tangent.cross(Vector3.FORWARD).normalized()
+				if axis.length_squared()<0.1: axis=tangent.cross(Vector3.UP).normalized()
+				var other: Vector3 = tangent.cross(axis).normalized()
+				var angle: float = float(col+corner.x)*TAU/6.0
+				st.set_uv(Vector2(float(col+corner.x)/6.0,float(index)/float(sampled.size()-1)))
+				st.add_vertex(sampled[index]+(axis*cos(angle)+other*sin(angle))*radius)
+	st.generate_normals()
+	_customer_mesh(label,_customer_store_mesh(key,st.commit()),Vector3.ZERO,material,parent)
+
+func _customer_patch(label: String,points: Array,material: Material,parent: Node3D) -> void:
+	var key: String = "patch:"+str(hash(points))
+	if _customer_mesh_cache.has(key):
+		_customer_mesh(label,_customer_mesh_cache[key],Vector3.ZERO,material,parent)
+		return
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var indices: Array = [0,1,2,0,2,3] if (points[1]-points[0]).cross(points[2]-points[0]).z < 0 else [0,2,1,0,3,2]
+	for index in indices:
+		st.set_uv(Vector2(float(index%2),float(index/2)))
+		st.add_vertex(points[index])
+	st.generate_normals()
+	_customer_mesh(label,_customer_store_mesh(key,st.commit()),Vector3.ZERO,material,parent)
+
+func _customer_batch(parent: Node3D) -> void:
+	# Mixed indexed/non-indexed sources must be deindexed before concatenation.
+	# Tiny facial trim does not cast the large jagged shadows of a whole head.
+	var groups: Dictionary = {}
+	var source_triangles: int = 0
+	var final_triangles: int = 0
+	for child in parent.get_children():
+		if not child is MeshInstance3D: continue
+		var material: Material = child.material_override
+		var data: Array = child.mesh.surface_get_arrays(0)
+		source_triangles += (data[Mesh.ARRAY_INDEX].size() if data[Mesh.ARRAY_INDEX] != null and data[Mesh.ARRAY_INDEX].size()>0 else data[Mesh.ARRAY_VERTEX].size())/3
+		var key: String = str(material.get_instance_id())+":"+str(child.cast_shadow)
+		if not groups.has(key): groups[key]={"material":material,"shadows":child.cast_shadow,"meshes":[]}
+		groups[key].meshes.append(child)
+	for key in groups:
+		var group: Dictionary = groups[key]
+		var meshes: Array = group.meshes
+		if meshes.size()<2: continue
+		var source_keys: Array = []
+		for node in meshes: source_keys.append([node.mesh.get_meta("customer_geometry_key",""),node.transform])
+		var material_key: String = group.material.resource_name
+		if material_key.is_empty(): material_key=str(group.material.albedo_color)
+		var batch_key: String = "batch:"+str(hash([material_key,group.shadows,source_keys]))
+		if not _customer_mesh_cache.has(batch_key):
+			var st: SurfaceTool = SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for node in meshes:
+				var normalized: SurfaceTool = SurfaceTool.new()
+				normalized.create_from(node.mesh,0)
+				normalized.deindex()
+				st.append_from(normalized.commit(),0,node.transform)
+			st.index()
+			_customer_store_mesh(batch_key,st.commit())
+		for node in meshes:
+			parent.remove_child(node)
+			node.free()
+		var batch: MeshInstance3D = _customer_mesh("PortraitDetails",_customer_mesh_cache[batch_key],Vector3.ZERO,group.material,parent)
+		batch.cast_shadow=group.shadows
+	for child in parent.get_children():
+		if not child is MeshInstance3D: continue
+		var data: Array = child.mesh.surface_get_arrays(0)
+		final_triangles += (data[Mesh.ARRAY_INDEX].size() if data[Mesh.ARRAY_INDEX] != null and data[Mesh.ARRAY_INDEX].size()>0 else data[Mesh.ARRAY_VERTEX].size())/3
+	parent.set_meta("customer_batch_triangles",Vector2i(source_triangles,final_triangles))
+
+func _animate_customer_detail(person: Node3D,id: int,_delta: float) -> void:
+	if not person.has_meta("portrait"): return
+	var portrait: Node3D = person.get_meta("portrait")
+	portrait.rotation.y = sin(_time*0.51+float(id)*1.7)*0.035 if not _reduced_motion else 0.0
+	portrait.position.y = sin(_time*1.65+float(id))*0.003 if not _reduced_motion else 0.0
+	var blink_phase: float = fmod(_time+float(posmod(id,7))*0.71,4.3)
+	var opening: float = 1.0-clampf(1.0-absf(blink_phase-0.12)/0.12,0.0,1.0)*0.90
+	for eye in person.get_meta("eyes"):
+		eye.scale.y = opening if not _reduced_motion else 1.0
 
 func is_action_busy() -> bool:
 	if _action in ["repair", "refill"]: return false
@@ -1957,7 +2645,7 @@ func animate_action(id: String) -> void:
 					var recovered: Array[Node3D] = [donut]
 					_food.return_donuts(recovered))
 			else:
-				_move_node(donut, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.62), get_station_world_position("trash")), 0.3, 0.25, func(): donut.queue_free())
+				_drop_into_discard(donut, false)
 	if id in ["serve", "trash"] and is_instance_valid(_prep):
 		var package: Node3D = _prep
 		_prep = null
@@ -1969,7 +2657,7 @@ func animate_action(id: String) -> void:
 			var orders: Array = _state.get("orders", [])
 			_served_person = _people.get(int(orders[0].get("id", -1))) if not orders.is_empty() else null
 			destination = _served_person.to_global(Vector3(0.12, 1.78, 0.48)) if is_instance_valid(_served_person) else _serve_anchor + Vector3(0, 0.16, -0.62)
-		_handoff = package if id == "serve" else null
+		_handoff = package
 		var recipient: Node3D = _served_person if id == "serve" else null
 		if id == "serve":
 			# Offer at the service ledge, release, then let the customer collect.
@@ -1980,8 +2668,20 @@ func animate_action(id: String) -> void:
 					if is_instance_valid(recipient): package.reparent(recipient, true)
 					else: package.queue_free()))
 		else:
-			_move_node(package, Transform3D(Basis.IDENTITY, destination), 0.58, 0.20, func(): package.queue_free())
+			_drop_into_discard(package, true)
 		for person_id in _people: _people[person_id].set_meta("cheer", 0.95)
+
+func _drop_into_discard(node: Node3D, held_package: bool) -> void:
+	# Carry over the real aperture, release the grip, then accelerate downward.
+	# The object remains full size and disappears only inside the recessed well.
+	var scale_before: Vector3 = node.global_basis.get_scale()
+	var above: Transform3D = Transform3D(Basis.IDENTITY.scaled(scale_before), Vector3(-3.15, 1.96, 2.35))
+	_move_node(node, above, 0.46 if held_package else 0.30, 0.20, func():
+		if held_package: _handoff = null
+		var below: Transform3D = Transform3D(Basis.from_euler(Vector3(0.08, 0, 0.10)).scaled(scale_before), Vector3(-3.15, 0.79, 2.35))
+		_move_node(node, below, 0.49, 0.0, func(): node.queue_free())
+		_motions.back()["falling"] = true)
+	if held_package: _motions.back()["delay"] = GRASP_TIME
 
 func _emit_seasoning(flavor: String) -> void:
 	for i in range(18 if not _reduced_motion else 6):
@@ -2093,7 +2793,7 @@ func _hand_goal(index: int) -> Dictionary:
 			node = _action_prop
 			offset = Vector3(0.27, 0.28, 0.08)
 			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
-		elif is_instance_valid(_handoff) and _action == "serve" and _node_is_moving(_handoff):
+		elif is_instance_valid(_handoff) and _action in ["serve", "trash"] and _node_is_moving(_handoff):
 			node = _handoff
 			offset = Vector3(0.35, 0.28, 0.10)
 			grip_basis = Basis.from_euler(Vector3(0, PI * 0.5, 0))
@@ -2126,10 +2826,22 @@ func _update_hands(delta: float) -> void:
 		track.age = minf(float(track.duration), float(track.age) + delta)
 		var t: float = clampf(float(track.age) / float(track.duration), 0.0, 1.0)
 		hand.global_transform = Transform3D(track.from).interpolate_with(goal.pose, _minimum_jerk(t))
-		var finger_angle: float = -0.62 if is_instance_valid(goal.node) else 0.08
-		for joint in _finger_joints[index]:
-			joint.rotation.x = lerpf(joint.rotation.x, finger_angle, 1.0 - exp(-delta * 18.0))
+		_pose_player_fingers(index, is_instance_valid(goal.node), delta)
 		_solve_arm(index, hand.global_position)
+
+func _pose_player_fingers(index: int, gripping: bool, delta: float) -> void:
+	var ease: float = 1.0 - exp(-delta * 18.0)
+	for digit in range(_finger_chains[index].size()):
+		var chain: Array = _finger_chains[index][digit]
+		var target: Vector3 = Vector3(-0.27, -0.64, -0.38) if gripping else Vector3(0.045, -0.10, -0.07)
+		if digit == 3 and gripping: target *= 1.10
+		for joint in range(3):
+			chain[joint].rotation.x = lerpf(chain[joint].rotation.x, target[joint], ease)
+	var side: float = -1.0 if index == 0 else 1.0
+	var thumb: Node3D = _thumb_chains[index][0]
+	thumb.rotation.x = lerpf(thumb.rotation.x, -0.45 if gripping else -0.12, ease)
+	thumb.rotation.y = lerpf(thumb.rotation.y, side * (-0.24 if gripping else 0.84), ease)
+	_thumb_chains[index][1].rotation.x = lerpf(_thumb_chains[index][1].rotation.x, -0.50 if gripping else -0.10, ease)
 
 func _solve_arm(index: int, wrist: Vector3) -> void:
 	var side: float = -1.0 if index == 0 else 1.0
@@ -2240,6 +2952,7 @@ func _process(delta: float) -> void:
 	for id in _people:
 		var person: Node3D = _people[id]
 		person.rotation.z = 0.0 if _reduced_motion else sin(_time * 1.4 + float(id)) * 0.012
+		_animate_customer_detail(person,int(id),delta)
 		var cheer: float = maxf(0.0, float(person.get_meta("cheer", 0.0)) - delta)
 		person.set_meta("cheer", cheer)
 		if person.has_meta("arms"):

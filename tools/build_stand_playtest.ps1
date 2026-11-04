@@ -99,7 +99,7 @@ function Invoke-NativeLogged {
     $logPath = Get-WorkspacePath "builds/logs/$BuildId/$Step.log"
     [IO.File]::WriteAllText($logPath, $output, [Text.UTF8Encoding]::new($false))
     foreach ($line in ($output -split '\r?\n')) {
-        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|HAND MOTION QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|CHUTE DISTRIBUTION QA:|TITLE MENU QA:|ACTION PACING QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
+        if ($line -match 'STAND MODEL:|STAND CONTROLLER:|STAND PRESENTATION:|STAND AUDIO:|WORLD QA:|HAND MOTION QA:|FOOD PHYSICS QA:|FOOD INTEGRATION QA:|CHUTE DISTRIBUTION QA:|TITLE MENU QA:|ACTION PACING QA:|COUNTER QA:|CUSTOMER ART QA:|STAND ART QA:|PROFILE:|AUDIO_SMOKE|EXPORT_SCOPE_OK|BALANCE:|^(SCRIPT ERROR|ERROR|WARNING):') {
             Write-Host $line
         }
     }
@@ -146,6 +146,7 @@ $requiredSources = @(
     'tools/check_chute_distribution.gd',
     'tools/capture_title_1_0_2.gd',
     'tools/check_action_pacing.gd', 'tests/test_stand_hand_motion.gd',
+    'tests/test_stand_counter.gd', 'tests/test_stand_customers.gd', 'tests/test_stand_art.gd',
     'tests/test_player_profile.gd', 'tests/test_stand_presentation.gd', 'tests/test_stand_audio.gd', 'tests/test_stand_world.gd', 'docs/IDEA2_PLAYTEST.md',
     'docs/ASSET_LICENSES.md', 'docs/ART_PROMPTS.json', 'docs/licenses/Godot-LICENSE.txt',
     'docs/licenses/Godot-COPYRIGHT.txt', 'docs/licenses/SOURCES.json', 'assets/fonts/OFL.txt'
@@ -212,6 +213,17 @@ if ($pacing.Output -notmatch '(?im)ACTION PACING QA:\s+(\d+) checks,\s+0 failure
     throw "Animation pacing suite did not pass. See $($pacing.LogPath)"
 }
 
+foreach ($artGate in @(
+    @{Step='08g-counter-tests'; Script='res://tests/test_stand_counter.gd'; Marker='COUNTER QA'},
+    @{Step='08h-customer-tests'; Script='res://tests/test_stand_customers.gd'; Marker='CUSTOMER ART QA'},
+    @{Step='08i-art-tests'; Script='res://tests/test_stand_art.gd'; Marker='STAND ART QA'}
+)) {
+    $result = Invoke-GodotStep -Step $artGate.Step -Arguments @('--script', $artGate.Script)
+    if ($result.Output -notmatch ('(?im)' + $artGate.Marker + ':\s+(\d+) checks,\s+0 failures') -or [int]$Matches[1] -lt 1) {
+        throw "Art integration gate did not pass: $($artGate.Marker). See $($result.LogPath)"
+    }
+}
+
 Invoke-GodotStep -Step '09-export-windows' -Arguments @('--export-release', 'Windows Desktop', $WindowsExe) | Out-Null
 Invoke-GodotStep -Step '10-export-web' -Arguments @('--export-release', 'Web', $WebIndex) | Out-Null
 
@@ -230,6 +242,10 @@ func _initialize() -> void:
         quit(1)
         return
     var required = ["res://scenes/stand_main.tscn", "res://scripts/stand_main.gd", "res://scripts/stand_model.gd", "res://scripts/stand_content.gd", "res://scripts/stand_world.gd", "res://scripts/stand_food_physics.gd", "res://scripts/stand_hud.gd", "res://scripts/stand_feedback.gd", "res://scripts/player_profile.gd", "res://scripts/stand_audio.gd", "res://scripts/game_audio.gd", "res://assets/fonts/Fredoka-Medium.ttf", "res://assets/art/title_keyart.png", "res://assets/art/brand_seal.png", "res://assets/art/counter_sign.png", "res://assets/shaders/oil.gdshader", "res://assets/shaders/donut_crust.gdshader", "res://assets/shaders/powder_sugar.gdshader", "res://assets/shaders/fairground_sky.gdshader", "res://assets/audio/stand/evening_theme.wav", "res://assets/audio/stand/fryer_loop.wav", "res://assets/audio/sale_jackpot.wav"]
+    required.append_array(["res://assets/art/shaker_cinnamon.svg", "res://assets/art/shaker_powdered.svg", "res://assets/models/fairgoer_geometry.res", "res://scripts/customer_geometry.gd"])
+    for material in ["counter_wood", "kraft_paper"]:
+        for channel in ["color", "normal", "roughness"]:
+            required.append("res://assets/materials/" + material + "_" + channel + ".png")
     var forbidden = ["res://scenes/main.tscn", "res://scripts/main.gd", "res://scripts/run_model.gd", "res://scripts/world.gd", "res://scripts/upgrades.gd", "res://scripts/score_feedback.gd", "res://tests/test_stand_model.gd", "res://tests/test_controller.gd", "res://assets/fonts/Fredoka.ttf"]
     var failures = 0
     for path in required:

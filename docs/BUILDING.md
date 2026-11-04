@@ -37,6 +37,20 @@ export configuration select Idea 2.
 
 ## Asset reproduction and notices
 
+The 1.0.3 authored surface maps are baked with:
+
+```powershell
+godot --headless --path . --script res://tools/bake_material_maps.gd
+python tools/generate_shaker_labels.py
+godot --headless --path . --script res://tools/bake_customer_geometry.gd
+```
+
+The original wood and paper base-color images are retained as generated source
+art; their complete prompts are in `ART_PROMPTS.json`. Regenerate/import the
+normal and roughness maps after changing either base image. Customer mesh
+resources must be rebaked after editing their procedural anatomy helpers.
+Counter, customer and art integration suites are also mandatory build gates.
+
 `python tools/generate_audio.py` recreates the shared reward WAV assets with Python's
 standard library. `python tools/generate_stand_audio.py` recreates the service,
 warning, ambience and 32-bar evening theme assets. `python tools/download_godot_licenses.py` refreshes vendored

@@ -16,8 +16,9 @@ class FoodWorld extends Node3D:
 		var visual: Node3D = Node3D.new()
 		var mesh: MeshInstance3D = MeshInstance3D.new()
 		var torus: TorusMesh = TorusMesh.new()
-		torus.inner_radius = 0.108
-		torus.outer_radius = 0.254
+		torus.inner_radius = 0.013
+		torus.outer_radius = 0.225
+		mesh.scale.y = 0.064 / 0.106
 		mesh.mesh = torus
 		visual.add_child(mesh)
 		add_child(visual)
@@ -59,7 +60,7 @@ func _run() -> void:
 	check(food._entries[0].body.get_child_count() == 9, "Ring collider has eight crust shapes and one visual")
 	check(food._entries[0].body.collision_layer == 4 and food._entries[0].body.collision_mask == 6, "Food collides with food/table but not station rays")
 	check(food.physics_interpolation_mode == Node.PHYSICS_INTERPOLATION_MODE_ON, "Physics food explicitly enables render interpolation")
-	check(food._surfaces.get_child_count() == 6, "Table and catch tray have physical floor and four walls")
+	check(food._surfaces.get_child_count() == 14 and food._tray_surfaces.size() == 5, "Cutout table, recessed well and catch tray have distinct physical surfaces")
 	var previous: Vector3 = food.conveyor_position(0.0)
 	var maximum_step: float = 0.0
 	var crest: float = 0.0

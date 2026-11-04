@@ -50,6 +50,35 @@ func _run() -> void:
 	world.reset_food(12, 30)
 	world.sync_state(state)
 	advance(0.3)
+	for index in range(2):
+		var hand: Node3D = world._hands[index]
+		var palm: MeshInstance3D = hand.get_node("AnatomicalPalm")
+		var cuff: MeshInstance3D = hand.get_node("RolledGloveCuff")
+		check(world._finger_chains[index].size() == 4 and world._thumb_chains[index].size() == 2, "Each glove has four articulated fingers and an opposed two-part thumb")
+		var complete: bool = true
+		for chain in world._finger_chains[index]:
+			complete = complete and chain.size() == 3 and chain[1].get_parent() == chain[0] and chain[2].get_parent() == chain[1]
+		check(complete, "All fingers bend through real proximal, middle and distal joints")
+		var wrist_width: float = 0.0
+		var palm_width: float = 0.0
+		var normals_valid: bool = true
+		var arrays: Array = palm.mesh.surface_get_arrays(0)
+		for vertex in arrays[Mesh.ARRAY_VERTEX]:
+			if vertex.z > 0.0: wrist_width = maxf(wrist_width, absf(vertex.x))
+			if vertex.z < -0.04 and vertex.z > -0.12: palm_width = maxf(palm_width, absf(vertex.x))
+		for normal in arrays[Mesh.ARRAY_NORMAL]:
+			normals_valid = normals_valid and normal.is_finite() and absf(normal.length() - 1.0) < 0.001
+		check(palm_width > wrist_width * 1.25, "Palm geometry broadens naturally from the narrower wrist")
+		check(normals_valid, "Curved glove surfaces have finite smooth lighting normals")
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var face_normal: Vector3 = (vertices[indices[1]] - vertices[indices[0]]).cross(vertices[indices[2]] - vertices[indices[0]])
+		check(face_normal.dot(arrays[Mesh.ARRAY_NORMAL][indices[0]]) < 0.0, "Glove faces use Godot clockwise winding with outward lighting normals")
+		check(cuff.mesh.get_aabb().size.x < palm.mesh.get_aabb().size.x * 0.9, "Rolled cuff fits the wrist instead of forming an oversized cylindrical cap")
+		var middle: Array = world._finger_chains[index][1]
+		var little: Array = world._finger_chains[index][3]
+		check(absf(middle[1].position.z) + absf(middle[2].position.z) > (absf(little[1].position.z) + absf(little[2].position.z)) * 1.3, "Middle and little fingers have distinct anatomical lengths")
+	check(world._thumb_chains[0][0].position.x > 0.0 and world._thumb_chains[1][0].position.x < 0.0, "Left and right thumbs are mirrored toward the inside of their palms")
 	# Merely syncing a temperature or setting never turns both encoders.
 	state.heat_setting = 4
 	world.sync_state(state)
@@ -95,6 +124,8 @@ func _run() -> void:
 	settle()
 	var scoop_id: int = world._held_scoop.get_instance_id()
 	check(world._hands[1].global_position.distance_to(world._held_scoop.to_global(Vector3(0, -0.005, 0.53))) < 0.001, "Holding pose preserves the actual scoop grip")
+	check(world._finger_chains[1][0][1].rotation.x < -0.5 and world._finger_chains[1][0][2].rotation.x < -0.25, "Gripping curls middle and distal joints around the handle")
+	check(world._thumb_chains[1][0].rotation.y < 0.0 and world._thumb_chains[1][1].rotation.x < -0.4, "Thumb opposes the fingers when gripping")
 	act("supply", {"supply":9,"scoop_count":3})
 	advance(0.25)
 	check(world._held_scoop_donuts[0].get_parent() != world._held_scoop, "Food stays at the tray until the scoop arrives")

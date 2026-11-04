@@ -1,6 +1,6 @@
 # Golden Hour
 
-Version 1.0.2 · Windows
+Version 1.0.3 · Windows
 
 Step behind your own mini-donut stand. The fryer fills the tray while you scoop,
 coat and hand over each order. Keep your customers happy, care for the machine,

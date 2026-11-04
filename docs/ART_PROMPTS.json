@@ -16,6 +16,16 @@
       "asset": "assets/art/counter_sign.png",
       "method": "Built-in image generation tool",
       "prompt": "Use case: logo-brand. Asset type: original flat front-facing enamel concession sign texture for Golden Hour game, wide horizontal composition about 3:1. Fill the entire image with a rectangular deep forest teal vintage carnival bakery sign, thin double brass-gold border inset from all edges, gently worn satin enamel texture. Large beautiful warm-cream serif lettering centered reads EXACTLY \"GOLDEN HOUR\". Beneath it, in smaller widely spaced uppercase lettering, \"HOT MINI DONUTS\". On both left and right ends small elegant golden ring donut medallions and simple sunburst line ornaments. Accent tiny burgundy diamonds. Balanced sophisticated fairground typography, perfectly legible, professionally hand-painted sign character, no extra text, no perspective, no 3D mockup, no environment, no glow or cast shadows, no watermark. The design must be readable as an actual sign above a small donut machine in a 3D game."
+    },
+    {
+      "asset": "assets/materials/counter_wood_color.png",
+      "method": "Built-in image generation tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless tileable game material base-color texture, square 1024x1024 or larger. Create a true orthographic top-down scan-like image of ONE continuous medium warm honey-brown hardwood surface for a well-kept fairground donut stand counter. Long natural wood grain flowing vertically, fine pores, subtle unevenness, faint knife scuffs and understated oil-worn patina. NO plank divisions, NO gaps, NO objects, NO lettering, NO logos. Even diffuse neutral illumination with NO directional shadows, NO specular baked highlights, NO perspective or depth of field, NO edge vignette. Uniform tone over whole tile, visually seamless opposite edges. Real tactile wood fibers and restrained color variation suitable for repeating across individual narrow counter boards, clean food-service surface rather than dirty or distressed."
+    },
+    {
+      "asset": "assets/materials/kraft_paper_color.png",
+      "method": "Built-in image generation tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless tileable square game material base-color texture, at least1024x1024. One continuous sheet of unprinted medium-light warm tan kraft paper used for a small bakery takeout bag. True orthographic scan, evenly diffuse neutral lighting, no perspective. Fine recycled plant fibers, subtle mottled paper grain and very restrained hairline compression wrinkles, small-scale tactile pores. Texture fills the entire image, no visible sheet edges, no fold seams, no text, logos, objects, stains or shadows. No bright glare or directional lighting. Opposite edges should tile seamlessly. This will be UV-mapped onto a separately sculpted folded paper bag, so keep the material low-contrast and do not illustrate a bag."
     }
   ]
 }

@@ -5,9 +5,13 @@ signal delivery_settled(id: int, kept: bool)
 signal stock_spilled(id: int)
 
 const DONUT_SCALE: float = 0.62
-const RING_RADIUS: float = 0.181 * DONUT_SCALE
-const CRUST_RADIUS: float = 0.073 * DONUT_SCALE
-const OUTER_RADIUS: float = RING_RADIUS + CRUST_RADIUS
+const MODEL_RING_RADIUS: float = 0.119
+const MODEL_TUBE_RADIUS: float = 0.106
+const MODEL_HALF_HEIGHT: float = 0.064
+const RING_RADIUS: float = MODEL_RING_RADIUS * DONUT_SCALE
+const RADIAL_CRUST_RADIUS: float = MODEL_TUBE_RADIUS * DONUT_SCALE
+const CRUST_RADIUS: float = MODEL_HALF_HEIGHT * DONUT_SCALE
+const OUTER_RADIUS: float = RING_RADIUS + RADIAL_CRUST_RADIUS
 const CONVEYOR_SECONDS: float = 5.2
 const WASTE_SECONDS: float = 11.0
 const MAX_BODIES: int = 100
@@ -31,7 +35,7 @@ var _surfaces: Node3D
 var _path: Curve3D
 var _seed_serial: int = -10000
 var _paused_velocities: Dictionary = {}
-var _sphere: SphereShape3D
+var _crust_shape: CapsuleShape3D
 var _fixed_path_length: float = 0.0
 var _total_path_length: float = 0.0
 var _sweep_phase: float = 0.0
@@ -50,8 +54,9 @@ func configure(world: Node3D) -> void:
 		world.add_child(self)
 	name = "PhysicalDonuts"
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
-	_sphere = SphereShape3D.new()
-	_sphere.radius = CRUST_RADIUS
+	_crust_shape = CapsuleShape3D.new()
+	_crust_shape.radius = CRUST_RADIUS
+	_crust_shape.height = RADIAL_CRUST_RADIUS * 2.0
 	_build_surfaces()
 	_build_path()
 	_update_chute_pose(0.0)
@@ -61,7 +66,16 @@ func _build_surfaces() -> void:
 	_surfaces = Node3D.new()
 	_surfaces.name = "FoodCollisionSurfaces"
 	add_child(_surfaces)
-	_surface("Counter", Vector3(0, 1.64, 0.70), Vector3(10.2, 0.12, 5.1))
+	# This aperture matches the boards, substrate and stainless scrap well.
+	# Separate static panels let fallen food genuinely pass below the worktop.
+	_surface("CounterLeft", Vector3(-4.40, 1.64, 0.70), Vector3(1.40, 0.12, 5.10))
+	_surface("CounterRight", Vector3(1.25, 1.64, 0.70), Vector3(7.70, 0.12, 5.10))
+	_surface("CounterBack", Vector3(-3.15, 1.64, -0.005), Vector3(1.10, 0.12, 3.69))
+	_surface("CounterFront", Vector3(-3.15, 1.64, 3.055), Vector3(1.10, 0.12, 0.39))
+	_surface("DiscardFloor", Vector3(-3.15, 0.735, 2.35), Vector3(1.10, 0.04, 1.02))
+	for side in [-1.0, 1.0]:
+		_surface("DiscardWall", Vector3(-3.15 + side * 0.5675, 1.22, 2.35), Vector3(0.035, 0.94, 1.02))
+		_surface("DiscardWall", Vector3(-3.15, 1.22, 2.35 + side * 0.5275), Vector3(1.10, 0.94, 0.035))
 	_surface("TrayFloor", TRAY_CENTER + Vector3(0, 0.01, 0), Vector3(2.12, 0.035, 1.32))
 	for z in [-0.72, 0.72]:
 		_surface("TrayRim", TRAY_CENTER + Vector3(0, 0.08, z), Vector3(2.28, 0.22, 0.055))
@@ -81,7 +95,9 @@ func _surface(label: String, at: Vector3, size: Vector3) -> void:
 	shape.shape = box
 	body.add_child(shape)
 	_surfaces.add_child(body)
-	if label != "Counter":
+	if label.begins_with("Counter") or label.begins_with("Discard"):
+		body.set_meta("food_waste_surface", true)
+	if label.begins_with("Tray"):
 		body.set_meta("rest_position", at)
 		_tray_surfaces.append(body)
 
@@ -274,13 +290,14 @@ func _new_body(id: int, at: Vector3, existing_visual: Node3D = null) -> Dictiona
 	material.friction = 0.60
 	material.bounce = 0.17
 	body.physics_material_override = material
-	# Eight spheres form a convex compound ring, including the real center hole.
-	# This avoids expensive moving concave trimeshes and lets donuts collide/roll.
+	# Radial capsules preserve the pinhole opening and the flatter cake profile.
+	# Their width matches the visible outer edge without making the donut taller.
 	for segment in range(8):
 		var shape: CollisionShape3D = CollisionShape3D.new()
-		shape.shape = _sphere
+		shape.shape = _crust_shape
 		var angle: float = float(segment) * TAU / 8.0
 		shape.position = Vector3(cos(angle) * RING_RADIUS, 0, sin(angle) * RING_RADIUS)
+		shape.basis = Basis(Vector3.FORWARD, PI * 0.5).rotated(Vector3.UP, -angle)
 		body.add_child(shape)
 	add_child(body)
 	var visual: Node3D = existing_visual if is_instance_valid(existing_visual) else _world.call("_plain_donut", id, Vector3.ZERO)
@@ -416,7 +433,7 @@ func _physics_process(delta: float) -> void:
 
 func _touching_counter(body: RigidBody3D) -> bool:
 	for other in body.get_colliding_bodies():
-		if other is StaticBody3D and other.name == "Counter":
+		if other is StaticBody3D and bool(other.get_meta("food_waste_surface", false)):
 			return true
 	return false
 
@@ -424,7 +441,7 @@ func _touching_counter(body: RigidBody3D) -> bool:
 func _deflect_over_rim(body: RigidBody3D) -> void:
 	# Upright rings have a taller support radius and can hook on a rim. Use only
 	# the lift required to clear that current orientation, never a fixed high hop.
-	var vertical_radius: float = CRUST_RADIUS + RING_RADIUS * sqrt(maxf(0.0, 1.0 - body.basis.y.dot(Vector3.UP) ** 2))
+	var vertical_radius: float = CRUST_RADIUS + (OUTER_RADIUS - CRUST_RADIUS) * sqrt(maxf(0.0, 1.0 - body.basis.y.dot(Vector3.UP) ** 2))
 	var clearance: float = maxf(0.025, 1.95 + vertical_radius + 0.025 - body.position.y)
 	var lift: float = clampf(sqrt(2.0 * 9.8 * clearance), 0.70, 2.10)
 	# Spill toward the closest rim. A moving outlet must not keep pushing every
