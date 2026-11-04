@@ -118,6 +118,8 @@ var _hands: Array[Node3D] = []
 var _detail_lights: Array[Light3D] = []
 var _bg_walkers: Array[Dictionary] = []
 var _quality: int = 2
+var _mobile_quality: bool = false
+var _sunlight: DirectionalLight3D
 var _static_batch_report: Dictionary = {}
 var _coating_active: bool = false
 var _action_serial: int = 0
@@ -865,6 +867,7 @@ func _stand_lighting() -> void:
 	world.environment = environment
 	add_child(world)
 	var sunlight: DirectionalLight3D = DirectionalLight3D.new()
+	_sunlight = sunlight
 	sunlight.rotation_degrees = Vector3(-32, -24, 0)
 	sunlight.light_color = Color("a6b9e4")
 	sunlight.light_energy = 0.24
@@ -896,6 +899,7 @@ func _stand_lighting() -> void:
 		add_child(task_light)
 		task_light.look_at(Vector3(side * 1.7, 1.7, 1.1), Vector3.UP)
 		_detail_lights.append(task_light)
+	_apply_quality_lighting()
 
 func _build_counter() -> void:
 	# Four substrate panels and individually cut boards leave a genuine opening
@@ -1832,8 +1836,17 @@ func get_station_world_position(id: String) -> Vector3:
 		return person.to_global(Vector3(0, 2.82, 0.12)) if is_instance_valid(person) else Vector3.ZERO
 	return _stations[id].global_position if _stations.has(id) else Vector3.ZERO
 
-func set_quality(level: int) -> void:
+func set_quality(level: int, mobile_mode: bool = false) -> void:
 	_quality = clampi(level, 0, 2)
+	_mobile_quality = mobile_mode
+	_apply_quality_lighting()
+
+func _apply_quality_lighting() -> void:
+	# Quality changes lighting only: physical food, visible carried food, collision
+	# bodies and their fixed-step simulation must never depend on the profile.
+	if is_instance_valid(_sunlight):
+		_sunlight.shadow_enabled = not _mobile_quality or _quality >= 1
+		_sunlight.directional_shadow_max_distance = (18.0 if _quality == 1 else 24.0) if _mobile_quality else 36.0
 	for light in _detail_lights:
 		light.shadow_enabled = _quality >= 2 and light.position.x < 0.0
 

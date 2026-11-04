@@ -1,0 +1,29 @@
+GOLDEN HOUR - ANDROID 1.0.7
+
+INSTALL
+Download GoldenHour-1.0.7-Android.apk onto your Android device and open it.
+If prompted, allow your browser or file app to install this APK, then choose
+Install. Open Golden Hour. No store account or internet connection is needed
+to play. Android 7.0 or later is required; phone performance still needs testing.
+
+FIRST PLAY
+Hold your device sideways and choose PRACTICE to learn without a timer.
+Read the front customer's ticket. Tap a bag or bucket, pick up the scoop,
+tap the fresh tray, then tap the container to pour. Repeat until full.
+Tap the requested sugar, lift the finished order, then tap the customer.
+
+Drag the counter to look around. Center resets the camera.
+Hold the jam control or batter hopper to repair or refill. Release to stop.
+Tools provides larger buttons, and the gold button suggests your next action.
+Watch the heat and fault messages. Pause or Android Back pauses the game.
+
+GRAPHICS AND FEEDBACK
+Start with Balanced in Settings. Choose Low if the phone struggles.
+Settings shows the phone model and graphics details for troubleshooting.
+Please report the phone model, Android version, and what happened if you find
+an issue. A screenshot or short recording is useful.
+
+PROGRESS
+Campaign progress saves on this device. Practice preserves your campaign.
+Install matching signed updates over the existing app to keep your progress.
+Uninstalling removes local saves. This build has no purchases or ads.

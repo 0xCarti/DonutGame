@@ -1,0 +1,63 @@
+extends SceneTree
+## Pure gestures and viewport math: no world construction or persistent writes.
+const Gestures = preload("res://scripts/mobile_input.gd")
+var checks = 0
+var failures = 0
+
+func _init() -> void:
+	var g = Gestures.new()
+	_check(g.begin(3, Vector2(100, 100), "bag", 0).is_empty(), "Touch-down does not activate a station")
+	_check(g.end(3, Vector2(103, 101)) == [{"kind": "tap", "station": "bag"}], "Station activates once on a small tap release")
+	_check(g.end(3, Vector2(103, 101)).is_empty(), "Duplicate release cannot repeat an action")
+	g.begin(1, Vector2.ZERO, "supply", 0)
+	_check(g.move(1, Vector2(4, 2)).is_empty(), "Finger jitter is neither a look nor an action")
+	var movement = g.move(1, Vector2(30, 2))
+	_check(movement.size() == 1 and movement[0].kind == "look", "Dragging a station starts looking")
+	_check(g.end(1, Vector2(30, 2)).is_empty(), "Look release never activates the underlying station")
+	g.begin(1, Vector2.ZERO, "repair", 2)
+	_check(g.advance(2.10).is_empty(), "Maintenance waits for intentional hold")
+	_check(g.advance(2.25) == [{"kind": "hold_start", "station": "repair"}], "Sustained contact begins repair")
+	_check(g.advance(4).is_empty(), "Holding does not repeatedly begin the action")
+	_check(g.end(1, Vector2.ZERO) == [{"kind": "hold_end", "station": "repair"}], "Lifting finger immediately ends repair")
+	g.begin(1, Vector2.ZERO, "refill", 0)
+	g.advance(1)
+	movement = g.move(1, Vector2(20, 0))
+	_check(movement.size() == 2 and movement[0].kind == "hold_end" and movement[1].kind == "look", "Dragging away cancels refill before looking")
+	_check(g.end(1, Vector2(20, 0)).is_empty(), "Canceled maintenance cannot become a tap")
+	g.begin(1, Vector2.ZERO, "refill", 0)
+	_check(g.end(1, Vector2.ZERO).is_empty(), "Quick maintenance tap does not latch a hold")
+	g.begin(1, Vector2.ZERO, "serve", 0)
+	g.begin(2, Vector2.ZERO, "trash", 0)
+	_check(g.owns(1) and not g.owns(2), "Second finger cannot steal the gesture")
+	_check(g.end(2, Vector2.ZERO).is_empty(), "Second-finger release cannot serve or discard")
+	_check(g.end(1, Vector2.ZERO)[0].station == "serve", "Original finger retains its intended action")
+	g.begin(1, Vector2.ZERO, "serve", 0)
+	_check(g.end(1, Vector2.ZERO, true).is_empty(), "OS-canceled touch cannot serve")
+	g.begin(1, Vector2.ZERO, "repair", 0)
+	g.advance(1)
+	_check(g.cancel() == [{"kind": "hold_end", "station": "repair"}], "Pause/background cancellation ends an active hold")
+	_check(g.cancel().is_empty() and g.advance(2).is_empty(), "Repeated cancellation is idempotent")
+	g.begin(-2, Vector2.ZERO, "bag", 0)
+	_check(g.end(-2, Vector2.ZERO)[0].station == "bag", "Desktop QA mouse follows the same recognizer")
+	g.begin(1, Vector2.ZERO, "", 0)
+	_check(g.end(1, Vector2.ZERO).is_empty(), "Empty-space tap does nothing")
+	g.begin(1, Vector2.ZERO, "bag", 0)
+	_check(g.end(1, Vector2(40, 0)).is_empty(), "Large release displacement suppresses taps even without drag events")
+	var view = Vector2(2400, 1080)
+	var safe = Rect2(96, 0, 2208, 1032)
+	var canvas = Gestures.canvas_rect(view, safe)
+	_check(safe.encloses(canvas), "Logical canvas remains inside notch/navigation safe area")
+	_check(is_equal_approx(canvas.size.x / canvas.size.y, 1.6), "Logical canvas preserves its authored aspect")
+	_check(canvas.get_center().is_equal_approx(safe.get_center()), "Canvas is centered in usable screen space")
+	canvas = Gestures.canvas_rect(Vector2(1280, 800), Rect2())
+	_check(canvas == Rect2(0, 0, 1280, 800), "Unavailable safe-area report falls back to the full viewport")
+	canvas = Gestures.canvas_rect(Vector2(800, 1280), Rect2(0, 40, 800, 1200))
+	_check(canvas.size.is_equal_approx(Vector2(800, 500)), "Unexpected portrait window stays usable without stretching UI")
+	print("MOBILE INPUT: %d checks, %d failures" % [checks, failures])
+	quit(1 if failures else 0)
+
+func _check(value: bool, detail: String) -> void:
+	checks += 1
+	if not value:
+		failures += 1
+		push_error(detail)

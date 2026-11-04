@@ -1,4 +1,20 @@
-# Build Golden Hour 1.0
+# Build Golden Hour
+
+Godot is the active development project. Android **1.0.7** uses the separate
+setup and release pipeline documented in [ANDROID.md](ANDROID.md):
+
+```powershell
+python tools/setup_android_toolchain.py
+python tools/build_android.py
+```
+
+That path produces a signed ARMv7 + ARM64 APK using a private signing key outside
+the repository. APK/package checks and physical-phone validation are separate;
+phone installation, touch usability, performance, and lifecycle validation are
+still pending. The Unity Windows **1.1.0** project and package remain preserved;
+their independent build entry point is `tools/unity/build_windows.ps1`.
+
+## Godot Windows and Web
 
 Use PowerShell 7 on Windows and Godot **4.7.2 stable** with its matching Windows
 x64 and Web export templates. From the repository root:
@@ -29,7 +45,8 @@ output paths are resolved and checked to stay within this workspace. Windows exp
 
 The script stops on failed checks, missing files, an engine version mismatch,
 or export errors. Passing automated checks does not replace visual and browser
-playtesting. Native iOS/Android builds and store submissions are not part of it.
+playtesting. Android is handled by `tools/build_android.py`, not this PowerShell
+pipeline. iOS builds and store submissions are not part of either pipeline.
 
 The original `build_playtest.ps1` belongs to the historical Idea 1 prototype.
 Use the source from that release when rebuilding it; the current project and
@@ -74,17 +91,20 @@ textures use mipmaps for stable rendering in the 3D scene.
 
 ## Export configuration
 
-Both presets explicitly select runtime resources, including all 28 required WAV
-files. Godot's selected-resource export did not discover the WAV dependencies of
-selected GDScript files in this project, so add new runtime audio to both preset
-root lists. The build mounts each exported pack from an isolated empty project
+The Windows and Web presets explicitly select runtime resources, including all
+28 required WAV files. Godot's selected-resource export did not discover the WAV
+dependencies of selected GDScript files in this project, so add new runtime audio
+to the relevant preset root lists, including Android when shared. The Windows/Web
+build mounts each exported pack from an isolated empty project
 and verifies required resources exist and historical game/test resources do not.
 
-The Web preset uses single-threaded WebAssembly. Mobile VRAM compression is off
+The Web preset uses single-threaded WebAssembly. Its mobile VRAM compression is off
 because this procedural-art build does not enable ETC2/ASTC texture importing.
 Godot 4.7.2 rejects a Web export with an empty configuration-error message if the
 mobile compression preset is enabled while that project import setting is off.
-Enable both settings together when adding mobile VRAM-compressed textures.
+Enable both settings together when adding mobile VRAM-compressed textures. This
+Web export setting does not describe Android APK support; see the Android guide
+for that preset, bundled notices, and signing requirements.
 
 ## Native package verification
 

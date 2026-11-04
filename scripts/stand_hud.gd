@@ -4,6 +4,11 @@ extends Control
 
 signal pause_requested
 signal help_requested
+signal mobile_action_requested(action: String)
+signal mobile_hold_started(action: String)
+signal mobile_hold_ended(action: String)
+
+const MobileControls = preload("res://scripts/mobile_controls.gd")
 
 const INK = Color("10252b")
 const PANEL = Color("152f35")
@@ -21,6 +26,13 @@ var _pulse = 0.0
 var _last_fault = ""
 var _fault_age = 0.0
 var _step = 0
+var mobile_mode = false
+var mobile_controls: Control
+var mobile: Dictionary = {}
+var _desktop_nodes: Array[CanvasItem] = []
+var _mobile_layer: Control
+var _last_state: Dictionary = {}
+var _last_context: Dictionary = {}
 
 
 class Glyph extends Control:
@@ -86,6 +98,146 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	size = Vector2(1280, 800)
 	_build()
+	for child in get_children():
+		if child is CanvasItem: _desktop_nodes.append(child)
+	_apply_mobile_mode()
+
+
+func configure_mobile(enabled: bool) -> void:
+	mobile_mode = enabled
+	if is_node_ready(): _apply_mobile_mode()
+
+
+func cancel_mobile_holds() -> void:
+	if is_instance_valid(mobile_controls): mobile_controls.cancel_holds()
+
+
+func _apply_mobile_mode() -> void:
+	if mobile_mode and not is_instance_valid(_mobile_layer): _build_mobile()
+	for node in _desktop_nodes: node.visible = not mobile_mode
+	if is_instance_valid(_mobile_layer):
+		_mobile_layer.visible = mobile_mode
+		if not mobile_mode: mobile_controls.cancel_holds()
+	if not _last_state.is_empty(): refresh(_last_state, _last_context)
+	elif not mobile_mode: controls.fault.hide()
+	queue_redraw()
+
+
+func _build_mobile() -> void:
+	_mobile_layer = Control.new()
+	_mobile_layer.name = "MobileHUD"
+	_mobile_layer.size = Vector2(1280, 800)
+	_mobile_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_mobile_layer)
+	var score = _panel(_mobile_layer, Vector2(16, 16), Vector2(268, 108), PANEL)
+	mobile.shift = _label(score, "PRACTICE", Vector2(14, 8), Vector2(240, 28), 20, GOLD)
+	mobile.progress = _label(score, "$0 / $110", Vector2(14, 40), Vector2(240, 36), 28)
+	mobile.clock = _label(score, "", Vector2(14, 78), Vector2(240, 25), 20, MUTED)
+	var ticket = _panel(_mobile_layer, Vector2(300, 16), Vector2(508, 108), CREAM)
+	mobile.heading = _label(ticket, "FRONT CUSTOMER", Vector2(16, 8), Vector2(290, 26), 20, Color("9e5538"))
+	mobile.waiting = _label(ticket, "", Vector2(326, 8), Vector2(166, 26), 20, Color("9e5538"))
+	mobile.waiting.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mobile.order = _label(ticket, "", Vector2(16, 35), Vector2(476, 34), 28, INK)
+	mobile.flavor = _label(ticket, "", Vector2(16, 71), Vector2(476, 28), 22, INK)
+	mobile.patience = _bar(ticket, Vector2(16, 102), Vector2(476, 4), Color("4e9477"))
+	mobile.look_hint = _label(_mobile_layer, "Drag to look · tap objects to use", Vector2(824, 102), Vector2(440, 28), 20, CREAM)
+	mobile.look_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mobile.look_hint.add_theme_color_override("font_outline_color", INK)
+	mobile.look_hint.add_theme_constant_override("outline_size", 4)
+
+	var machine = _panel(_mobile_layer, Vector2(16, 636), Vector2(384, 148), PANEL)
+	mobile.machine = _label(machine, "", Vector2(16, 10), Vector2(352, 32), 25, GOLD)
+	mobile.stock = _label(machine, "", Vector2(16, 47), Vector2(352, 32), 24)
+	mobile.condition = _label(machine, "", Vector2(16, 85), Vector2(352, 26), 20, MINT)
+	mobile.flow = _label(machine, "", Vector2(16, 115), Vector2(352, 26), 20, MUTED)
+	var next = _panel(_mobile_layer, Vector2(416, 636), Vector2(448, 148), Color("1c393c"))
+	mobile.prompt = _label(next, "YOUR NEXT MOVE", Vector2(14, 10), Vector2(420, 42), 22, CREAM)
+	mobile.prompt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var held = _panel(_mobile_layer, Vector2(880, 636), Vector2(384, 148), PANEL)
+	mobile.package = _label(held, "", Vector2(16, 9), Vector2(352, 32), 26)
+	mobile.tool = _label(held, "", Vector2(16, 45), Vector2(352, 27), 20, GOLD)
+	mobile.coating = _label(held, "", Vector2(16, 84), Vector2(212, 48), 20, MUTED)
+	mobile.coating.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	var fault = _panel(_mobile_layer, Vector2(300, 138), Vector2(508, 102), Color("342e2d"))
+	mobile.fault = fault
+	mobile.warning = _label(fault, "", Vector2(16, 10), Vector2(476, 30), 24, RED)
+	mobile.fault_action = _label(fault, "", Vector2(16, 46), Vector2(476, 42), 20, CREAM)
+	mobile.fault_action.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mobile.hold = _bar(fault, Vector2(16, 92), Vector2(476, 5), GOLD)
+	fault.hide()
+	mobile.notice = _label(_mobile_layer, "", Vector2(316, 250), Vector2(650, 50), 22, MINT)
+	mobile.notice.add_theme_color_override("font_outline_color", INK)
+	mobile.notice.add_theme_constant_override("outline_size", 4)
+	mobile_controls = MobileControls.new()
+	_mobile_layer.add_child(mobile_controls)
+	mobile_controls.action_requested.connect(func(action: String): mobile_action_requested.emit(action))
+	mobile_controls.hold_started.connect(func(action: String): mobile_hold_started.emit(action))
+	mobile_controls.hold_ended.connect(func(action: String): mobile_hold_ended.emit(action))
+
+
+func _refresh_mobile(state: Dictionary, context: Dictionary) -> void:
+	var practice = bool(context.get("practice", false))
+	mobile.shift.text = "PRACTICE · NO TIMER" if practice else "SHIFT %d" % (int(state.get("shift_index", 0)) + 1)
+	mobile.progress.text = "%s / $%d" % [_money(float(state.get("sales", 0))), int(state.get("target", 0))]
+	var remaining = int(ceil(float(state.get("time_left", 0))))
+	mobile.clock.text = "Take your time" if practice else "%d:%02d remaining" % [remaining / 60, remaining % 60]
+	mobile.clock.add_theme_color_override("font_color", RED if remaining < 20 and not practice else MUTED)
+	var orders: Array = state.get("orders", [])
+	mobile.heading.text = "FRONT CUSTOMER" if not orders.is_empty() else "COUNTER OPEN"
+	mobile.waiting.text = "%d waiting" % maxi(0, orders.size() - 1) if orders.size() > 1 else ""
+	mobile.order.text = "A moment to restock"
+	mobile.flavor.text = "Next customer arriving soon"
+	mobile.patience.visible = not orders.is_empty()
+	if not orders.is_empty():
+		var order: Dictionary = orders[0]
+		var kind = str(order.get("package", "bag"))
+		mobile.order.text = "%s · %d mini donuts" % [kind.capitalize(), 6 if kind == "bag" else 12]
+		mobile.flavor.text = "Cinnamon sugar" if order.get("flavor", "cinnamon") == "cinnamon" else "Powdered sugar"
+		mobile.patience.value = 100.0 * float(order.get("patience", 0)) / maxf(1, float(order.get("max_patience", 1)))
+		mobile.patience.add_theme_stylebox_override("fill", _bar_style(RED if mobile.patience.value < 30 else Color("4e9477")))
+	var temperature = float(state.get("temperature", 175))
+	mobile.machine.text = "%.0f° · Heat %d / 4" % [temperature, int(state.get("heat_setting", 2))]
+	mobile.machine.add_theme_color_override("font_color", RED if temperature >= 200 else GOLD if temperature < 150 else MINT)
+	mobile.stock.text = "Tray %d / %d · Batter %d" % [int(state.get("supply", 0)), int(state.get("supply_capacity", 36)), int(state.get("batter", 0))]
+	mobile.condition.text = str(context.get("machine_status", "MAKING DONUTS"))
+	mobile.condition.add_theme_color_override("font_color", RED if bool(state.get("jammed", false)) or bool(state.get("fire_active", false)) or bool(state.get("overheated", false)) else MINT)
+	mobile.flow.text = "%d frying · %d wasted" % [int(state.get("in_flight", 0)), int(state.get("waste_count", 0))]
+	var kind = str(state.get("package_type", ""))
+	var tool = str(state.get("held_tool", "none"))
+	var flavor = str(state.get("package_flavor", ""))
+	mobile.package.text = "No container yet" if kind.is_empty() else "%s %d / %d" % [kind.capitalize(), int(state.get("package_count", 0)), 6 if kind == "bag" else 12]
+	mobile.tool.text = "Scoop · %d donuts" % int(state.get("scoop_count", 0)) if tool == "scoop" else "Order ready to hand over" if tool == "package" else "Hands free"
+	mobile.coating.text = "Match the ticket" if kind.is_empty() else "Add sugar when full" if flavor.is_empty() else "Cinnamon sugar" if flavor == "cinnamon" else "Powdered sugar"
+	var action = str(context.get("station", ""))
+	var caption = str(context.get("prompt", "Tap a counter object"))
+	if action == "customer": action = "serve" if tool == "package" else ""
+	var faults: Array = context.get("faults", [])
+	mobile.fault.visible = not faults.is_empty()
+	if not faults.is_empty():
+		var fault: Dictionary = faults[0]
+		var fault_station = str(fault.get("station", ""))
+		mobile.warning.text = str(fault.get("title", "CHECK THE FRYER"))
+		mobile.warning.add_theme_color_override("font_color", RED if fault.get("critical", false) else GOLD)
+		var hints = {"extinguish":"Tap the extinguisher for one blast.", "heat_down":"Tap the heat dial or lower the heat in Tools.", "heat_up":"Tap the heat dial or raise the heat in Tools.", "repair":"Hold the feeder lever or Hold to repair.", "refill":"Hold the batter hopper or Hold to refill.", "supply":"Fresh donuts are on the way."}
+		mobile.fault_action.text = str(hints.get(fault_station, "Tap the matching counter object."))
+		if bool(fault.get("critical", false)) and fault_station in MobileControls.ACTIONS:
+			action = fault_station
+			caption = str({"extinguish":"Use extinguisher", "heat_down":"Lower heat", "heat_up":"Raise heat", "repair":"Hold to repair", "refill":"Hold to refill"}.get(action, caption))
+	var hold = str(state.get("hold_station", ""))
+	mobile.hold.visible = not hold.is_empty()
+	if not hold.is_empty():
+		action = hold
+		caption = "Hold to repair" if hold == "repair" else "Hold to refill"
+		mobile.hold.value = float(state.get("jam_progress", 0) if hold == "repair" else state.get("refill_progress", 0)) * 100.0
+		mobile.fault_action.text = "%d%% · keep holding; release to stop" % int(mobile.hold.value)
+	elif action in ["repair", "refill"]:
+		caption = "Hold to repair" if action == "repair" else "Hold to refill"
+	mobile.prompt.text = "MACHINE CARE" if action in ["repair", "refill", "extinguish", "heat_down", "heat_up"] else "YOUR NEXT MOVE · TAP TO USE"
+	if not str(context.get("queued_action", "")).is_empty(): mobile.prompt.text = "NEXT: " + str(context.queued_action)
+	mobile_controls.set_context(action, caption)
+	mobile.notice.text = "" if practice else str(context.get("notice", ""))
+	if mobile.notice.text.begins_with("QUOTA REACHED"): mobile.notice.text = "Goal reached · extra orders earn upgrade coins"
 
 
 func _build() -> void:
@@ -173,6 +325,11 @@ func _build() -> void:
 
 func refresh(state: Dictionary, context: Dictionary) -> void:
 	if controls.is_empty(): return
+	_last_state = state.duplicate(true)
+	_last_context = context.duplicate(true)
+	if mobile_mode:
+		_refresh_mobile(state, context)
+		return
 	controls.progress.text = _money(float(state.get("sales", 0)))
 	controls.target.text = "/ $%d" % int(state.get("target", 0))
 	controls.quota.value = float(state.get("sales", 0)) * 100.0 / maxf(1.0, float(state.get("target", 1)))
@@ -272,6 +429,7 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	if mobile_mode: return
 	if controls.is_empty() or not controls.fault.visible or fault_target.x < 0: return
 	var start = Vector2(222, 220)
 	var endpoint = fault_target - Vector2(0, 17)

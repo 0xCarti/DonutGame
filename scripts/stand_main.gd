@@ -5,7 +5,9 @@ const Model = preload("res://scripts/stand_model.gd")
 const World = preload("res://scripts/stand_world.gd")
 const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
-const VERSION = "1.0.6"
+const MobileInput = preload("res://scripts/mobile_input.gd")
+const MobileQuality = preload("res://scripts/mobile_quality.gd")
+const VERSION = "1.0.7"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -45,6 +47,17 @@ var reduced_motion = false
 var tutorial_seen = false
 var saved_run: Dictionary = {}
 var test_mode = false
+var mobile_mode = false
+# Android can report touch-generated mouse events with device 0 as well as -1.
+# Only an explicitly requested desktop preview may use mouse gameplay input.
+var mobile_mouse_preview = false
+var trace_input = false
+var graphics_quality = 2
+var mobile_safe_insets = Vector4.ZERO
+var mobile_input = MobileInput.new()
+var mobile_quality = MobileQuality.new()
+var _backgrounded = false
+var _mobile_toolbar_hold = ""
 var capture_view = ""
 var capture_done = false
 var elapsed = 0.0
@@ -86,11 +99,19 @@ var _hat_customer = -1
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Golden Hour")
+	var mobile_platform = OS.has_feature("android") or OS.has_feature("ios")
+	mobile_mode = mobile_mode or mobile_platform
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--smoke" or arg == "--test-mode": test_mode = true
+		if arg == "--trace-input": trace_input = true
+		if arg == "--mobile-test":
+			mobile_mode = true
+			mobile_mouse_preview = not mobile_platform
 		if arg.begins_with("--capture-view="):
 			capture_view = arg.trim_prefix("--capture-view=")
 			test_mode = true
+	graphics_quality = 1 if mobile_mode else 2
+	if mobile_mode: get_tree().quit_on_go_back = false
 	_load_settings()
 	_load_saved_run()
 	if ResourceLoader.exists("res://scripts/player_profile.gd"):
@@ -99,6 +120,7 @@ func _ready() -> void:
 		profile.load_profile()
 	world = World.new()
 	add_child(world)
+	_apply_graphics_settings()
 	model.external_delivery = true
 	world.delivery_settled.connect(_on_delivery_settled)
 	world.stock_spilled.connect(_on_stock_spilled)
@@ -167,14 +189,31 @@ func _ready() -> void:
 
 func _resize() -> void:
 	var size = get_viewport().get_visible_rect().size
-	var factor = minf(size.x / 1280.0, size.y / 800.0)
+	var bounds: Rect2 = MobileInput.canvas_rect(size, _mobile_safe_rect(size))
+	var factor = bounds.size.x / 1280.0
 	ui.scale = Vector2.ONE * factor
-	ui.position = (size - Vector2(1280, 800) * factor) * 0.5
+	ui.position = bounds.position
 	ui.size = Vector2(1280, 800)
+	if mobile_mode: _cancel_mobile_input()
+
+func _mobile_safe_rect(view_size: Vector2) -> Rect2:
+	var safe = Rect2(Vector2.ZERO, view_size)
+	if not mobile_mode: return safe
+	if mobile_safe_insets != Vector4.ZERO:
+		return Rect2(Vector2(mobile_safe_insets.x, mobile_safe_insets.y), view_size - Vector2(mobile_safe_insets.x + mobile_safe_insets.z, mobile_safe_insets.y + mobile_safe_insets.w))
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		var window_size = Vector2(DisplayServer.window_get_size())
+		var native_safe = Rect2(DisplayServer.get_display_safe_area())
+		native_safe.position -= Vector2(DisplayServer.window_get_position())
+		if window_size.x > 0 and window_size.y > 0 and native_safe.has_area():
+			var ratio = view_size / window_size
+			safe = Rect2(native_safe.position * ratio, native_safe.size * ratio)
+	return safe
 
 func _process(delta: float) -> void:
 	elapsed += delta
 	if current_view == "play" and not paused:
+		if mobile_mode: _dispatch_mobile_events(mobile_input.advance(Time.get_ticks_msec() / 1000.0))
 		_ensure_food_session()
 		_drain_action_queue()
 		var step = minf(delta, 0.1)
@@ -185,7 +224,7 @@ func _process(delta: float) -> void:
 		else: model.tick(step)
 		_process_events()
 		_sync_world()
-		if not right_dragging:
+		if not right_dragging and not mobile_mode:
 			hover_station = world.pick_station(get_viewport().get_mouse_position())
 			world.set_hover_station(hover_station)
 		_refresh_hud()
@@ -204,12 +243,123 @@ func _process(delta: float) -> void:
 		print("STAND_SMOKE_PASS phase=%s supply=%d orders=%d" % [model.phase, model.supply, model.orders.size()])
 		get_tree().quit(0)
 
+func _input(event: InputEvent) -> void:
+	if trace_input and (event is InputEventScreenTouch or event is InputEventMouseButton) and is_instance_valid(ui):
+		_trace_input_stage("event", {"type": event.get_class(), "device": event.device, "pressed": event.pressed, "x": event.position.x, "y": event.position.y, "station": world.pick_station(event.position) if is_instance_valid(world) else "", "gui": _mobile_control_name_at(ui, event.position)})
+	if not mobile_mode or not is_instance_valid(ui): return
+	# Only gameplay-owned pointers are consumed. GUI still receives Godot's
+	# emulated mouse events, so ordinary Buttons and Sliders remain native UI.
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_mobile_pointer_begin(event.index, event.position)
+		elif mobile_input.owns(event.index):
+			_dispatch_mobile_events(mobile_input.end(event.index, _mobile_point(event.position), event.canceled))
+			get_viewport().set_input_as_handled()
+	elif event is InputEventScreenDrag and mobile_input.owns(event.index):
+		_dispatch_mobile_events(mobile_input.move(event.index, _mobile_point(event.position)))
+		get_viewport().set_input_as_handled()
+	elif mobile_mouse_preview and event is InputEventMouse and event.device != InputEvent.DEVICE_ID_EMULATION:
+		# A physical mouse can exercise the exact phone gesture path in QA.
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed: _mobile_pointer_begin(-2, event.position)
+			elif mobile_input.owns(-2):
+				_dispatch_mobile_events(mobile_input.end(-2, _mobile_point(event.position)))
+				get_viewport().set_input_as_handled()
+		elif event is InputEventMouseMotion and mobile_input.owns(-2):
+			_dispatch_mobile_events(mobile_input.move(-2, _mobile_point(event.position)))
+			get_viewport().set_input_as_handled()
+
+func _mobile_point(position: Vector2) -> Vector2:
+	return ui.get_global_transform().affine_inverse() * position
+
+func _mobile_pointer_begin(id: int, position: Vector2) -> void:
+	if current_view != "play" or paused or _backgrounded or not _mobile_toolbar_hold.is_empty(): return
+	if not _mobile_safe_rect(get_viewport().get_visible_rect().size).has_point(position): return
+	if _mobile_control_at(ui, position): return
+	mobile_input.begin(id, _mobile_point(position), world.pick_station(position), Time.get_ticks_msec() / 1000.0)
+	get_viewport().set_input_as_handled()
+
+func _mobile_control_at(node: Node, position: Vector2) -> bool:
+	if node is CanvasItem and not node.is_visible_in_tree(): return false
+	# A modal blocks the whole viewport; a transparent HUD only blocks controls.
+	if node is Control and node.mouse_filter != Control.MOUSE_FILTER_IGNORE and node.get_global_rect().has_point(position): return true
+	for child in node.get_children():
+		if _mobile_control_at(child, position): return true
+	return false
+
+func _mobile_control_name_at(node: Node, position: Vector2) -> String:
+	if node is CanvasItem and not node.is_visible_in_tree(): return ""
+	var children = node.get_children()
+	children.reverse()
+	for child in children:
+		var owner_name = _mobile_control_name_at(child, position)
+		if not owner_name.is_empty(): return owner_name
+	if node is Control and node.mouse_filter != Control.MOUSE_FILTER_IGNORE and node.get_global_rect().has_point(position):
+		return str(node.name) + (":" + str(node.text) if node is Button else "")
+	return ""
+
+func _trace_input_stage(stage: String, fields: Dictionary) -> void:
+	if not trace_input: return
+	fields["stage"] = stage
+	fields["milliseconds"] = Time.get_ticks_msec()
+	print("GH_INPUT " + JSON.stringify(fields))
+
+func _dispatch_mobile_events(events: Array) -> void:
+	for event in events:
+		match str(event.kind):
+			"tap": _act(str(event.station))
+			"hold_start": _start_hold(str(event.station))
+			"hold_end": _stop_hold()
+			"look":
+				if current_view == "play" and not paused:
+					world.look_offset(event.delta * Vector2(look_sensitivity, -look_sensitivity if invert_look else look_sensitivity))
+
+func _cancel_mobile_input() -> void:
+	mobile_input.cancel()
+	if is_instance_valid(dashboard) and dashboard.has_method("cancel_mobile_holds"): dashboard.cancel_mobile_holds()
+	_mobile_toolbar_hold = ""
+	_stop_hold()
+	right_dragging = false
+	_queued_action = ""
+
+func _mobile_action(action: String) -> void:
+	match action:
+		"recenter": world.reset_look()
+		"pause": _show_pause()
+		"help": _show_help(false)
+		"settings": _show_settings()
+		_: _act(action)
+
+func _mobile_hold_begin(action: String) -> void:
+	# The HUD has already recorded its button before emitting hold_started.
+	# Cancel only the old world gesture here: clearing HUD holds would erase
+	# the release owner synchronously and leave maintenance latched on button-up.
+	mobile_input.cancel()
+	_stop_hold()
+	right_dragging = false
+	_queued_action = ""
+	_mobile_toolbar_hold = action
+	_start_hold(action)
+	_trace_input_stage("hold_start", {"station": action, "accepted": hold_station == action, "busy": world.is_action_busy(), "view": current_view, "paused": paused})
+
+func _mobile_hold_end(action: String) -> void:
+	_trace_input_stage("hold_end", {"station": action, "owner": _mobile_toolbar_hold})
+	if _mobile_toolbar_hold == action:
+		_mobile_toolbar_hold = ""
+		_stop_hold()
+
 func _unhandled_input(event: InputEvent) -> void:
+	# GUI receives mouse events earlier in the pipeline. Ignore every mouse
+	# device here on mobile OSes: the native ScreenTouch already owns gameplay.
+	if mobile_mode and event is InputEventMouse and (not mobile_mouse_preview or event.device == InputEvent.DEVICE_ID_EMULATION): return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F11:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
 			return
 		if event.keycode == KEY_ESCAPE:
+			if mobile_mode:
+				_mobile_back()
+				return
 			if is_instance_valid(overlay): _close_overlay()
 			elif current_view == "play": _show_pause()
 			return
@@ -234,6 +384,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_HOME: world.reset_look()
 	if event is InputEventKey and not event.pressed and event.keycode in [KEY_R, KEY_T]: _stop_hold()
 	if event is InputEventMouseButton:
+		if mobile_mode and event.button_index == MOUSE_BUTTON_LEFT: return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			right_dragging = event.pressed and current_view == "play" and not paused
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -247,11 +398,38 @@ func _unhandled_input(event: InputEvent) -> void:
 		world.look_offset(event.relative * Vector2(look_sensitivity, -look_sensitivity if invert_look else look_sensitivity))
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and current_view == "play" and not paused and not test_mode:
-		_show_pause()
+	if not is_instance_valid(ui): return
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and mobile_mode:
+		_mobile_back()
+	if what == NOTIFICATION_APPLICATION_PAUSED or (what == NOTIFICATION_APPLICATION_FOCUS_OUT and (mobile_mode or not test_mode)):
+		_backgrounded = true
+		_cancel_mobile_input()
+		_save_run()
+		if mobile_mode: _save_settings()
+		if current_view == "play" and not paused: _show_pause()
+	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_backgrounded = false
+		if mobile_mode: _resize()
 	if what == NOTIFICATION_WM_CLOSE_REQUEST: _save_run()
 
+func _mobile_back() -> void:
+	_cancel_mobile_input()
+	_save_settings()
+	if is_instance_valid(overlay):
+		# Back from settings/help returns to a pause menu, not a moving counter.
+		if current_view == "play": _show_pause()
+		else: _close_overlay()
+	elif current_view == "play": _show_pause()
+	elif current_view != "title": _show_title()
+	else:
+		var panel = _modal(Vector2(570, 310))
+		_label(panel, "Close the stand?", Vector2(30, 28), Vector2(510, 54), 34)
+		_text(panel, "Your saved shift and career stay on this device.", Vector2(30, 104), Vector2(510, 70), 22, MUTED)
+		_button(panel, "KEEP PLAYING", Vector2(30, 218), Vector2(248, 60), _close_overlay, PANEL)
+		_button(panel, "CLOSE", Vector2(294, 218), Vector2(246, 60), _quit_game)
+
 func _act(station: String) -> void:
+	_trace_input_stage("action", {"station": station, "view": current_view, "paused": paused, "phase": model.phase, "busy": world.is_action_busy(), "held": held_tool})
 	if current_view != "play" or paused or model.phase != "playing": return
 	if station == "customer":
 		if held_tool == "package": station = "serve"
@@ -489,6 +667,7 @@ func _sync_world() -> void:
 	if audio.has_method("sync_machine"): audio.sync_machine(state)
 
 func _new_screen() -> void:
+	_cancel_mobile_input()
 	_queued_action = ""
 	_bell_reply = 0
 	_sneeze_delay = 0
@@ -533,6 +712,9 @@ func _show_title() -> void:
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		screen.add_child(art)
+	if mobile_mode:
+		_build_mobile_title()
+		return
 	# Tickets, a wristband and the operator's ink stamp sit directly on the fair
 	# artwork. Every word and click target is native UI, including the cut stubs.
 	_label(screen, "HOT MINI DONUTS  /  COLD EVENING AIR", Vector2(58, 43), Vector2(460, 24), 13, GOLD)
@@ -575,7 +757,7 @@ func _show_title() -> void:
 		var index: int = ["Settings", "How to play", "Credits"].find(str(item[0]))
 		_title_text_button(screen, str(item[0]), Vector2(53 + index * 148, 738), Vector2(141, 35), item[1], CREAM, 16)
 	_label(screen, "GOLDEN HOUR  /  " + VERSION, Vector2(938, 752), Vector2(310, 26), 13, CREAM).horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	if not OS.has_feature("web"):
+	if not OS.has_feature("web") and not mobile_mode:
 		_title_text_button(screen, "QUIT GAME", Vector2(1090, 22), Vector2(158, 38), _quit_game, CREAM, 14)
 	var notices: Array[String] = []
 	if not _run_load_notice.is_empty(): notices.append(_run_load_notice)
@@ -631,6 +813,54 @@ func _title_ticket_button(parent: Node, value: String, at: Vector2, dimensions: 
 	var stub_text = _label(button, stub, Vector2(dimensions.x - 61, 17), Vector2(56, dimensions.y - 30), 13, Color("8b4735"))
 	stub_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return button
+
+func _mobile_menu_button(parent: Node, value: String, at: Vector2, dimensions: Vector2, callback: Callable, color: Color = GOLD) -> Button:
+	var button = _button(parent, value, at, dimensions, callback, color)
+	button.add_theme_font_size_override("font_size", 24)
+	var text_color = INK if color in [GOLD, MINT, CREAM] else CREAM
+	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		button.add_theme_color_override(state, text_color)
+	return button
+
+func _build_mobile_title() -> void:
+	_panel(screen, Vector2(24, 18), Vector2(1232, 760), Color(0.04, 0.13, 0.14, 0.91))
+	_label(screen, "GOLDEN HOUR", Vector2(44, 28), Vector2(820, 68), 52, CREAM)
+	_label(screen, "A little stand. A whole evening to make.", Vector2(48, 103), Vector2(900, 35), 25, MUTED)
+	var continuing: bool = not saved_run.is_empty()
+	var primary = _mobile_menu_button(screen, "CONTINUE YOUR SHIFT" if continuing else "OPEN THE STAND", Vector2(44, 156), Vector2(610, 112), func():
+		if continuing: _continue_run()
+		else:
+			selected_mode = "campaign"
+			_request_new_run(), CREAM)
+	primary.name = "TitleContinue" if continuing else "TitleOpenStand"
+	_mobile_menu_button(screen, "PRACTICE · NO PRESSURE", Vector2(44, 286), Vector2(610, 88), _start_practice, MINT).name = "TitlePractice"
+	if continuing:
+		_mobile_menu_button(screen, "START A NEW CAMPAIGN", Vector2(44, 392), Vector2(610, 88), func():
+			selected_mode = "campaign"
+			_request_new_run(), PANEL).name = "TitleOpenStand"
+	var unlocked: bool = profile != null and profile.is_endless_unlocked()
+	var endless = _mobile_menu_button(screen, "ENDLESS RUSH" if unlocked else "ENDLESS · WIN A CAMPAIGN", Vector2(44, 498 if continuing else 392), Vector2(610, 88), func():
+		selected_mode = "endless"
+		_request_new_run(), PANEL)
+	endless.name = "TitleEndless"
+	endless.disabled = not unlocked
+	_label(screen, "NEW CAMPAIGN PACE", Vector2(704, 154), Vector2(520, 34), 23, GOLD)
+	for index in range(2):
+		var pace = "normal" if index == 0 else "relaxed"
+		var choice = _mobile_menu_button(screen, "STANDARD" if index == 0 else "RELAXED", Vector2(700 + index * 272, 202), Vector2(252, 88), func():
+			selected_difficulty = pace
+			_show_title(), MINT if selected_difficulty == pace else PANEL)
+		choice.name = "TitlePaceNormal" if index == 0 else "TitlePaceRelaxed"
+	_text(screen, "A lively rush. Find your rhythm." if selected_difficulty == "normal" else "More time and patient customers.", Vector2(704, 310), Vector2(520, 60), 23, MUTED)
+	_mobile_menu_button(screen, "YOUR COLLECTION", Vector2(700, 392), Vector2(524, 88), _show_collection, PANEL)
+	_mobile_menu_button(screen, "SETTINGS", Vector2(700, 498), Vector2(252, 88), _show_settings, PANEL)
+	_mobile_menu_button(screen, "HOW TO PLAY", Vector2(972, 498), Vector2(252, 88), func(): _show_help(false), PANEL)
+	var notices: Array[String] = []
+	if not _run_load_notice.is_empty(): notices.append(_run_load_notice)
+	if profile != null and not str(profile.load_warning).is_empty(): notices.append(str(profile.load_warning))
+	_text(screen, "\n".join(notices) if not notices.is_empty() else "Tap counter objects to use them. Drag the counter to look around.", Vector2(48, 610), Vector2(1172, 66), 22, GOLD if not notices.is_empty() else MUTED)
+	_mobile_menu_button(screen, "CREDITS & LICENSES", Vector2(44, 690), Vector2(510, 80), _show_credits, PANEL)
+	_label(screen, "GOLDEN HOUR / " + VERSION, Vector2(716, 711), Vector2(504, 38), 23, MUTED).horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 func _title_ticket_outline(dimensions: Vector2) -> PackedVector2Array:
 	var w: float = dimensions.x
@@ -727,6 +957,13 @@ func _request_new_run() -> void:
 	if saved_run.is_empty():
 		_start_new_run()
 		return
+	if mobile_mode:
+		var panel = _modal(Vector2(900, 460))
+		_label(panel, "A fresh start?", Vector2(32, 30), Vector2(836, 60), 40)
+		_text(panel, "Opening a new stand replaces your saved shift. Your collection and career records stay with you.", Vector2(34, 126), Vector2(832, 120), 28, MUTED)
+		_mobile_menu_button(panel, "KEEP MY RUN", Vector2(32, 334), Vector2(404, 96), _close_overlay, PANEL)
+		_mobile_menu_button(panel, "START FRESH", Vector2(460, 334), Vector2(408, 96), _start_new_run)
+		return
 	var p = _modal(Vector2(550, 300))
 	_label(p, "A fresh start?", Vector2(30, 26), Vector2(490, 50), 35)
 	_text(p, "Opening a new stand replaces your current saved run. Your collection and records stay with you.", Vector2(30, 98), Vector2(490, 75), 21, MUTED)
@@ -794,6 +1031,10 @@ func _show_play() -> void:
 	screen.add_child(dashboard)
 	dashboard.pause_requested.connect(_show_pause)
 	dashboard.help_requested.connect(func(): _show_help(false))
+	dashboard.configure_mobile(mobile_mode)
+	dashboard.mobile_action_requested.connect(_mobile_action)
+	dashboard.mobile_hold_started.connect(_mobile_hold_begin)
+	dashboard.mobile_hold_ended.connect(_mobile_hold_end)
 	dashboard.reduced_motion = reduced_motion
 	hud = dashboard.controls
 	_refresh_hud()
@@ -958,6 +1199,9 @@ func _show_shop() -> void:
 	_new_screen()
 	_sync_world()
 	_shade(screen)
+	if mobile_mode:
+		_build_mobile_shop()
+		return
 	var info: Dictionary = Model.Content.shift_info(model.shift_index + 1, selected_difficulty, selected_mode)
 	_label(screen, "SHIFT COMPLETE  /  TIME TO TUNE YOUR STAND", Vector2(54, 37), Vector2(1140, 25), 16, GOLD)
 	_label(screen, "A little better. A little busier.", Vector2(51, 83), Vector2(1170, 60), 42)
@@ -992,6 +1236,30 @@ func _buy_upgrade(id: String) -> void:
 	audio.play_event("upgrade")
 	_save_run()
 	_show_shop()
+
+func _build_mobile_shop() -> void:
+	var info: Dictionary = Model.Content.shift_info(model.shift_index + 1, selected_difficulty, selected_mode)
+	_label(screen, "A little better. A little busier.", Vector2(40, 22), Vector2(1200, 54), 39)
+	_label(screen, "%s earned · %d served · %d upgrade coins" % [_money(model.sales), model.served, model.credits], Vector2(44, 81), Vector2(1192, 36), 25, MINT)
+	var next = _panel(screen, Vector2(40, 130), Vector2(1200, 90), PANEL)
+	_label(next, "UP NEXT · " + str(info.get("name", "The next rush")), Vector2(18, 10), Vector2(1164, 33), 24, GOLD)
+	_label(next, "Target $%d · %ds · %s" % [int(info.target), int(info.duration), " / ".join(info.get("modifiers", []))], Vector2(18, 49), Vector2(1164, 32), 21, MUTED)
+	var offers: Array = model.get_shop_offers()
+	for i in range(mini(offers.size(), 3)):
+		var offer: Dictionary = offers[i]
+		var card = _panel(screen, Vector2(40 + i * 408, 242), Vector2(384, 390), PANEL)
+		_label(card, str(offer.get("category", "EQUIPMENT")), Vector2(20, 15), Vector2(344, 30), 21, GOLD)
+		_text(card, str(offer.get("name", "Upgrade")), Vector2(20, 54), Vector2(344, 76), 29)
+		_text(card, str(offer.get("description", "")), Vector2(20, 142), Vector2(344, 124), 22, MUTED)
+		var cost = int(offer.get("cost", 0))
+		var button = _mobile_menu_button(card, "INSTALL · %d COINS" % cost, Vector2(20, 282), Vector2(344, 88), _buy_upgrade.bind(str(offer.id)), GOLD if model.credits >= cost else PANEL)
+		button.disabled = model.credits < cost
+		if button.disabled: button.text = "NEED %d MORE COINS" % (cost - model.credits)
+	if offers.is_empty(): _text(screen, "Your equipment is fully upgraded.\nTake your stand into the next rush.", Vector2(180, 330), Vector2(920, 120), 31, MINT)
+	_mobile_menu_button(screen, "SAVE & RETURN TO TITLE", Vector2(40, 684), Vector2(576, 88), func():
+		_save_run()
+		_show_title(), PANEL)
+	_mobile_menu_button(screen, "START NEXT SHIFT", Vector2(644, 684), Vector2(596, 88), _begin_shift, MINT)
 
 func _finish_run() -> void:
 	current_view = "result"
@@ -1034,12 +1302,16 @@ func _finish_run() -> void:
 	_text(p, "Your career progress and unlocked stand colours are saved automatically." if career_saved else "Career could not be saved. Your previous shift checkpoint is safe. Free disk space, then retry saving before closing.", Vector2(36, 569), Vector2(738, 43), 14, MUTED if career_saved else RED)
 
 func _delete_run_files() -> void:
+	if test_mode: return
 	for path in [SAVE_PATH, SAVE_PATH + ".backup"]:
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
 
 func _show_pause() -> void:
 	if current_view != "play": return
 	_save_run()
+	if mobile_mode:
+		_show_mobile_pause()
+		return
 	var p = _modal(Vector2(584, 492 if practice else 414))
 	_label(p, "Take a breather.", Vector2(30, 27), Vector2(524, 55), 39)
 	_label(p, "Practice has no clock or lost customers." if practice else "The stand is paused. Nothing moves until you return.", Vector2(32, 93), Vector2(520, 29), 16, MUTED)
@@ -1066,6 +1338,9 @@ func _show_pause() -> void:
 	_sync_world()
 
 func _show_help(start_after: bool) -> void:
+	if mobile_mode:
+		_show_mobile_help(start_after)
+		return
 	var p = _modal(Vector2(942, 698))
 	_label(p, "Welcome behind the counter.", Vector2(32, 25), Vector2(878, 54), 39)
 	_label(p, "CLICK THE OBJECTS. WATCH YOUR HANDS. FIND YOUR RHYTHM.", Vector2(34, 89), Vector2(874, 26), 15, GOLD)
@@ -1088,7 +1363,38 @@ func _show_help(start_after: bool) -> void:
 			_begin_shift())
 	_button(p, "TRY PRACTICE", Vector2(622, 616), Vector2(286, 48), _start_practice, PANEL)
 
+func _show_mobile_pause() -> void:
+	var p = _modal(Vector2(980, 720))
+	_label(p, "Take a breather.", Vector2(32, 24), Vector2(916, 56), 41)
+	_text(p, "Practice has no clock or lost customers." if practice else "Your shift is saved. The counter stays paused until you return.", Vector2(34, 92), Vector2(912, 64), 24, MUTED)
+	_mobile_menu_button(p, "BACK TO THE COUNTER", Vector2(32, 172), Vector2(916, 96), _close_overlay)
+	_mobile_menu_button(p, "SETTINGS", Vector2(32, 292), Vector2(446, 88), _show_settings, PANEL)
+	_mobile_menu_button(p, "HOW TO PLAY", Vector2(502, 292), Vector2(446, 88), func(): _show_help(false), PANEL)
+	if practice:
+		_mobile_menu_button(p, "TRY A JAM", Vector2(32, 416), Vector2(290, 88), func():
+			model.jammed = true
+			_close_overlay()
+			_refresh_hud(), PANEL)
+		_mobile_menu_button(p, "TRY HOT OIL", Vector2(345, 416), Vector2(290, 88), func():
+			model.temperature = 210.0
+			model.overheated = true
+			_close_overlay()
+			_refresh_hud(), PANEL)
+		_mobile_menu_button(p, "TRY REFILLING", Vector2(658, 416), Vector2(290, 88), func():
+			model.batter = 0
+			_close_overlay()
+			_refresh_hud(), PANEL)
+		_text(p, "Try a machine fault, then use the large Tools controls to recover.", Vector2(34, 528), Vector2(912, 55), 23, MUTED)
+	else:
+		_text(p, "Android Back returns here from settings or help.\nChoose Back to the counter when you are ready.", Vector2(34, 423), Vector2(912, 100), 24, MUTED)
+	_mobile_menu_button(p, "LEAVE PRACTICE" if practice else "SAVE & RETURN TO TITLE", Vector2(32, 608), Vector2(916, 88), func():
+		_save_run()
+		_show_title(), PANEL)
+
 func _show_settings() -> void:
+	if mobile_mode:
+		_show_mobile_settings()
+		return
 	var p = _modal(Vector2(718, 712))
 	_label(p, "Make yourself at home.", Vector2(30, 25), Vector2(658, 52), 37)
 	_button(p, "Sound: " + ("OFF" if muted else "ON"), Vector2(30, 96), Vector2(316, 43), func():
@@ -1118,6 +1424,92 @@ func _show_settings() -> void:
 	_button(p, "DONE", Vector2(30, 613), Vector2(436, 52), _close_overlay)
 	_button(p, "Credits", Vector2(487, 613), Vector2(201, 52), _show_credits, PANEL)
 
+func _show_mobile_help(start_after: bool) -> void:
+	var p = _modal(Vector2(1060, 740))
+	_label(p, "Your counter, at your fingertips.", Vector2(30, 22), Vector2(1000, 53), 35)
+	var steps = [
+		["1  READ THE FRONT TICKET", "Tap a bag for 6 donuts or a bucket for 12. The large cream ticket is your next customer."],
+		["2  SCOOP, POUR, COAT", "Tap the scoop, then the fresh tray, then your package. Fill it and tap the requested sugar."],
+		["3  LIFT AND HAND OVER", "Tap the finished package to lift it, then tap the customer. The large action button follows your next step."],
+		["4  KEEP THE FRYER RUNNING", "Touch and hold the hopper to refill or the motor to repair. Lift your finger to stop. Tools gives you larger controls for heat and the extinguisher."]
+	]
+	for i in range(steps.size()):
+		var card = _panel(p, Vector2(30, 91 + i * 119), Vector2(1000, 107), PANEL)
+		_label(card, steps[i][0], Vector2(17, 9), Vector2(966, 30), 22, GOLD)
+		_text(card, steps[i][1], Vector2(17, 43), Vector2(966, 58), 21, MUTED)
+	_text(p, "Drag the counter to look. Center resets your view. Pause or Android Back saves your shift.\nPractice lets you learn without a timer or impatient customers.", Vector2(32, 575), Vector2(996, 66), 21, MINT)
+	_button(p, "OPEN THE STAND" if start_after else "GOT IT", Vector2(30, 658), Vector2(640, 62), func():
+		_close_overlay()
+		if start_after:
+			tutorial_seen = true
+			_save_settings()
+			_begin_shift())
+	_button(p, "TRY PRACTICE", Vector2(690, 658), Vector2(340, 62), _start_practice, PANEL)
+
+func _show_mobile_settings() -> void:
+	var p = _modal(Vector2(1040, 740))
+	_label(p, "Make yourself at home.", Vector2(30, 19), Vector2(980, 49), 35)
+	_button(p, "SOUND " + ("OFF" if muted else "ON"), Vector2(30, 83), Vector2(310, 56), func():
+		muted = not muted
+		_apply_audio_settings()
+		_save_settings()
+		_show_settings(), PANEL)
+	_button(p, "MUSIC " + ("ON" if music_on else "OFF"), Vector2(365, 83), Vector2(310, 56), func():
+		music_on = not music_on
+		_apply_audio_settings()
+		_save_settings()
+		_show_settings(), PANEL)
+	_button(p, "MOTION " + ("REDUCED" if reduced_motion else "FULL"), Vector2(700, 83), Vector2(310, 56), func():
+		reduced_motion = not reduced_motion
+		_apply_effect_settings()
+		_save_settings()
+		_show_settings(), PANEL)
+	_mobile_slider(p, "Sound effects", 155, sfx_volume, func(value): sfx_volume = value; _apply_audio_settings())
+	_mobile_slider(p, "Music", 214, music_volume, func(value): music_volume = value; _apply_audio_settings())
+	_mobile_slider(p, "Fairground ambience", 273, ambience_volume, func(value): ambience_volume = value; _apply_audio_settings())
+	_mobile_slider(p, "Look sensitivity", 332, (look_sensitivity - 0.35) / 1.65, func(value): look_sensitivity = 0.35 + value * 1.65)
+	_label(p, "GRAPHICS", Vector2(32, 399), Vector2(200, 30), 20, GOLD)
+	for level in range(3):
+		var names = ["LOW · 30 FPS", "BALANCED · 60 FPS", "HIGH · 60 FPS"]
+		var choice = level
+		var button = _button(p, names[level], Vector2(30 + level * 335, 439), Vector2(310, 58), func():
+			graphics_quality = choice
+			_apply_graphics_settings()
+			_save_settings()
+			_show_settings(), MINT if graphics_quality == level else PANEL)
+		button.name = "MobileGraphics" + str(level)
+	var device: Dictionary = mobile_quality.describe_device()
+	var model_name = str(device.get("model", OS.get_model_name()))
+	var gpu = str(device.get("gpu", RenderingServer.get_video_adapter_name()))
+	var renderer = str(device.get("renderer", RenderingServer.get_current_rendering_method()))
+	var resolution = DisplayServer.window_get_size()
+	_text(p, "v%s · %s · %s · %d×%d\n%s · %s\nFrame-rate targets depend on your device. Try Low if the phone gets hot or play feels uneven." % [VERSION, OS.get_name(), model_name, resolution.x, resolution.y, gpu, renderer], Vector2(32, 518), Vector2(976, 100), 19, MUTED)
+	_button(p, "DONE", Vector2(30, 650), Vector2(640, 62), func(): _save_settings(); _close_overlay())
+	_button(p, "CREDITS & LICENSES", Vector2(690, 650), Vector2(320, 62), func(): _save_settings(); _show_credits(), PANEL)
+
+func _mobile_slider(parent: Node, title: String, y: float, value: float, callback: Callable) -> void:
+	_label(parent, title, Vector2(32, y + 12), Vector2(270, 34), 22, MUTED)
+	var reading = _label(parent, "%d%%" % int(roundf(value * 100)), Vector2(925, y + 12), Vector2(82, 34), 22, GOLD)
+	reading.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var slider = HSlider.new()
+	slider.name = "Mobile" + title.replace(" ", "")
+	slider.position = Vector2(312, y)
+	slider.size = Vector2(584, 56)
+	slider.min_value = 0
+	slider.max_value = 100
+	slider.step = 1
+	slider.value = value * 100
+	slider.focus_mode = Control.FOCUS_NONE
+	slider.value_changed.connect(func(amount):
+		reading.text = "%d%%" % int(amount)
+		callback.call(amount / 100.0))
+	# Persist once per gesture rather than rewriting flash storage every frame.
+	slider.drag_ended.connect(func(_changed): _save_settings())
+	parent.add_child(slider)
+
+func _apply_graphics_settings() -> void:
+	if is_instance_valid(world): mobile_quality.apply(world, graphics_quality, mobile_mode)
+
 func _slider_row(parent: Node, title: String, y: float, value: float, callback: Callable, label_mode: String = "percent") -> void:
 	_label(parent, title, Vector2(32, y), Vector2(250, 27), 17, MUTED)
 	var label = _label(parent, "%.2f×" % (0.35 + value * 1.65) if label_mode == "multiplier" else "%d%%" % int(roundf(value * 100)), Vector2(618, y), Vector2(68, 27), 17, GOLD)
@@ -1140,6 +1532,9 @@ func _show_collection() -> void:
 	_new_screen()
 	_sync_world()
 	_shade(screen)
+	if mobile_mode:
+		_build_mobile_collection()
+		return
 	_label(screen, "YOUR LITTLE CORNER OF THE FAIR", Vector2(54, 34), Vector2(1170, 27), 16, GOLD)
 	_label(screen, "A stand with a story.", Vector2(51, 78), Vector2(1172, 58), 43)
 	var summary: Dictionary = profile.get_summary() if profile != null else {}
@@ -1175,19 +1570,78 @@ func _select_cosmetic(id: String) -> void:
 	_apply_cosmetic()
 	_show_collection()
 
+func _build_mobile_collection() -> void:
+	_label(screen, "A stand with a story.", Vector2(40, 26), Vector2(1200, 56), 41)
+	var summary: Dictionary = profile.get_summary() if profile != null else {}
+	_label(screen, "%d served · %d campaigns completed · %d best streak" % [int(summary.get("total_served", 0)), int(summary.get("campaign_wins", 0)), int(summary.get("best_streak", 0))], Vector2(44, 101), Vector2(1192, 40), 25, MINT)
+	var cosmetics: Array = profile.get_cosmetics() if profile != null else []
+	for i in range(mini(cosmetics.size(), 3)):
+		var item: Dictionary = cosmetics[i]
+		var card = _panel(screen, Vector2(40 + i * 408, 166), Vector2(384, 390), PANEL)
+		var swatch = _panel(card, Vector2(20, 18), Vector2(344, 62), item.get("accent", GOLD))
+		_label(swatch, "GOLDEN HOUR", Vector2(14, 14), Vector2(316, 36), 25, INK)
+		_text(card, str(item.name), Vector2(20, 98), Vector2(344, 70), 29)
+		_text(card, str(item.description), Vector2(20, 178), Vector2(344, 88), 23, MUTED)
+		if bool(item.get("unlocked", false)):
+			var selected = bool(item.get("selected", false))
+			var button = _mobile_menu_button(card, "EQUIPPED" if selected else "USE THIS LOOK", Vector2(20, 282), Vector2(344, 88), _select_cosmetic.bind(str(item.id)), MINT if selected else GOLD)
+			button.disabled = selected
+		else:
+			_text(card, str(item.get("requirement", "Keep serving to unlock")), Vector2(20, 282), Vector2(344, 88), 23, GOLD)
+	_text(screen, "Every look is earned by playing. Your chosen palette never changes the rules.", Vector2(44, 583), Vector2(1192, 65), 24, MUTED)
+	_mobile_menu_button(screen, "CAREER BADGES", Vector2(40, 684), Vector2(576, 88), _show_mobile_badges, PANEL)
+	_mobile_menu_button(screen, "BACK TO THE STAND", Vector2(644, 684), Vector2(596, 88), _show_title)
+
+func _show_mobile_badges() -> void:
+	var p = _modal(Vector2(1080, 740))
+	_label(p, "Career badges", Vector2(30, 20), Vector2(1020, 49), 35)
+	var badges: Array = profile.get_badges() if profile != null and profile.has_method("get_badges") else []
+	for i in range(mini(badges.size(), 6)):
+		var badge: Dictionary = badges[i]
+		var card = _panel(p, Vector2(30 + (i % 3) * 344, 91 + int(i / 3) * 245), Vector2(328, 223), PANEL)
+		_text(card, str(badge.name), Vector2(16, 14), Vector2(296, 62), 24, MINT if badge.get("unlocked", false) else CREAM)
+		_text(card, "EARNED" if badge.get("unlocked", false) else str(badge.description), Vector2(16, 91), Vector2(296, 113), 22, GOLD if badge.get("unlocked", false) else MUTED)
+	_mobile_menu_button(p, "BACK TO COLLECTION", Vector2(30, 630), Vector2(1020, 88), _close_overlay)
+
 func _apply_cosmetic() -> void:
 	if profile != null and is_instance_valid(world) and world.has_method("set_cosmetic"):
 		world.set_cosmetic(profile.selected_cosmetic)
 
 func _show_credits() -> void:
+	if mobile_mode:
+		var panel = _modal(Vector2(1000, 710))
+		_label(panel, "Made for the little moments.", Vector2(30, 25), Vector2(940, 54), 35)
+		_text(panel, "GOLDEN HOUR / " + VERSION + "\n\nOriginal game art, characters, animation and sound created for Golden Hour. Built with Godot Engine. Fredoka typeface under the SIL Open Font License.\n\nThe complete engine, third-party and font notices are available below.", Vector2(32, 105), Vector2(936, 242), 23, MUTED)
+		_button(panel, "GODOT ENGINE LICENSE", Vector2(30, 370), Vector2(940, 58), func(): _show_mobile_license("Godot Engine", "res://docs/licenses/Godot-LICENSE.txt"), PANEL)
+		_button(panel, "ENGINE THIRD-PARTY NOTICES", Vector2(30, 440), Vector2(940, 58), func(): _show_mobile_license("Engine third-party notices", "res://docs/licenses/Godot-COPYRIGHT.txt"), PANEL)
+		_button(panel, "FREDOKA FONT LICENSE", Vector2(30, 510), Vector2(940, 58), func(): _show_mobile_license("Fredoka font", "res://assets/fonts/OFL.txt"), PANEL)
+		_button(panel, "BACK TO SETTINGS", Vector2(30, 620), Vector2(940, 60), _show_settings)
+		return
 	var p = _modal(Vector2(760, 578))
 	_label(p, "Made for the little moments.", Vector2(30, 27), Vector2(700, 54), 36)
 	_label(p, "GOLDEN HOUR  /  VERSION " + VERSION, Vector2(33, 98), Vector2(694, 25), 16, GOLD)
 	_text(p, "A hands-on mini-donut stand game.\n\nOriginal stand, donuts, characters, interface, animation, illustration and synthesized sound created for Golden Hour.\n\nBuilt with the Godot Engine, available under the MIT licence.\nFredoka typeface is provided under the SIL Open Font License.\n\nComplete engine, third-party and font licence notices are included in the LICENSES folder alongside the game.", Vector2(34, 153), Vector2(692, 288), 19, MUTED)
 	_button(p, "BACK", Vector2(34, 486), Vector2(692, 52), _close_overlay)
 
+func _show_mobile_license(title: String, path: String) -> void:
+	var p = _modal(Vector2(1080, 744))
+	_label(p, title, Vector2(30, 22), Vector2(1020, 47), 31)
+	var text = RichTextLabel.new()
+	text.position = Vector2(32, 88)
+	text.size = Vector2(1016, 552)
+	text.add_theme_font_size_override("normal_font_size", 20)
+	text.add_theme_color_override("default_color", CREAM)
+	text.bbcode_enabled = false
+	text.selection_enabled = true
+	text.scroll_active = true
+	text.mouse_filter = Control.MOUSE_FILTER_STOP
+	text.text = FileAccess.get_file_as_string(path) if FileAccess.file_exists(path) else "This notice is missing from the installed package. Please reinstall the complete game."
+	p.add_child(text)
+	_button(p, "BACK TO CREDITS", Vector2(30, 666), Vector2(1020, 58), _show_credits)
+
 func _quit_game() -> void:
 	_save_run()
+	if mobile_mode: _save_settings()
 	if not test_mode: get_tree().quit()
 
 func _apply_audio_settings() -> void:
@@ -1204,6 +1658,7 @@ func _apply_effect_settings() -> void:
 
 func _modal(dimensions: Vector2) -> Panel:
 	_close_overlay()
+	_cancel_mobile_input()
 	get_viewport().gui_release_focus()
 	_set_screen_modal_focus(screen, true)
 	_stop_hold()
@@ -1219,6 +1674,7 @@ func _modal(dimensions: Vector2) -> Panel:
 	return _panel(overlay, (Vector2(1280, 800) - dimensions) * 0.5, dimensions, INK)
 
 func _close_overlay() -> void:
+	_cancel_mobile_input()
 	if is_instance_valid(overlay):
 		ui.remove_child(overlay)
 		overlay.queue_free()
@@ -1310,6 +1766,10 @@ func _button(parent: Node, value: String, at: Vector2, dimensions: Vector2, call
 	button.add_theme_font_size_override("font_size", 19)
 	button.add_theme_color_override("font_color", INK if color == GOLD or color == MINT else CREAM)
 	button.add_theme_color_override("font_hover_color", INK if color == GOLD or color == MINT else CREAM)
+	if mobile_mode:
+		var text_color = INK if color in [GOLD, MINT, CREAM] else CREAM
+		for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			button.add_theme_color_override(state, text_color)
 	button.add_theme_color_override("font_disabled_color", MUTED)
 	button.add_theme_stylebox_override("normal", _style(color))
 	button.add_theme_stylebox_override("hover", _style(color.lightened(0.12)))
@@ -1385,7 +1845,7 @@ func _load_saved_run(paths: Array = []) -> void:
 
 func _save_settings() -> void:
 	if test_mode: return
-	_write_json_atomic(SETTINGS_PATH, {"muted": muted, "music_on": music_on, "reduced_motion": reduced_motion, "tutorial_seen": tutorial_seen, "sfx_volume": sfx_volume, "music_volume": music_volume, "ambience_volume": ambience_volume, "look_sensitivity": look_sensitivity, "invert_look": invert_look, "run_migrated": _legacy_migration_done})
+	_write_json_atomic(SETTINGS_PATH, {"muted": muted, "music_on": music_on, "reduced_motion": reduced_motion, "tutorial_seen": tutorial_seen, "sfx_volume": sfx_volume, "music_volume": music_volume, "ambience_volume": ambience_volume, "look_sensitivity": look_sensitivity, "invert_look": invert_look, "graphics_quality": graphics_quality, "run_migrated": _legacy_migration_done})
 
 func _load_settings() -> void:
 	var data: Dictionary = {}
@@ -1405,6 +1865,7 @@ func _load_settings() -> void:
 	ambience_volume = _safe_setting(data, "ambience_volume", 0.5, 0.0, 1.0)
 	look_sensitivity = _safe_setting(data, "look_sensitivity", 1.0, 0.35, 2.0)
 	invert_look = bool(data.get("invert_look", false))
+	graphics_quality = int(_safe_setting(data, "graphics_quality", 1.0 if mobile_mode else 2.0, 0.0, 2.0))
 	_legacy_migration_done = bool(data.get("run_migrated", false))
 
 func _safe_setting(data: Dictionary, key: String, fallback: float, low: float, high: float) -> float:

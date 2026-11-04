@@ -1,38 +1,38 @@
 # Golden Hour
 
-## Unity Windows edition — 1.1.0
+**Godot is the active development project again:** open `project.godot` with
+Godot **4.7.2 stable**. The current release target is **Android 1.0.7**, building
+on the Godot 1.0.6 campaign. The separate **Unity Windows 1.1.0** edition remains
+a preserved checkpoint; its project, packaged release, and saves are retained.
 
-The active project is now `unity/GoldenHour`, built with Unity **6000.3.28f1**
-and URP. Launch `builds/unity/windows/GoldenHour.exe`. This edition has one
-complete timed **Opening Day**, no-pressure **Practice**, and unlockable
-**After Hours**. It uses authored FBX props and skinned characters, physical
-mini donuts, independent fryer controls, articulated tool handling, a recessed
-discard opening, warm fairground lighting, and the tray-shake/fire/punch gags.
+## Android — 1.0.7
 
-Read the customer ticket. Choose a bag or bucket, scoop from the tray, pour into
-the package, add the requested sugar, then serve. You can keep the scoop while
-collecting packaging. Click highlighted objects; **Tab** shows the whole counter,
-**F1** opens the field guide, **Esc** pauses, and **F11** toggles fullscreen.
-The field guide explains the optional keyboard shortcuts and machine recovery.
+The Android work adds landscape touch controls, a larger mobile HUD, an optional
+Tools drawer, camera recentering, and touch-accessible help/settings. Tap the
+physical counter objects to work; drag to look. Hold the repair lever or batter
+hopper to perform maintenance, then release to stop. No keyboard is required.
 
-Build from this directory with `pwsh -File tools/unity/build_windows.ps1`.
-The builder runs the core acceptance suite, imports/audits the assets, creates
-the scene, and compiles the native Windows player. See
-[Unity handoff](unity/UNITY_MORNING_STATUS.txt) for validation and known scope.
-The first licensed native build has been tested at 1920 × 1080; platform stores,
-payments, mobile ports, additional venues, and wider hardware testing remain
-outside this Windows edition. Existing Godot releases and saves are preserved.
+Low, Balanced, and High graphics profiles adjust 3D detail without reducing HUD
+resolution. Start with Balanced. Android Back opens a safe menu, and backgrounding
+pauses play, cancels held actions, and saves the run. Settings include device
+information and access to the bundled engine and font notices.
 
-## Preserved Godot edition — 1.0.6
+The signed ARMv7 + ARM64 + x86_64 APK target is:
+`builds/android/1.0.7/GoldenHour-1.0.7-Android.apk`.
+Signing/package verification and 569 automated checks passed. Android emulator
+checks cover touch interaction, saved orders/settings, and background/resume.
+**Physical-phone installation, ergonomics, sustained performance, and lifecycle
+acceptance remain pending**.
+Frame-rate caps are targets, not measured phone performance. See the
+[Android build and sideload guide](docs/ANDROID.md) before sharing a build.
 
-The following documents the earlier Godot release, which is still available.
-Its campaign and feature counts do not describe the separate Unity edition.
+## The Godot game
 
-A first-person mini-donut stand game for Windows. Work a warm fairground booth:
+A first-person mini-donut stand game. Work a warm fairground booth:
 scoop fresh donuts, fill bags and buckets, add cinnamon or powdered sugar, and
 hand each order to its customer while keeping the fryer running.
 
-Version **1.0.6** contains the complete fairground campaign: six named shifts,
+The Godot campaign carried forward from **1.0.6** contains six named shifts,
 nineteen earned equipment and service upgrades, Standard and Relaxed difficulty,
 no-pressure practice, an unlockable Endless Rush, career badges and three earned
 stand palettes. All play is local and offline. Purchases and platform services
@@ -61,7 +61,7 @@ small pinhole-center donuts, recessed discard opening, folded kraft bags,
 curved shaker labels, detailed customers and gloves, authored wood/paper
 surfaces, sweeping chute, independent dials and fairground ticket menu remain.
 
-## Play
+## Preserved Windows and Web releases
 
 Extract the Windows ZIP from `builds/releases/` and launch `GoldenHour.exe`.
 The unpacked build also lives at `builds/windows/1.0.6/GoldenHour.exe`.
@@ -82,13 +82,39 @@ reduces camera shake and moving effects while preserving gameplay outcomes. Acti
 runs and career progress save locally; practice preserves the campaign save.
 
 The companion browser build is `builds/web/1.0.6/`. Serve it over HTTP; it needs
-WebGL 2 and WebAssembly. Windows is the primary platform. Native mobile builds,
-gamepad controls, Steam services and additional venues are future work.
+WebGL 2 and WebAssembly. These existing desktop/browser releases remain available
+while Android 1.0.7 is developed. Gamepad controls, Steam services and additional
+venues remain future work.
+
+## Preserved Unity Windows checkpoint — 1.1.0
+
+`unity/GoldenHour` uses Unity **6000.3.28f1** and URP. Its separate scope is one
+timed **Opening Day**, **Practice**, and earned **After Hours**. It includes
+authored FBX props, skinned characters, physical donuts, independent fryer dials,
+articulated tool handling, warm fairground lighting, and booth gags. The Godot
+campaign counts above do not describe this edition.
+
+Launch `builds/unity/windows/GoldenHour.exe`; **Tab** shows the whole counter,
+**F1** opens the field guide, **Esc** pauses, and **F11** toggles fullscreen.
+Its build command remains `pwsh -File tools/unity/build_windows.ps1`.
+The [Unity handoff](unity/UNITY_MORNING_STATUS.txt) records the preserved package,
+native verification, and remaining scope. Android development uses Godot and
+does not replace or migrate Unity saves.
 
 ## Build and maintain
 
 Godot **4.7.2 stable**, GDScript, Compatibility renderer. Open `project.godot`;
-the active scene is `scenes/stand_main.tscn`.
+the active scene is `scenes/stand_main.tscn`. For Android:
+
+```powershell
+python tools/setup_android_toolchain.py
+python tools/build_android.py
+```
+
+The Android builder uses a private signing key stored outside the repository.
+Back up that key and its local credentials for future updates. Setup, output
+verification, and phone testing are described in [ANDROID.md](docs/ANDROID.md).
+For the existing Windows/Web build pipeline:
 
 ```powershell
 pwsh -File tools/build_stand_playtest.ps1
@@ -108,6 +134,9 @@ Web, and packages ZIPs with notices and SHA256 checksums. See
 | `scripts/stand_food_physics.gd` | Conveyor path, rigid donuts, tray collisions and waste |
 | `scripts/stand_main.gd` | Input, menus, progression and persistence |
 | `scripts/stand_hud.gd` | Tickets, gauges, contextual guidance and fault pointers |
+| `scripts/mobile_controls.gd` | Mobile toolbar, contextual action, optional Tools drawer and cancellable holds |
+| `scripts/mobile_input.gd` | Touch tap/drag/hold recognition and safe-area canvas mapping |
+| `scripts/mobile_quality.gd` | Low/Balanced/High rendering profiles and device diagnostics |
 | `scripts/stand_feedback.gd` | Exact receipt amounts and escalating celebrations |
 | `scripts/stand_audio.gd` | Tactile service sounds and bounded audio mixer |
 | `scripts/player_profile.gd` | Career records, badges and earned palettes |
