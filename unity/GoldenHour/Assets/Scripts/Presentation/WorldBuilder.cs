@@ -9,6 +9,7 @@ namespace GoldenHour.Presentation
     {
         readonly StandAssets a;
         readonly Transform root;
+        WorldTextAtlas lettering;
         public Camera Camera { get; private set; }
         public Transform Fryer, Tray, Scoop, PackageSpot, Customer, Hands, HeatDial, ServiceDial;
         public readonly List<Light> Bulbs = new List<Light>();
@@ -17,6 +18,7 @@ namespace GoldenHour.Presentation
         public WorldBuilder(StandAssets assets, Transform parent) { a=assets; root=parent; }
         public void Build()
         {
+            lettering=root.gameObject.AddComponent<WorldTextAtlas>();lettering.Initialize(a.font,a.worldText);
             Camera = new GameObject("Operator camera", typeof(Camera), typeof(AudioListener)).GetComponent<Camera>();
             Camera.transform.SetParent(root);
             Camera.transform.position = new Vector3(0,1.70f,-1.40f);
@@ -30,18 +32,18 @@ namespace GoldenHour.Presentation
             data.antialiasingQuality=AntialiasingQuality.High;
             var sun=new GameObject("Late summer sun",typeof(Light)).GetComponent<Light>();
             sun.transform.rotation=Quaternion.Euler(30,-35,0); sun.type=LightType.Directional;
-            sun.color=new Color(1,.73f,.47f); sun.intensity=2.0f; sun.shadows=LightShadows.Soft;
+            sun.color=new Color(1,.94f,.86f); sun.intensity=1.25f; sun.shadows=LightShadows.Soft;sun.shadowStrength=.8f;
             sun.shadowBias=.03f; sun.shadowNormalBias=.15f;
             RenderSettings.ambientMode=AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor=new Color(.28f,.34f,.50f);
-            RenderSettings.ambientEquatorColor=new Color(.22f,.25f,.30f);
-            RenderSettings.ambientGroundColor=new Color(.14f,.11f,.09f);
+            RenderSettings.ambientSkyColor=new Color(.40f,.47f,.56f);
+            RenderSettings.ambientEquatorColor=new Color(.32f,.35f,.39f);
+            RenderSettings.ambientGroundColor=new Color(.20f,.19f,.17f);
             RenderSettings.fog=true; RenderSettings.fogColor=new Color(.17f,.20f,.28f); RenderSettings.fogMode=FogMode.Exponential; RenderSettings.fogDensity=.022f;
             var volume=new GameObject("Warm film",typeof(Volume)).GetComponent<Volume>(); volume.isGlobal=true;
             volume.profile=ScriptableObject.CreateInstance<VolumeProfile>();
             var tone=volume.profile.Add<Tonemapping>(true); tone.mode.Override(TonemappingMode.ACES);
             var bloom=volume.profile.Add<Bloom>(true); bloom.intensity.Override(.24f); bloom.threshold.Override(1.25f); bloom.scatter.Override(.5f);
-            var grade=volume.profile.Add<ColorAdjustments>(true); grade.postExposure.Override(.12f); grade.contrast.Override(8); grade.saturation.Override(7);
+            var grade=volume.profile.Add<ColorAdjustments>(true); grade.postExposure.Override(.05f); grade.contrast.Override(2); grade.saturation.Override(-8);
             var vignette=volume.profile.Add<Vignette>(true); vignette.intensity.Override(.13f); vignette.smoothness.Override(.55f);
             Box("Fairground",new Vector3(0,-.08f,5),new Vector3(70,.15f,70),a.ground,true);
             var counter=Model(a.counter,"Oak counter",Vector3.zero);
@@ -61,7 +63,9 @@ namespace GoldenHour.Presentation
             Scoop=Model(a.scoop,"The scoop",new Vector3(-.02f,.9112f,-.3f));
             Scoop.rotation=Quaternion.Euler(0,180,0);
             Station(Scoop,StationKind.Scoop,"SCOOP",new Vector3(0,.046f,.065f),new Vector3(.12f,.11f,.35f));
-            PackageSpot=new GameObject("Packing mat").transform; PackageSpot.SetParent(root); PackageSpot.position=new Vector3(.93f,.9165f,-.17f);
+            // Keep large buckets to the right of the left arm's path to both
+            // shakers, including the pickup/return pose at their resting spots.
+            PackageSpot=new GameObject("Packing mat").transform; PackageSpot.SetParent(root); PackageSpot.position=new Vector3(1.10f,.9165f,-.17f);
             Box("Packing mat",PackageSpot.position-Vector3.up*.0045f,new Vector3(.35f,.009f,.32f),a.teal,false);
             var fill=Station(PackageSpot,StationKind.Package,"FILL / LIFT ORDER",new Vector3(0,.10f,0),new Vector3(.32f,.24f,.29f));
             var bags=Model(a.bag,"Paper bags",new Vector3(1.42f,.908f,.19f));
@@ -93,9 +97,10 @@ namespace GoldenHour.Presentation
             if (a.hands) { Hands=Model(a.hands,"Operator hands",Vector3.zero); Hands.SetParent(Camera.transform,false); }
             BuildCanopy(); BuildFairground();
             var fillLight=new GameObject("Counter softbox",typeof(Light)).GetComponent<Light>();
-            fillLight.type=LightType.Point; fillLight.range=5; fillLight.intensity=3.2f; fillLight.color=new Color(1,.83f,.62f); fillLight.transform.position=new Vector3(0,2.3f,-.5f);
+            fillLight.type=LightType.Point; fillLight.range=5; fillLight.intensity=2.4f; fillLight.color=new Color(.84f,.91f,1); fillLight.transform.position=new Vector3(0,2.3f,-.5f);
             var probe=new GameObject("Counter reflections",typeof(ReflectionProbe)).GetComponent<ReflectionProbe>();
-            probe.transform.position=new Vector3(0,1.3f,0); probe.size=new Vector3(8,5,8); probe.mode=ReflectionProbeMode.Realtime; probe.refreshMode=ReflectionProbeRefreshMode.OnAwake; probe.resolution=128; probe.boxProjection=true;
+            probe.transform.position=new Vector3(0,1.7f,-.75f); probe.size=new Vector3(8,5,8); probe.mode=ReflectionProbeMode.Realtime; probe.refreshMode=ReflectionProbeRefreshMode.OnAwake; probe.resolution=128; probe.boxProjection=true;
+            probe.gameObject.AddComponent<CounterReflectionCapture>();
         }
         void TrayWall(string name,Vector3 p,Vector3 size) { var g=Box(name,Vector3.zero,size,a.steel,true,false); g.transform.SetParent(Tray,false); g.transform.localPosition=p; }
         public Transform Model(GameObject prefab,string name,Vector3 position)
@@ -126,8 +131,8 @@ namespace GoldenHour.Presentation
                 Object.Destroy(b.GetComponent<Collider>()); b.GetComponent<Renderer>().sharedMaterial=a.glow;
                 if(i%4==0) { var l=b.AddComponent<Light>(); l.type=LightType.Point; l.range=1.3f; l.color=new Color(1,.57f,.18f); l.intensity=.4f; Bulbs.Add(l); }
             }
-            Text("GOLDEN HOUR",new Vector3(0,2.64f,-.175f),.093f,Color.white);
-            Text("HOT • FRESH • LITTLE",new Vector3(0,.67f,-.445f),.055f,new Color(1,.81f,.42f));
+            Text("GOLDEN HOUR",new Vector3(0,2.64f,-.175f),.30f,Color.white);
+            Text("HOT • FRESH • LITTLE",new Vector3(0,.67f,-.445f),.14f,new Color(1,.81f,.42f));
         }
         void BuildFairground()
         {
@@ -135,7 +140,7 @@ namespace GoldenHour.Presentation
             {
                 float x=(i-3)*3.7f;
                 Model(a.marketStall,"Midway stall",new Vector3(x,0,7.5f+(i%2)));
-                Text(new[]{"LEMONADE","CANDY APPLES","THE MIDWAY","TICKETS","ARCADE","POPCORN","FUN & GAMES"}[i],new Vector3(x,2.05f,6.62f+i%2),.06f,Color.white);
+                Text(new[]{"LEMONADE","CANDY APPLES","THE MIDWAY","TICKETS","ARCADE","POPCORN","FUN & GAMES"}[i],new Vector3(x,2.05f,6.62f+i%2),.28f,Color.white);
                 var l=new GameObject("Stall lamp",typeof(Light)).GetComponent<Light>(); l.transform.position=new Vector3(x,2,6.4f+i%2); l.type=LightType.Point; l.color=new Color(1,.57f,.26f); l.intensity=2; l.range=5;
             }
             Model(a.ferrisWheel,"Midway ferris wheel",new Vector3(-8,0,15));
@@ -150,8 +155,8 @@ namespace GoldenHour.Presentation
         public void Text(string text,Vector3 p,float size,Color color)
         {
             var go=new GameObject(text,typeof(TextMesh)); go.transform.SetParent(root); go.transform.position=p; go.transform.rotation=Quaternion.identity;
-            var tm=go.GetComponent<TextMesh>(); tm.text=text; tm.fontSize=90; tm.characterSize=size; tm.anchor=TextAnchor.MiddleCenter; tm.alignment=TextAlignment.Center; tm.color=color;
-            if(a.font) { tm.font=a.font; tm.GetComponent<Renderer>().sharedMaterial=a.font.material; }
+            var tm=go.GetComponent<TextMesh>(); tm.text=text; tm.fontSize=90; tm.characterSize=size*10f/tm.fontSize; tm.anchor=TextAnchor.MiddleCenter; tm.alignment=TextAlignment.Center; tm.color=color;
+            if(a.font) { a.font.RequestCharactersInTexture(text,90,FontStyle.Normal);tm.font=a.font; tm.GetComponent<Renderer>().sharedMaterial=lettering.Material; }
         }
         static void TintLabel(Transform root,Color tint) { foreach(var r in root.GetComponentsInChildren<Renderer>()) if(r.name.ToLowerInvariant().Contains("label")) { var m=new Material(r.sharedMaterial); m.color=tint; r.sharedMaterial=m; } }
         public static Transform Find(Transform root,string name) { foreach(var t in root.GetComponentsInChildren<Transform>()) if(t.name==name) return t; return null; }

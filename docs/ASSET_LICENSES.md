@@ -1,5 +1,26 @@
 # Asset provenance
 
+## Unity Windows edition
+
+The Unity edition uses original Blender-authored FBX props, a skinned baker-hand
+rig, a skinned fairgoer, and authored animation clips. Reproducible generators,
+Blender sources, import manifests, and rig notes live under `tools/unity/` and
+`unity/GoldenHour/`. These are separate assets from the legacy Godot meshes.
+The procedural ground, sky, text rendering, lighting, and anchored fire effect
+are original project code. Existing original audio, brand art, and surface maps
+are reused where listed in the Unity asset manifests.
+
+The transparent flame image was generated with OpenAI's built-in image generation
+tool. Its exact prompt and alpha checks are in
+`unity/GoldenHour/Assets/Art/Textures/oil_flame.provenance.json`.
+The generated image is used by an original animated effect; no reference-game
+models, textures, animations, or fire sprites were extracted.
+
+The Unity Windows player is built with Unity 6000.3.28f1 and URP. The Godot MIT
+license below applies to the preserved Godot edition, not to the Unity runtime.
+The Fredoka font notice below applies to both editions. Unity package notices
+are included separately in the Unity Windows distribution.
+
 ## Original project assets
 
 The donut machine, donuts, counter, trays, customers, first-person hands, scoop,

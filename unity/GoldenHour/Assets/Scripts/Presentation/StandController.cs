@@ -16,6 +16,7 @@ namespace GoldenHour.Presentation
         public bool ScoopEquipped {get;private set;}
         public bool PackageLifted {get;private set;}
         public bool Busy {get;private set;}
+        public bool AutomatedRun {get;private set;}
         public bool ReducedMotion {get;set;}
         public float Volume {get;set;}=.75f;
         public float MusicVolume {get;set;}=.25f;
@@ -27,17 +28,22 @@ namespace GoldenHour.Presentation
         public Transform Package {get;private set;}
         public readonly Dictionary<int,DonutBody> Food=new Dictionary<int,DonutBody>();
         public Action<string> OnCue;
-        Vector3 scoopRest,customerRest,cameraRest;
-        Quaternion cameraRotation;
-        Transform heldTool;
+        Vector3 scoopRest,customerRest;
+        public OperatorWorkstationRig Operator {get;private set;}
+        Transform plunger,flipper;
+        Vector3 plungerRest;
+        Quaternion heatRestRotation,feedRestRotation,flipperRestRotation;
         CharacterAnimationDriver handDriver,customerDriver;
         HandWorkstationDriver handWork;
         AudioSource effects,music;
         float shakeCombo,lastShake,heatVisual=3,feedVisual=2,screenShake,bellUntil;
         float saveCheck;
         int lastCustomer;
-        ParticleSystem fire,foam,score;
-        Material softParticleMaterial,flameMaterial;
+        PackageKind visualPackageKind;
+        Vector3 PackageGrip {get{return visualPackageKind==PackageKind.Bucket?new Vector3(-.135f,.12f,0):new Vector3(-.08f,.13f,0);}}
+        ParticleSystem foam,score;
+        OilFlameVisual oilFlames;
+        Material softParticleMaterial;
         Texture2D softParticleTexture;
         public PhysicsMaterial DoughPhysics {get;private set;}
         Light fireLight;
@@ -50,7 +56,8 @@ namespace GoldenHour.Presentation
         readonly Dictionary<Transform,Quaternion> restRotations=new Dictionary<Transform,Quaternion>();
         void Awake()
         {
-            Application.runInBackground=Environment.GetCommandLineArgs().Any(arg=>arg=="--gh-smoke"||arg=="--gh-acceptance");
+            AutomatedRun=Environment.GetCommandLineArgs().Any(arg=>arg=="--gh-smoke"||arg=="--gh-acceptance"||arg=="--gh-ui-smoke");
+            Application.runInBackground=AutomatedRun;
             Application.targetFrameRate=120; QualitySettings.vSyncCount=1;
             ReducedMotion=PlayerPrefs.GetInt("motion",0)==1;
             Volume=PlayerPrefs.GetFloat("volume",.75f); MusicVolume=PlayerPrefs.GetFloat("music",.25f);
@@ -58,44 +65,47 @@ namespace GoldenHour.Presentation
             DoughPhysics=new PhysicsMaterial("Warm dough") { dynamicFriction=.42f,staticFriction=.48f,bounciness=.07f };
             World=new WorldBuilder(assets,transform); World.Build();
             foreach(var station in World.Stations.Values){restPositions[station.transform]=station.transform.position;restRotations[station.transform]=station.transform.rotation;}
-            cameraRest=World.Camera.transform.position; cameraRotation=World.Camera.transform.rotation;
+            Operator=gameObject.AddComponent<OperatorWorkstationRig>();Operator.Configure(World.Camera,World.Hands,ReducedMotion);
             scoopRest=World.Scoop.position; customerRest=World.Customer.position;
-            if(World.Hands){handDriver=World.Hands.GetComponent<CharacterAnimationDriver>();handWork=World.Hands.gameObject.AddComponent<HandWorkstationDriver>();}
-            customerDriver=World.Customer.GetComponent<CharacterAnimationDriver>();
+            if(World.Hands){handDriver=World.Hands.GetComponentInChildren<CharacterAnimationDriver>();handWork=World.Hands.gameObject.AddComponent<HandWorkstationDriver>();}
+            if(handWork)
+            {
+                foreach(string side in new[]{"L","R"})
+                {
+                    var elbow=new GameObject("Elbow guide "+side).transform;elbow.SetParent(Operator.Frame,false);
+                    elbow.localPosition=new Vector3(side=="R"?.50f:-.50f,-.35f,-.15f);
+                    handWork.SetElbowHint(elbow,side);
+                }
+            }
+            customerDriver=World.Customer.GetComponentInChildren<CharacterAnimationDriver>();
+            if(World.HeatDial)heatRestRotation=World.HeatDial.rotation;
+            if(World.ServiceDial)feedRestRotation=World.ServiceDial.rotation;
+            plunger=WorldBuilder.Find(World.Fryer,"Plunger");if(plunger)plungerRest=plunger.position;
+            flipper=WorldBuilder.Find(World.Fryer,"Flipper");if(flipper)flipperRestRotation=flipper.rotation;
             effects=gameObject.AddComponent<AudioSource>(); effects.spatialBlend=0;
             music=gameObject.AddComponent<AudioSource>(); music.clip=Sound("fairground_loop"); music.loop=true; music.volume=MusicVolume; if(music.clip) music.Play();
-            fire=Particles("Oil flames",World.Fryer.position+new Vector3(0,.25f,0),new Color(1,.25f,.015f,.7f),.17f,70,1.0f);
-            var shape=fire.shape; shape.shapeType=ParticleSystemShapeType.Box; shape.scale=new Vector3(.72f,.015f,.19f);
-            var main=fire.main; main.startSpeed=new ParticleSystem.MinMaxCurve(.24f,.8f); main.startSize=new ParticleSystem.MinMaxCurve(.055f,.18f); main.gravityModifier=-.12f;
-            if(assets.flame)
-            {
-                flameMaterial=new Material(softParticleMaterial);flameMaterial.SetTexture("_BaseMap",assets.flame);
-                fire.GetComponent<ParticleSystemRenderer>().sharedMaterial=flameMaterial;
-                main.startColor=Color.white;main.startSize3D=true;main.startSizeX=new ParticleSystem.MinMaxCurve(.16f,.24f);main.startSizeY=new ParticleSystem.MinMaxCurve(.25f,.47f);main.startSizeZ=.2f;
-                var emission=fire.emission;emission.rateOverTime=18;
-                var fireColor=fire.colorOverLifetime;var fireGradient=new Gradient();fireGradient.SetKeys(new[]{new GradientColorKey(Color.white,0),new GradientColorKey(new Color(1,.55f,.25f),1)},new[]{new GradientAlphaKey(0,0),new GradientAlphaKey(.75f,.2f),new GradientAlphaKey(0,1)});fireColor.color=fireGradient;
-            }
-            var size=fire.sizeOverLifetime;size.enabled=true;size.size=new ParticleSystem.MinMaxCurve(1,AnimationCurve.EaseInOut(0,1,1,0));
-            fire.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
-            fireLight=new GameObject("Oil fire light",typeof(Light)).GetComponent<Light>(); fireLight.transform.position=fire.transform.position+Vector3.up*.25f; fireLight.color=new Color(1,.25f,.025f); fireLight.range=3; fireLight.intensity=0;
+            oilFlames=gameObject.AddComponent<OilFlameVisual>();oilFlames.Initialize(World.Camera,assets.particle,World.Fryer,new Bounds(new Vector3(0,.2265f,0),new Vector3(1.22f,0,.26f)),assets.flame);
+            fireLight=new GameObject("Oil fire light",typeof(Light)).GetComponent<Light>(); fireLight.transform.position=World.Fryer.position+Vector3.up*.45f; fireLight.color=new Color(1,.25f,.025f); fireLight.range=3; fireLight.intensity=0;
             foam=Particles("Extinguisher mist",World.Fryer.position+Vector3.up*.35f,new Color(.95f,.98f,1,.8f),.12f,110,.8f); foam.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
             score=Particles("Golden crumbs",new Vector3(.1f,1.6f,.2f),new Color(1,.67f,.18f),.018f,0,.9f); score.Stop();
             gameObject.AddComponent<StandHUD>().Initialize(this,assets);
             if(Environment.GetCommandLineArgs().Contains("--gh-practice"))StartShift(GameMode.Practice);
             if(Environment.GetCommandLineArgs().Contains("--gh-smoke")){StartShift(GameMode.Practice);StartCoroutine(SmokeRun());}
             if(Environment.GetCommandLineArgs().Contains("--gh-acceptance"))gameObject.AddComponent<SceneAcceptance>();
+            if(Environment.GetCommandLineArgs().Contains("--gh-ui-smoke"))gameObject.AddComponent<MenuAcceptance>();
         }
         public void StartShift(GameMode mode,bool relaxed=false)
         {
             StopAllCoroutines(); Busy=false;
             trayJiggle=null;
             foreach(var pair in restPositions)if(pair.Key){pair.Key.position=pair.Value;pair.Key.rotation=restRotations[pair.Key];}
-            if(fire)fire.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
+            if(oilFlames)oilFlames.SetBurning(false,true);
             if(foam)foam.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
             if(score)score.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
-            foreach(var transient in GetComponentsInChildren<ParticleSystem>())if(transient!=fire&&transient!=foam&&transient!=score)Destroy(transient.gameObject);
+            foreach(var transient in GetComponentsInChildren<ParticleSystem>())if(transient!=foam&&transient!=score)Destroy(transient.gameObject);
             shakeCombo=0;lastShake=-10;screenShake=0;Celebration=0;
-            handWork?.ClearToolTarget("L");handWork?.ClearToolTarget("R");
+            handWork?.ResetPoseTracking();if(handWork)handWork.RestWristWidth=.22f;
+            Operator.ReducedMotion=ReducedMotion;Operator.SnapToCentral();
             foreach(var f in Food.Values)if(f)Destroy(f.gameObject); Food.Clear();
             if(Package)Destroy(Package.gameObject); Package=null;
             Model.Start(mode,relaxed); Menu=false;Paused=false;Time.timeScale=1;ScoopEquipped=false;PackageLifted=false;
@@ -110,11 +120,11 @@ namespace GoldenHour.Presentation
         }
         public void TogglePause()
         {
-            if(Menu)return; Paused=!Paused;Time.timeScale=Paused?0:1;
+            if(Menu||Model.Phase!=GamePhase.Playing)return; Paused=!Paused;Time.timeScale=Paused?0:1;
             if(Paused)SaveSettings();
         }
         public void BackToMenu() { Menu=true;Paused=true;Time.timeScale=0;SaveSettings(); }
-        public void SaveSettings() { PlayerPrefs.SetInt("motion",ReducedMotion?1:0);PlayerPrefs.SetFloat("volume",Volume);PlayerPrefs.SetFloat("music",MusicVolume);PlayerPrefs.Save(); }
+        public void SaveSettings() { if(AutomatedRun)return;PlayerPrefs.SetInt("motion",ReducedMotion?1:0);PlayerPrefs.SetFloat("volume",Volume);PlayerPrefs.SetFloat("music",MusicVolume);PlayerPrefs.Save(); }
         void Update()
         {
             music.volume=MusicVolume;effects.volume=Volume;
@@ -130,16 +140,15 @@ namespace GoldenHour.Presentation
             }
             Celebration=Mathf.MoveTowards(Celebration,0,Time.deltaTime*.8f);
             screenShake=Mathf.MoveTowards(screenShake,0,Time.deltaTime*.7f);
-            World.Camera.transform.position=cameraRest+(ReducedMotion?Vector3.zero:new Vector3(Mathf.Sin(Time.time*49),Mathf.Cos(Time.time*41),0)*screenShake*.012f);
-            World.Camera.transform.rotation=cameraRotation;
+            Operator.ReducedMotion=ReducedMotion;
+            World.Camera.transform.localPosition=ReducedMotion?Vector3.zero:new Vector3(Mathf.Sin(Time.time*49),Mathf.Cos(Time.time*41),0)*screenShake*.008f;
             foreach(var l in World.Bulbs)l.intensity=.4f+Celebration*(1+Mathf.Sin(Time.time*15+l.transform.position.x));
             heatVisual=Mathf.Lerp(heatVisual,Model.HeatSetting,1-Mathf.Exp(-Time.deltaTime*12));
-            if(World.HeatDial)World.HeatDial.localRotation=Quaternion.Euler(0,0,-120+heatVisual*60);
+            if(World.HeatDial)World.HeatDial.rotation=Quaternion.AngleAxis(-120+heatVisual*60,World.Fryer.forward)*heatRestRotation;
             feedVisual=Mathf.Lerp(feedVisual,Model.SpeedSetting,1-Mathf.Exp(-Time.deltaTime*12));
-            if(World.ServiceDial)World.ServiceDial.localRotation=Quaternion.Euler(0,0,-120+feedVisual*60);
+            if(World.ServiceDial)World.ServiceDial.rotation=Quaternion.AngleAxis(-120+feedVisual*60,World.Fryer.forward)*feedRestRotation;
             AnimateMachine();
-            if(Model.FireActive) { if(!fire.isPlaying)fire.Play();fireLight.intensity=1.8f+Mathf.Sin(Time.time*29)*.5f; }
-            else { if(fire.isPlaying)fire.Stop();fireLight.intensity=0; }
+            oilFlames.SetBurning(Model.FireActive);fireLight.intensity=oilFlames.Intensity*(1.8f+Mathf.Sin(Time.time*29)*.5f);
             UpdatePointer();
             if(Busy||StandHUD.BlocksGameplayInput)return;
             if(Input.GetMouseButtonDown(0)&&Hover&&!StandHUD.PointerOverUI)Act(Hover.kind);
@@ -157,6 +166,8 @@ namespace GoldenHour.Presentation
             if(Input.GetKeyDown(KeyCode.Q))Act(StationKind.Package);
             if(Input.GetKeyDown(KeyCode.C))Act(StationKind.Cinnamon);
             if(Input.GetKeyDown(KeyCode.V))Act(StationKind.Powdered);
+            if(Input.GetKeyDown(KeyCode.F))Act(StationKind.Extinguisher);
+            if(Input.GetKeyDown(KeyCode.Tab))StartCoroutine(ChangeView());
         }
         void UpdatePointer()
         {
@@ -176,21 +187,20 @@ namespace GoldenHour.Presentation
                 case StationKind.Bag: ChoosePackage(PackageKind.Bag);break;
                 case StationKind.Bucket: ChoosePackage(PackageKind.Bucket);break;
                 case StationKind.Scoop:
-                    ScoopEquipped=!ScoopEquipped;
-                    StartCoroutine(MoveTool(World.Scoop,ScoopEquipped?HeldScoop:scoopRest,.32f,"Reach"));Cue("click");break;
+                    StartCoroutine(ToggleScoopMotion());Cue("click");break;
                 case StationKind.Tray:
                     if(!ScoopEquipped){ShakeTray();break;}
                     var ids=Food.Values.Where(d=>d&&d.Reachable).OrderBy(d=>d.transform.position.y).Reverse().Select(d=>d.Id).ToArray();
                     var scoop=Model.Scoop(ids);if(Report(scoop))StartCoroutine(ScoopMotion(scoop.DonutIds));break;
                 case StationKind.Package:
                     if(!Package){Notify("Choose a paper bag or bucket first.");break;}
-                    if(Model.ScoopCount>0){var r=Model.Pour();if(Report(r))StartCoroutine(PourMotion(r.DonutIds));}
-                    else {PackageLifted=!PackageLifted;if(PackageLifted)TrackHand(Package,"L",new Vector3(-.08f,.13f,0));else handWork?.ClearToolTarget("L");StartCoroutine(MoveTool(Package,PackageLifted?World.Camera.transform.TransformPoint(new Vector3(-.22f,-.32f,.60f)):World.PackageSpot.position,.40f,"Reach"));}break;
+                    if(Model.ScoopCount>0){if(!ScoopEquipped){Notify("Pick up the loaded scoop first.");break;}var r=Model.Pour();if(Report(r))StartCoroutine(PourMotion(r.DonutIds));}
+                    else StartCoroutine(TogglePackageMotion());break;
                 case StationKind.Cinnamon: Coat(Coating.Cinnamon,kind);break;
                 case StationKind.Powdered: Coat(Coating.Powdered,kind);break;
                 case StationKind.Customer:
                     if(PackageLifted&&Package){var sale=Model.Serve();if(Report(sale))StartCoroutine(ServeMotion());}
-                    else if(Package&&Model.PackageCount==Model.PackageCapacity&&Model.PackageCoating!=Coating.None){PackageLifted=true;var sale=Model.Serve();if(Report(sale))StartCoroutine(ServeMotion());}
+                    else if(Package&&Model.PackageCount==Model.PackageCapacity&&Model.PackageCoating!=Coating.None){var sale=Model.Serve();if(Report(sale))StartCoroutine(ServeMotion());}
                     else {var punch=Model.PunchCustomer();if(Report(punch))StartCoroutine(PunchMotion());}break;
                 case StationKind.Waste: Discard();break;
                 case StationKind.HeatDown: Report(Model.AdjustHeat(-1));Cue("click");break;
@@ -206,11 +216,14 @@ namespace GoldenHour.Presentation
         {
             PackageKind previous=Model.PackageKind;
             if(!Report(Model.ChoosePackage(kind)))return;
-            if(Package&&previous==kind){Notify("Your "+kind.ToString().ToLowerInvariant()+" is already on the packing mat.");return;}
+            if(Package&&previous==kind){Notify("Your "+kind.ToString().ToLowerInvariant()+" is already in use.");return;}
             if(Package)Destroy(Package.gameObject);
             var rack=World.Stations[kind==PackageKind.Bag?StationKind.Bag:StationKind.Bucket].transform;
             Package=World.Model(kind==PackageKind.Bag?assets.bag:assets.bucket,"Current order",rack.position);
-            PackageLifted=false;StartCoroutine(MoveTool(Package,World.PackageSpot.position,.46f,"Reach"));Cue("bag_pickup");
+            visualPackageKind=kind;
+            var packageCollider=Package.gameObject.AddComponent<BoxCollider>();packageCollider.isTrigger=true;packageCollider.center=new Vector3(0,.14f,0);packageCollider.size=kind==PackageKind.Bag?new Vector3(.19f,.28f,.14f):new Vector3(.28f,.25f,.28f);
+            var packageStation=Package.gameObject.AddComponent<Station>();packageStation.kind=StationKind.Package;packageStation.title="YOUR ORDER · POUR / LIFT";
+            PackageLifted=false;StartCoroutine(CollectPackageMotion());Cue("bag_pickup");
         }
         void Coat(Coating coating,StationKind station)
         {
@@ -231,19 +244,89 @@ namespace GoldenHour.Presentation
         }
         IEnumerator MoveTool(Transform item,Vector3 target,float duration,string action)
         {
-            if(item==Package)TrackHand(item,"L",new Vector3(-.08f,.13f,0));
+            if(item==Package)TrackHand(item,"L",PackageGrip);
             if(item==World.Scoop)TrackHand(item,"R",ScoopGrip);
             Busy=true;handDriver?.PlayAction(action,duration);var from=item.position;var rot=item.rotation;
             var endRotation=item==World.Scoop?ScoopRotation:Quaternion.identity;
+            yield return new WaitForSeconds(.14f);
             for(float t=0;t<duration;t+=Time.deltaTime){if(!item)break;float f=Smooth(t/duration);item.position=Vector3.Lerp(from,target,f)+Vector3.up*(Mathf.Sin(f*Mathf.PI)*.09f);item.rotation=Quaternion.Slerp(rot,endRotation,f);yield return null;}
             if(item){item.position=target;item.rotation=endRotation;}
             if(item==Package&&!PackageLifted)handWork?.ClearToolTarget("L");
             if(item==World.Scoop&&!ScoopEquipped)handWork?.ClearToolTarget("R");
             Busy=false;
         }
+        IEnumerator ChangeView()
+        {
+            Busy=true;
+            if(Operator.CurrentPose==OperatorWorkstationRig.WorkPose.Overview)yield return MoveOperator(false);
+            else
+            {
+                var scoopParent=World.Scoop.parent;var packageParent=Package?Package.parent:null;
+                if(ScoopEquipped)World.Scoop.SetParent(Operator.Frame,true);
+                if(PackageLifted&&Package)Package.SetParent(Operator.Frame,true);
+                yield return Operator.MoveToOverview();
+                if(ScoopEquipped)World.Scoop.SetParent(scoopParent,true);
+                if(PackageLifted&&Package)Package.SetParent(packageParent,true);
+            }
+            Busy=false;
+        }
+        IEnumerator MoveOperator(bool right)
+        {
+            Busy=true;
+            bool carry=PackageLifted&&Package;
+            Vector3 packageStart=carry?Package.position:Vector3.zero;
+            Vector3 packageEnd=right?World.PackageSpot.position:OperatorWorkstationRig.CentralPosition+OperatorWorkstationRig.HeldPackageLocalPosition;
+            Vector3 scoopOffsetStart=Operator.Frame.InverseTransformPoint(World.Scoop.position);
+            Vector3 scoopOffsetEnd=right?new Vector3(.18f,-.38f,.12f):OperatorWorkstationRig.HeldScoopLocalPosition;
+            float wristWidthStart=handWork?handWork.RestWristWidth:.22f,wristWidthEnd=right?.50f:.22f;
+            bool alreadyThere=Operator.CurrentPose==(right?OperatorWorkstationRig.WorkPose.Right:OperatorWorkstationRig.WorkPose.Central);
+            IEnumerator movement=alreadyThere?null:right?Operator.MoveToRight():Operator.MoveToCentral();
+            while(movement!=null&&movement.MoveNext())
+            {
+                if(ScoopEquipped)World.Scoop.position=Operator.Frame.TransformPoint(Vector3.Lerp(scoopOffsetStart,scoopOffsetEnd,Operator.Progress));
+                if(handWork)handWork.RestWristWidth=Mathf.Lerp(wristWidthStart,wristWidthEnd,Operator.Progress);
+                if(carry)Package.position=Vector3.Lerp(packageStart,packageEnd,Operator.Progress);
+                yield return movement.Current;
+            }
+            if(ScoopEquipped)World.Scoop.position=Operator.Frame.TransformPoint(scoopOffsetEnd);
+            if(handWork)handWork.RestWristWidth=wristWidthEnd;
+            if(carry)
+            {
+                Package.position=packageEnd;
+                if(right){PackageLifted=false;handWork?.ClearToolTarget("L");}
+            }
+        }
+        IEnumerator CollectPackageMotion()
+        {
+            Busy=true;
+            yield return MoveOperator(true);
+            yield return MoveTool(Package,World.PackageSpot.position,.46f,"Reach");
+            Busy=true;PackageLifted=true;TrackHand(Package,"L",PackageGrip);
+            yield return MoveOperator(false);
+            Busy=false;
+        }
+        IEnumerator ToggleScoopMotion()
+        {
+            Busy=true;yield return MoveOperator(false);
+            ScoopEquipped=!ScoopEquipped;
+            yield return MoveTool(World.Scoop,ScoopEquipped?HeldScoop:scoopRest,.32f,"Reach");
+            Busy=false;
+        }
+        IEnumerator TogglePackageMotion()
+        {
+            Busy=true;
+            if(PackageLifted)yield return MoveOperator(true);
+            else
+            {
+                yield return MoveOperator(true);
+                PackageLifted=true;TrackHand(Package,"L",PackageGrip);
+                yield return MoveOperator(false);
+            }
+            Busy=false;
+        }
         IEnumerator ScoopMotion(IReadOnlyList<int> ids)
         {
-            Busy=true;handDriver?.PlayAction("Scoop",.65f);
+            Busy=true;yield return MoveOperator(false);handDriver?.PlayAction("Scoop",.65f);
             Vector3 from=World.Scoop.position,target=World.TrayCenter+new Vector3(0,.025f,-.02f);
             for(float t=0;t<.26f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(from,target,Smooth(t/.26f));World.Scoop.rotation=ScoopRotation*Quaternion.AngleAxis(Mathf.Sin(t/.26f*Mathf.PI)*-25,Vector3.right);yield return null;}
             int i=0;foreach(int id in ids)if(Food.TryGetValue(id,out var d)&&d){d.Hold();d.transform.SetParent(World.Scoop);d.transform.localPosition=ScoopLoad[i];d.transform.localRotation=Quaternion.Euler(0,i*67,0);i++;}
@@ -254,8 +337,15 @@ namespace GoldenHour.Presentation
         }
         IEnumerator PourMotion(IReadOnlyList<int> ids)
         {
-            Busy=true;handDriver?.PlayAction("Pour",.82f);Vector3 start=World.Scoop.position;
-            Vector3 gripWorld=Package.position+new Vector3(0,.61f,-.04f);
+            Busy=true;
+            if(!PackageLifted)
+            {
+                yield return MoveOperator(true);
+                PackageLifted=true;TrackHand(Package,"L",PackageGrip);
+            }
+            yield return MoveOperator(false);
+            handDriver?.PlayAction("Pour",.82f);Vector3 start=World.Scoop.position;
+            Vector3 gripWorld=Package.position+new Vector3(0,.55f,-.075f);
             Vector3 target=gripWorld-ScoopRotation*ScoopGrip;
             for(float t=0;t<.30f;t+=Time.deltaTime){World.Scoop.position=Vector3.Lerp(start,target,Smooth(t/.30f));yield return null;}
             var destinations=new List<KeyValuePair<DonutBody,Vector3>>();int i=Model.PackageCount-ids.Count;
@@ -271,14 +361,11 @@ namespace GoldenHour.Presentation
         IEnumerator SeasonMotion(Transform shaker,Coating coating)
         {
             Busy=true;
-            if(PackageLifted)
-            {
-                PackageLifted=false;
-                yield return MoveTool(Package,World.PackageSpot.position,.32f,"Reach");
-                Busy=true;
-            }
+            yield return MoveOperator(true);
+            yield return Operator.LookAtPackingMat(.25f);
             handDriver?.PlayAction("Shake",.85f);Vector3 start=shaker.position;Quaternion rotation=shaker.rotation;Vector3 target=Package.position+new Vector3(0,.40f,0);
             TrackHand(shaker,"L",new Vector3(0,.06f,0));
+            yield return new WaitForSeconds(.14f);
             for(float t=0;t<.23f;t+=Time.deltaTime){shaker.position=Vector3.Lerp(start,target,Smooth(t/.23f));shaker.rotation=Quaternion.Euler(0,0,Smooth(t/.23f)*135);yield return null;}
             var dust=Particles("Sugar dust",target-Vector3.up*.10f,coating==Coating.Powdered?Color.white:new Color(.69f,.38f,.12f),.008f,80,.35f);var m=dust.main;m.startSpeed=.15f;m.gravityModifier=.6f;
             for(float t=0;t<.42f;t+=Time.deltaTime){shaker.position=target+Vector3.up*Mathf.Sin(t*65)*.018f;yield return null;}
@@ -289,18 +376,33 @@ namespace GoldenHour.Presentation
         }
         IEnumerator ServeMotion()
         {
-            Busy=true;handDriver?.PlayAction("Handoff",.7f);customerDriver?.PlayAction("Receive",.7f);
-            TrackHand(Package,"L",new Vector3(-.08f,.13f,0));
-            Transform package=Package;Package=null;PackageLifted=false;Vector3 from=package.position;
-            for(float t=0;t<.55f;t+=Time.deltaTime){package.position=Vector3.Lerp(from,new Vector3(.13f,1.14f,.80f),Smooth(t/.55f))+Vector3.up*Mathf.Sin(t/.55f*Mathf.PI)*.12f;yield return null;}
-            Destroy(package.gameObject);handWork?.ClearToolTarget("L");Busy=false;customerDriver?.PlayAction("Happy",1.1f);
+            Busy=true;
+            if(!PackageLifted)
+            {
+                yield return MoveOperator(true);PackageLifted=true;TrackHand(Package,"L",PackageGrip);
+            }
+            yield return MoveOperator(false);
+            handDriver?.PlayAction("Handoff",.7f);customerDriver?.PlayAction("Receive",1.0f);
+            TrackHand(Package,"L",PackageGrip);
+            Transform package=Package;PackageLifted=false;Vector3 from=package.position;
+            Vector3 passPoint=new Vector3(.13f,1.14f,-.07f);
+            for(float t=0;t<.40f;t+=Time.deltaTime){float f=Smooth(t/.40f);package.position=Vector3.Lerp(from,passPoint,f);World.Customer.position=Vector3.Lerp(customerRest,new Vector3(.15f,0,.70f),f);yield return null;}
+            handWork?.ClearToolTarget("L");
+            Vector3 takePoint=new Vector3(.13f,1.09f,.35f);
+            for(float t=0;t<.24f;t+=Time.deltaTime){package.position=Vector3.Lerp(passPoint,takePoint,Smooth(t/.24f));yield return null;}
+            customerDriver?.PlayAction("Happy",.8f);
+            for(float t=0;t<.40f;t+=Time.deltaTime){float f=Smooth(t/.40f);World.Customer.position=new Vector3(.15f+f*.8f,0,.70f+f*.6f);package.position=takePoint+World.Customer.position-new Vector3(.15f,0,.70f);yield return null;}
+            Destroy(package.gameObject);if(Package==package)Package=null;World.Customer.position=customerRest;Busy=false;
         }
         IEnumerator PunchMotion()
         {
-            Busy=true;handDriver?.PlayAction("Punch",.28f,.025f);yield return new WaitForSeconds(.075f);
+            Busy=true;handWork?.ClearAllTargets();handDriver?.PlayAction("Punch",.28f,.025f);yield return new WaitForSeconds(.075f);
             customerDriver?.PlayAction("ComicRecoil",.55f,.025f);Cue("punch");screenShake=.8f;
             for(float t=0;t<.36f;t+=Time.deltaTime){float f=t/.36f;World.Customer.position=customerRest+new Vector3(f*f*1.4f,Mathf.Sin(f*Mathf.PI)*.32f,f*.35f);World.Customer.rotation=Quaternion.Euler(0,f*220,-Mathf.Sin(f*Mathf.PI)*40);yield return null;}
-            World.Customer.position=customerRest;World.Customer.rotation=Quaternion.identity;Busy=false;
+            World.Customer.position=customerRest;World.Customer.rotation=Quaternion.identity;
+            if(ScoopEquipped)TrackHand(World.Scoop,"R",ScoopGrip);
+            if(PackageLifted&&Package)TrackHand(Package,"L",PackageGrip);
+            Busy=false;
         }
         void ShakeTray()
         {
@@ -317,7 +419,7 @@ namespace GoldenHour.Presentation
         IEnumerator TrayJiggle(){Vector3 p=restPositions[World.Tray];for(float t=0;t<.14f;t+=Time.deltaTime){World.Tray.position=p+new Vector3(Mathf.Sin(t*90)*.012f,0,0);yield return null;}World.Tray.position=p;trayJiggle=null;}
         IEnumerator StopFoam(){yield return new WaitForSeconds(1.3f);foam.Stop();}
         public void MarkWaste(DonutBody donut){donut.InTray=false;donut.Pending=false;donut.Age=0;}
-        Vector3 HeldScoop {get{return World.Camera.transform.TransformPoint(new Vector3(.22f,-.28f,.60f));}}
+        Vector3 HeldScoop {get{return Operator.CurrentPose==OperatorWorkstationRig.WorkPose.Right?Operator.Frame.TransformPoint(new Vector3(.18f,-.38f,.12f)):Operator.HeldScoopPosition;}}
         void TrackHand(Transform tool,string side,Vector3 gripOffset)
         {
             if(!handWork||!tool)return;var grasp=tool.Find("GH_Grasp_"+side);
@@ -352,13 +454,18 @@ namespace GoldenHour.Presentation
                 if(e.Type==GameEventType.Jammed||e.Type==GameEventType.FireStarted||e.Type==GameEventType.Overheated||e.Type==GameEventType.JamWarning){Notify(e.Message);Cue("warning");}
                 if(e.Type==GameEventType.Repaired||e.Type==GameEventType.Refilled||e.Type==GameEventType.FireExtinguished){Notify(e.Message);Cue("repair");}
                 if(e.Type==GameEventType.CustomerArrived&&Model.CurrentOrder!=null&&Model.CurrentOrder.Id!=lastCustomer){lastCustomer=Model.CurrentOrder.Id;customerDriver?.PlayAction("Order",1.1f);}
-            if(e.Type==GameEventType.ShiftEnded){Notify(e.Message);Cue(Model.Phase==GamePhase.Won?"win":"failure");PlayerPrefs.SetInt("best_streak",Math.Max(PlayerPrefs.GetInt("best_streak",0),Model.BestStreak));if(Model.Phase==GamePhase.Won)PlayerPrefs.SetInt("opening_cleared",1);PlayerPrefs.Save();Time.timeScale=0;}
+            if(e.Type==GameEventType.ShiftEnded)
+            {
+                Notify(e.Message);Cue(Model.Phase==GamePhase.Won?"win":"failure");
+                if(!AutomatedRun){PlayerPrefs.SetInt("best_streak",Math.Max(PlayerPrefs.GetInt("best_streak",0),Model.BestStreak));if(Model.Phase==GamePhase.Won)PlayerPrefs.SetInt("opening_cleared",1);PlayerPrefs.Save();}
+                Time.timeScale=0;
+            }
             }
         }
         void AnimateMachine()
         {
-            var plunger=WorldBuilder.Find(World.Fryer,"Plunger");if(plunger)plunger.localPosition=new Vector3(-.51f,.4f+Mathf.Sin(Time.time*5)*.018f,0);
-            var flipper=WorldBuilder.Find(World.Fryer,"Flipper");if(flipper&&!Model.Jammed&&!Model.FireActive)flipper.localRotation=Quaternion.Euler(Time.time*60,0,0);
+            if(plunger&&!Model.Jammed&&!Model.FireActive)plunger.position=plungerRest+World.Fryer.up*Mathf.Sin(Time.time*5)*.018f;
+            if(flipper&&!Model.Jammed&&!Model.FireActive)flipper.rotation=Quaternion.AngleAxis(Time.time*60,World.Fryer.forward)*flipperRestRotation;
         }
         bool Report(ActionResult result){if(!result.Success)Notify(result.Message);return result.Success;}
         public void Notify(string text){Toast=text;ToastUntil=Time.unscaledTime+4.4f;}
@@ -368,7 +475,7 @@ namespace GoldenHour.Presentation
         static float Smooth(float t){t=Mathf.Clamp01(t);return t*t*t*(t*(t*6-15)+10);}
         ParticleSystem Particles(string name,Vector3 p,Color color,float size,float rate,float lifetime)
         {
-            var go=new GameObject(name,typeof(ParticleSystem));go.transform.SetParent(transform);go.transform.position=p;var ps=go.GetComponent<ParticleSystem>();ps.Stop();
+            var go=new GameObject(name,typeof(ParticleSystem));go.transform.SetParent(transform);go.transform.position=p;go.transform.rotation=Quaternion.Euler(-90,0,0);var ps=go.GetComponent<ParticleSystem>();ps.Stop();
             var main=ps.main;main.startColor=color;main.startLifetime=lifetime;main.startSize=size;main.startSpeed=.4f;main.simulationSpace=ParticleSystemSimulationSpace.World;main.maxParticles=400;
             var emission=ps.emission;emission.rateOverTime=rate;var shape=ps.shape;shape.shapeType=ParticleSystemShapeType.Cone;shape.angle=25;shape.radius=.08f;
             if(!softParticleMaterial)
@@ -385,7 +492,6 @@ namespace GoldenHour.Presentation
         void OnDestroy()
         {
             if(softParticleMaterial)Destroy(softParticleMaterial);
-            if(flameMaterial)Destroy(flameMaterial);
             if(softParticleTexture)Destroy(softParticleTexture);
             if(DoughPhysics)Destroy(DoughPhysics);
         }

@@ -1,5 +1,33 @@
 # Golden Hour
 
+## Unity Windows edition — 1.1.0
+
+The active project is now `unity/GoldenHour`, built with Unity **6000.3.28f1**
+and URP. Launch `builds/unity/windows/GoldenHour.exe`. This edition has one
+complete timed **Opening Day**, no-pressure **Practice**, and unlockable
+**After Hours**. It uses authored FBX props and skinned characters, physical
+mini donuts, independent fryer controls, articulated tool handling, a recessed
+discard opening, warm fairground lighting, and the tray-shake/fire/punch gags.
+
+Read the customer ticket. Choose a bag or bucket, scoop from the tray, pour into
+the package, add the requested sugar, then serve. You can keep the scoop while
+collecting packaging. Click highlighted objects; **Tab** shows the whole counter,
+**F1** opens the field guide, **Esc** pauses, and **F11** toggles fullscreen.
+The field guide explains the optional keyboard shortcuts and machine recovery.
+
+Build from this directory with `pwsh -File tools/unity/build_windows.ps1`.
+The builder runs the core acceptance suite, imports/audits the assets, creates
+the scene, and compiles the native Windows player. See
+[Unity handoff](unity/UNITY_MORNING_STATUS.txt) for validation and known scope.
+The first licensed native build has been tested at 1920 × 1080; platform stores,
+payments, mobile ports, additional venues, and wider hardware testing remain
+outside this Windows edition. Existing Godot releases and saves are preserved.
+
+## Preserved Godot edition — 1.0.6
+
+The following documents the earlier Godot release, which is still available.
+Its campaign and feature counts do not describe the separate Unity edition.
+
 A first-person mini-donut stand game for Windows. Work a warm fairground booth:
 scoop fresh donuts, fill bags and buckets, add cinnamon or powdered sugar, and
 hand each order to its customer while keeping the fryer running.

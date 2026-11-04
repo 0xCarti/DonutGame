@@ -1,0 +1,65 @@
+GOLDEN HOUR 1.1.0 — UNITY WINDOWS EDITION
+
+GET STARTED
+
+1. Extract the entire ZIP to a folder on your Windows PC.
+2. Open that folder and run GoldenHour.exe. Keep GoldenHour_Data,
+   UnityPlayer.dll, and all other supplied runtime files beside the EXE.
+   You do not need the Unity editor.
+3. Choose PRACTICE AT THE FAIR to learn without a clock or sales quota.
+   The FIELD GUIDE explains the counter. Settings includes sound, music,
+   and Reduced Motion for instant workstation position changes.
+
+MAKE AN ORDER
+
+Read the customer's ticket: a bag holds 6 donuts; a bucket holds 12.
+Wait for each hand/camera movement to finish before the next action.
+
+  1 or 2    Choose a bag or bucket.
+  R         Pick up the scoop; press R again to scoop 3 donuts from the tray.
+  Q         Pour the loaded scoop into your package.
+  R, Q      Repeat until the package is full (2 loads for a bag, 4 for a bucket).
+  C or V    Add cinnamon sugar or powdered sugar to match the ticket.
+  Q         With an empty scoop, lift the prepared package from the mat.
+  E         Hand the finished order to the customer.
+
+You can also click the physical stations and tools. Q pours while the scoop
+is loaded; otherwise it lifts or sets down your package. Serving a correctly
+sized, correctly coated order earns money and builds your service streak.
+Using the customer action empty-handed skips them and breaks the streak.
+
+COUNTER CONTROLS
+
+  Tab       Toggle the whole-counter view and the working view.
+  1 / 2     Paper bag / sharing bucket.
+  R         Equip the scoop, then scoop from the tray.
+  Q         Pour, or lift/set down the package when the scoop is empty.
+  C / V     Cinnamon sugar / powdered sugar.
+  E         Serve the prepared order.
+  F         Use the extinguisher when the fryer catches fire.
+  F1        Open or close the Field Guide.
+  F11       Toggle fullscreen.
+  Esc       Pause or resume.
+
+Use Tab to see the machine controls. Left-click a heat/feed dial to lower it;
+right-click to raise it. Hold the motor service control to clear a jam, or
+hold the hopper to refill batter. After a fire, let the fryer settle and
+restore the heat. Fresh donuts count as stock after they land in the tray.
+Rapid tray clicks can spill donuts. Use the discard opening for a wrong order;
+plain donuts return to stock when there is room.
+
+MODES
+
+Opening Day is one timed shift with a sales target. Relaxed Pace is available
+on the menu. Clear Opening Day to earn After Hours, the continuing service
+mode. Practice has no clock or quota and is the place to learn the controls.
+
+This is the Unity Windows edition. The older Godot campaign is a separate
+edition; its campaign content and progression are not this release's modes.
+
+FILES AND NOTICES
+
+LICENSES contains the Fredoka font license, verified Unity package licenses
+and third-party notices, and the project's asset provenance and art prompts.
+MANIFEST.json lists packaged file sizes and SHA256 hashes (excluding itself).
+The release's ZIP checksum is supplied separately beside the ZIP.

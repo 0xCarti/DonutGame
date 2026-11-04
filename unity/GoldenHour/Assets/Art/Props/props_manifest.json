@@ -222,21 +222,21 @@
     "movingParts": []
   },
   "MiniDonut": {
-    "description": "Domed irregular fried dough torus with small proof hole, darker crust and a light fried seam. Approximately 65mm diameter x 26mm high; centre pivot.",
+    "description": "Gently irregular fried dough torus with a 5mm proof hole, darker crust and a light fried seam. Approximately 65mm diameter x 25.8mm high; centre pivot.",
     "blenderBoundsMin": [
-      -0.03245861455798149,
-      -0.032928865402936935,
-      -0.013000000268220901
+      -0.032399777323007584,
+      -0.032561179250478745,
+      -0.01287679560482502
     ],
     "blenderBoundsMax": [
-      0.032726407051086426,
-      0.03211572766304016,
-      0.013000000268220901
+      0.032600224018096924,
+      0.03243882209062576,
+      0.01287679560482502
     ],
     "unitySize": [
-      0.06518502160906792,
-      0.026000000536441803,
-      0.0650445930659771
+      0.06500000134110451,
+      0.02575359120965004,
+      0.06500000134110451
     ],
     "vertices": 1280,
     "triangles": 2560,

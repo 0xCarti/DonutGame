@@ -19,6 +19,12 @@ namespace GoldenHour
         [SerializeField, Range(.8f, .995f)] private float maximumReachFraction = .975f;
         [SerializeField, Range(0f, 1f)] private float toolRotationWeight = 1f;
         [SerializeField] private bool maintainGripWhileTracking = true;
+        [SerializeField] private bool useRelaxedRestPose = true;
+        // Relative to the logical hands wrapper, which sits .07m below the
+        // upright operator frame: frame-local wrists become (+/-.22,-.50,.22).
+        [SerializeField] private Vector3 rightRestWrist = new Vector3(.22f, -.43f, .22f);
+        [SerializeField, Min(.01f)] private float restBlendSeconds = .16f;
+        [SerializeField, Min(.01f)] private float freeActionFadeSeconds = .04f;
 
         private sealed class Arm
         {
@@ -34,6 +40,7 @@ namespace GoldenHour
 
         private readonly Arm left = new Arm { Side = "L" };
         private readonly Arm right = new Arm { Side = "R" };
+        private int characterVersion = -1;
 
         public bool RightTargetWithinReach => right.WithinReach;
         public bool LeftTargetWithinReach => left.WithinReach;
@@ -41,6 +48,15 @@ namespace GoldenHour
         public float LeftWeight => left.Weight;
         public bool RightTracking => right.Target != null && right.DesiredWeight > .25f;
         public bool LeftTracking => left.Target != null && left.DesiredWeight > .25f;
+        public float RightGripError => !RightTracking ? 0f : right.Grip == null ? float.PositiveInfinity : Vector3.Distance(right.Grip.position, right.Target.position);
+        public float LeftGripError => !LeftTracking ? 0f : left.Grip == null ? float.PositiveInfinity : Vector3.Distance(left.Grip.position, left.Target.position);
+        /// <summary>Distance to either side of the operator centre: .22 at
+        /// Central, .50 at Right. Changing width does not alter rest depth.</summary>
+        public float RestWristWidth
+        {
+            get => Mathf.Abs(rightRestWrist.x);
+            set { if (IsFinite(value)) rightRestWrist.x = Mathf.Clamp(value, .05f, .60f); }
+        }
 
         private void Awake() => EnsureComponents();
 
@@ -52,6 +68,11 @@ namespace GoldenHour
             if (armIK == null) armIK = character.GetComponent<HandTargetIK>();
             if (armIK == null) armIK = character.gameObject.AddComponent<HandTargetIK>();
             armIK.character = character;
+            if (characterVersion != character.ConfigurationVersion)
+            {
+                characterVersion = character.ConfigurationVersion;
+                left.Initialized = right.Initialized = false;
+            }
             InitializeArm(left); InitializeArm(right);
         }
 
@@ -65,10 +86,13 @@ namespace GoldenHour
             if (arm.Upper == null || arm.Lower == null || arm.Hand == null || arm.Grip == null) return;
             arm.WristToGripPosition = arm.Hand.InverseTransformPoint(arm.Grip.position);
             arm.WristToGripRotation = Quaternion.Inverse(arm.Hand.rotation) * arm.Grip.rotation;
-            var proxy = new GameObject("WorkstationWristTarget." + arm.Side);
-            proxy.hideFlags = HideFlags.DontSave;
-            arm.Proxy = proxy.transform;
-            arm.Proxy.SetParent(transform, false);
+            if (arm.Proxy == null)
+            {
+                var proxy = new GameObject("WorkstationWristTarget." + arm.Side);
+                proxy.hideFlags = HideFlags.DontSave;
+                arm.Proxy = proxy.transform;
+                arm.Proxy.SetParent(transform, false);
+            }
             arm.Proxy.SetPositionAndRotation(arm.Hand.position, arm.Hand.rotation);
             arm.Initialized = true;
         }
@@ -104,7 +128,7 @@ namespace GoldenHour
             arm.Target = target;
             arm.RejectedTarget = null;
             arm.TargetIsGrip = targetIsGrip;
-            arm.DesiredWeight = target == null ? 0f : Mathf.Clamp01(weight);
+            arm.DesiredWeight = target == null || !IsFinite(weight) ? 0f : Mathf.Clamp01(weight);
         }
 
         /// <summary>Useful for holding a paper bag with the left hand while the right works.</summary>
@@ -125,6 +149,29 @@ namespace GoldenHour
         public void ClearAllTargets()
         {
             ClearToolTarget("L"); ClearToolTarget("R");
+        }
+
+        /// <summary>Use when starting/resetting a shift. Clears tool ownership
+        /// and all damping history; the next live frame starts from the current
+        /// authored wrists. Safe while paused; does not invoke SmoothDamp.</summary>
+        public void ResetPoseTracking()
+        {
+            ResetArmTracking(left); ResetArmTracking(right);
+            if (armIK != null)
+            {
+                armIK.leftTarget = armIK.rightTarget = null;
+                armIK.leftWeight = armIK.rightWeight = 0f;
+            }
+        }
+
+        private static void ResetArmTracking(Arm arm)
+        {
+            arm.Target = arm.RejectedTarget = null;
+            arm.Weight = arm.DesiredWeight = arm.WeightVelocity = 0f;
+            arm.PositionVelocity = Vector3.zero;
+            arm.ProxyInitialized = false;
+            arm.WithinReach = false;
+            arm.TargetIsGrip = true;
         }
 
         public void PlayToolAction(string action, float duration = .5f, float blend = .08f)
@@ -154,7 +201,11 @@ namespace GoldenHour
         {
             EnsureComponents();
             if (armIK == null) return;
-            UpdateArm(left); UpdateArm(right);
+            float deltaTime = Time.deltaTime;
+            // SmoothDamp's zero-step velocity calculation can produce NaN.
+            // Freeze filtering and clip transitions until scaled time advances.
+            if (!IsFinite(deltaTime) || deltaTime <= 0f) return;
+            UpdateArm(left, deltaTime); UpdateArm(right, deltaTime);
             armIK.leftTarget = left.Proxy;
             armIK.rightTarget = right.Proxy;
             armIK.leftWeight = left.Weight;
@@ -166,30 +217,57 @@ namespace GoldenHour
         private void MaintainGrip()
         {
             if (!maintainGripWhileTracking || character == null) return;
-            bool idle = character.CurrentAction == "Idle";
-            bool holding = character.CurrentAction.StartsWith("GripHold", StringComparison.OrdinalIgnoreCase);
-            if (!idle && !holding) return;
             bool useLeft = left.Target != null && left.DesiredWeight > .25f;
             bool useRight = right.Target != null && right.DesiredWeight > .25f;
+            // Active world-space tool paths + IK provide arm motion. Keep the
+            // corresponding physical fingers closed instead of playing an
+            // authored tool clip on the opposite imported side. Free actions
+            // (Punch/Handoff/Idle) remain available after their grasps clear.
+            if (!useLeft && !useRight && !character.CurrentAction.StartsWith("GripHold", StringComparison.OrdinalIgnoreCase)) return;
             string action = useLeft && useRight ? "GripHoldBoth" : useLeft ? "GripHoldLeft" : useRight ? "GripHold" : "Idle";
             if (character.CurrentAction != action) character.PlayAction(action, 0f, .10f);
         }
 
-        private void UpdateArm(Arm arm)
+        private void UpdateArm(Arm arm, float deltaTime)
         {
             if (!arm.Initialized) return;
+            if (!IsFinite(arm.Weight)) arm.Weight = 0f;
+            if (!IsFinite(arm.WeightVelocity)) arm.WeightVelocity = 0f;
+            if (!IsFinite(arm.PositionVelocity)) arm.PositionVelocity = Vector3.zero;
             if (arm.Target == null) { arm.DesiredWeight = 0f; arm.WithinReach = false; }
-            arm.Weight = Mathf.SmoothDamp(arm.Weight, arm.DesiredWeight, ref arm.WeightVelocity, weightBlendSeconds);
-            if (arm.Weight < .001f && arm.DesiredWeight <= 0f) arm.Weight = 0f;
-            if (arm.Target == null) return;
+            bool resting = arm.Target == null && AllowsRestPose();
+            float desiredSolveWeight = resting ? 1f : arm.DesiredWeight;
+            // Authored free actions, especially the rapid punch and handoff,
+            // fade the resting IK out quickly instead of pinning the wrist.
+            float weightTime = arm.Target == null && !resting ? freeActionFadeSeconds : weightBlendSeconds;
+            arm.Weight = Mathf.SmoothDamp(arm.Weight, desiredSolveWeight, ref arm.WeightVelocity, weightTime, Mathf.Infinity, deltaTime);
+            if (arm.Weight < .001f && desiredSolveWeight <= 0f) arm.Weight = 0f;
+            if (arm.Target == null && !resting) return;
 
-            Quaternion wristRotation = arm.Target.rotation;
-            Vector3 wristPosition = arm.Target.position;
-            if (arm.TargetIsGrip)
+            // LateUpdate sees the current authored idle wrist rotation before
+            // HandTargetIK runs. Keep that relaxed orientation and open fingers;
+            // only the resting wrist location is supplied by this fallback.
+            Quaternion wristRotation = resting ? arm.Hand.rotation : arm.Target.rotation;
+            Vector3 wristPosition;
+            if (resting)
+            {
+                Vector3 local = rightRestWrist;
+                local.x = Mathf.Abs(local.x) * (arm.Side == "R" ? 1f : -1f);
+                wristPosition = transform.TransformPoint(local);
+            }
+            else wristPosition = arm.Target.position;
+            if (!resting && arm.TargetIsGrip)
             {
                 wristRotation = arm.Target.rotation * Quaternion.Inverse(arm.WristToGripRotation);
                 Vector3 scaledOffset = Vector3.Scale(arm.WristToGripPosition, arm.Hand.lossyScale);
                 wristPosition -= wristRotation * scaledOffset;
+            }
+
+            if (!IsFinite(wristPosition) || !IsFinite(wristRotation) ||
+                !IsFinite(arm.Upper.position) || !IsFinite(arm.Lower.position) || !IsFinite(arm.Hand.position))
+            {
+                InvalidateFilter(arm);
+                return;
             }
 
             // Keep the elbow slightly bent at full reach. Both this layer and the
@@ -197,27 +275,66 @@ namespace GoldenHour
             Vector3 shoulder = arm.Upper.position;
             float upperLength = Vector3.Distance(shoulder, arm.Lower.position);
             float lowerLength = Vector3.Distance(arm.Lower.position, arm.Hand.position);
+            if (!IsFinite(upperLength) || !IsFinite(lowerLength) || upperLength < .001f || lowerLength < .001f)
+            {
+                InvalidateFilter(arm);
+                return;
+            }
             float minimumReach = Mathf.Abs(upperLength - lowerLength) + .004f;
             float maximumReach = Mathf.Max(minimumReach + .005f, (upperLength + lowerLength) * maximumReachFraction);
             Vector3 shoulderToTarget = wristPosition - shoulder;
             float distance = shoulderToTarget.magnitude;
-            arm.WithinReach = distance >= minimumReach && distance <= maximumReach + .005f;
+            // Resting is never reported as a tracked tool or a reachable grasp.
+            arm.WithinReach = !resting && distance >= minimumReach && distance <= maximumReach + .005f;
             Vector3 direction = distance > .0001f ? shoulderToTarget / distance : character.transform.forward;
             wristPosition = shoulder + direction * Mathf.Clamp(distance, minimumReach, maximumReach);
 
-            if (!arm.ProxyInitialized)
+            if (!arm.ProxyInitialized || !IsFinite(arm.Proxy.position) || !IsFinite(arm.Proxy.rotation))
             {
                 arm.Proxy.SetPositionAndRotation(arm.Hand.position, arm.Hand.rotation);
                 arm.ProxyInitialized = true;
             }
-            Vector3 smoothed = Vector3.SmoothDamp(arm.Proxy.position, wristPosition, ref arm.PositionVelocity, targetBlendSeconds);
+            float positionTime = resting ? restBlendSeconds : targetBlendSeconds;
+            Vector3 smoothed = Vector3.SmoothDamp(arm.Proxy.position, wristPosition, ref arm.PositionVelocity, positionTime, Mathf.Infinity, deltaTime);
             // Camera/player motion can move the shoulder while the target filter
             // is settling, so clamp the filtered target a second time.
             Vector3 filteredOffset = smoothed - shoulder;
             if (filteredOffset.sqrMagnitude > maximumReach * maximumReach)
                 smoothed = shoulder + filteredOffset.normalized * maximumReach;
-            float rotationBlend = 1f - Mathf.Exp(-Time.deltaTime / targetBlendSeconds);
-            arm.Proxy.SetPositionAndRotation(smoothed, Quaternion.Slerp(arm.Proxy.rotation, wristRotation, rotationBlend));
+            float rotationBlend = 1f - Mathf.Exp(-deltaTime / positionTime);
+            Quaternion smoothedRotation = Quaternion.Slerp(arm.Proxy.rotation, wristRotation, rotationBlend);
+            if (!IsFinite(smoothed) || !IsFinite(smoothedRotation) || !IsFinite(arm.Weight) ||
+                !IsFinite(arm.WeightVelocity) || !IsFinite(arm.PositionVelocity))
+            {
+                InvalidateFilter(arm);
+                return;
+            }
+            arm.Proxy.SetPositionAndRotation(smoothed, smoothedRotation);
+        }
+
+        private static void InvalidateFilter(Arm arm)
+        {
+            // Retain the active target so failed contact remains visible to the
+            // acceptance checks, but never pass non-finite state into bone IK.
+            arm.Weight = arm.WeightVelocity = 0f;
+            arm.PositionVelocity = Vector3.zero;
+            arm.ProxyInitialized = false;
+            arm.WithinReach = false;
+        }
+
+        private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+        private static bool IsFinite(Vector3 value) => IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        private static bool IsFinite(Quaternion value) => IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z) && IsFinite(value.w);
+
+        private bool AllowsRestPose()
+        {
+            if (!useRelaxedRestPose || character == null || !character.IsHands) return false;
+            string action = character.CurrentAction;
+            // Only idle/holding clips receive the resting fallback. With no
+            // target, Punch/PunchRapid, Handoff, Reach, and every other authored
+            // action retain their arm motion while the fallback weight fades.
+            return string.Equals(action, "Idle", StringComparison.OrdinalIgnoreCase) ||
+                action.StartsWith("GripHold", StringComparison.OrdinalIgnoreCase);
         }
 
         private void OnDisable()

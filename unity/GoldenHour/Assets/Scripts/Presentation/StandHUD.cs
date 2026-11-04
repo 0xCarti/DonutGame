@@ -94,8 +94,8 @@ namespace GoldenHour.Presentation
             Stripe(content, "Top gold rule", 0, 0, 1680, 3, Gold);
             Label(content, "Fairground header", "A LITTLE STAND. A VERY GOOD DAY.", 0, 30, 900, 36, 20, Gold, FontStyle.Bold);
             Label(content, "Edition", "FAIRGROUND  /  OPENING SEASON", 1170, 35, 510, 30, 17, Cream, FontStyle.Normal, TextAnchor.UpperRight);
-            Label(content, "Golden", "GOLDEN", -6, 100, 850, 140, 120, Cream, FontStyle.Bold);
-            Label(content, "Hour", "HOUR", -6, 220, 850, 140, 120, Cream, FontStyle.Bold);
+            Label(content, "Golden", "GOLDEN", -6, 92, 750, 150, 104, Cream, FontStyle.Bold);
+            Label(content, "Hour", "HOUR", -6, 219, 750, 150, 104, Cream, FontStyle.Bold);
             Label(content, "Menu introduction", "Hot donuts. Paper bags. One busy little fryer.\nMake every order a small occasion.", 3, 382, 660, 88, 28, Cream);
             ButtonAt(content, "Open the stand", "OPENING DAY     →", 0, 500, 620, 82, Red, Cream,
                 delegate { LaunchMode(GameMode.Shift); }, 28);
@@ -120,9 +120,8 @@ namespace GoldenHour.Presentation
                 var art = artFrame.gameObject.AddComponent<RawImage>();
                 art.texture = assets.keyArt;
                 art.raycastTarget = false;
-                var fit = artFrame.gameObject.AddComponent<AspectRatioFitter>();
-                fit.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
-                fit.aspectRatio = (float)assets.keyArt.width / assets.keyArt.height;
+                float visibleWidth=(874f/603f)/((float)assets.keyArt.width/assets.keyArt.height);
+                art.uvRect=new UnityEngine.Rect(1-visibleWidth,0,visibleWidth,1);
             }
             else
             {
@@ -183,7 +182,7 @@ namespace GoldenHour.Presentation
             Panel(held, "Held backing", 0, 0, 340, 85, new Color(.06f, .16f, .15f, .84f));
             Label(held, "Preparation heading", "ON YOUR COUNTER", 12, 7, 316, 22, 16, Gold, FontStyle.Bold);
             heldText = Label(held, "Prepared order", "Bag [1] or bucket [2]", 12, 33, 316, 48, 17, Cream);
-            helpFooter = Label(playRoot, "Shortcut footer", "F1  FIELD GUIDE     ·     ESC  PAUSE     ·     F11  FULLSCREEN", 0, 0, 1100, 24, 12, Cream, FontStyle.Normal, TextAnchor.MiddleCenter);
+            helpFooter = Label(playRoot, "Shortcut footer", "TAB  WHOLE COUNTER     ·     F1  FIELD GUIDE     ·     ESC  PAUSE     ·     F11  FULLSCREEN", 0, 0, 1100, 24, 12, Cream, FontStyle.Normal, TextAnchor.MiddleCenter);
             AnchorBottomCenter(helpFooter.rectTransform, 0, 4, 1100, 24);
             ShadowText(helpFooter);
 
@@ -229,7 +228,7 @@ namespace GoldenHour.Presentation
             settingsRoot = FullLayer("Settings curtain", new Color(.025f, .08f, .075f, .96f));
             var content = Center(settingsRoot, "Settings", 1000, 800);
             Label(content, "Settings kicker", "MAKE YOURSELF COMFORTABLE", 0, 0, 1000, 30, 18, Gold, FontStyle.Bold);
-            Label(content, "Settings title", "YOUR CORNER\nOF THE FAIR.", -4, 64, 1000, 151, 63, Cream, FontStyle.Bold);
+            Label(content, "Settings title", "YOUR CORNER\nOF THE FAIR.", -4, 57, 1000, 184, 63, Cream, FontStyle.Bold);
             Stripe(content, "Settings rule", 0, 250, 1000, 2, Gold);
             Label(content, "Effects label", "COUNTER SOUNDS", 0, 296, 590, 32, 23, Cream, FontStyle.Bold);
             volumeValue = Label(content, "Effects percentage", "75%", 840, 296, 160, 32, 24, Gold, FontStyle.Bold, TextAnchor.UpperRight);
@@ -250,14 +249,14 @@ namespace GoldenHour.Presentation
             guideRoot = FullLayer("Field guide curtain", new Color(.025f, .08f, .075f, .97f));
             var content = Center(guideRoot, "Field guide", 1490, 910);
             Label(content, "Guide eyebrow", "THE GOLDEN HOUR FIELD GUIDE", 0, 0, 1350, 32, 18, Gold, FontStyle.Bold);
-            Label(content, "Guide title", "A GOOD ORDER,\nONE SMALL STEP AT A TIME.", -3, 64, 1480, 148, 60, Cream, FontStyle.Bold);
+            Label(content, "Guide title", "A GOOD ORDER,\nONE SMALL STEP AT A TIME.", -3, 57, 1480, 180, 60, Cream, FontStyle.Bold);
             Stripe(content, "Guide rule", 0, 243, 1490, 2, Gold);
             GuideStep(content, 0, 293, "01", "PAPER FIRST", "Read the ticket. Pick a bag for 6\nor a bucket for 12 mini donuts.", "1  BAG     2  BUCKET");
             GuideStep(content, 505, 293, "02", "SCOOP & POUR", "Pick up the scoop, then the tray.\nPour 3 at a time into the package.", "R  EQUIP / SCOOP     Q  POUR");
             GuideStep(content, 1010, 293, "03", "SUGAR & SERVE", "Fill the package. Add the right sugar,\nthen lift it and hand it over.", "C / V  SUGAR     Q  LIFT     E  SERVE");
             Dashes(content, 0, 532, 1490, new Color(.46f, .55f, .43f));
             Label(content, "Machine guide", "LOOK AFTER THE LITTLE FRYER", 0, 570, 920, 35, 24, Gold, FontStyle.Bold);
-            Label(content, "Machine directions", "JAM   Hold the motor service control.\nBATTER   Hold the hopper to refill.\nHEAT / FEED   Left-click a dial to lower; right-click to raise.\nFIRE   Click the red extinguisher. Reset the heat afterward.", 0, 625, 875, 151, 21, Cream);
+            Label(content, "Machine directions", "JAM   Hold the motor service control. TAB shows the whole counter.\nBATTER   Hold the hopper to refill.\nHEAT / FEED   Left-click a dial to lower; right-click to raise.\nFIRE   Press F or click the extinguisher. Reset the heat afterward.", 0, 625, 875, 151, 21, Cream);
             Label(content, "Recovery guide", "A WRONG TURN?", 1030, 570, 460, 35, 24, Gold, FontStyle.Bold);
             Label(content, "Recovery directions", "An unfinished order can be completed.\nWrong sugar? Use the discard opening.\nPlain donuts return if the tray has room.\nClicking a customer empty-handed\nskips them and breaks your streak.", 1030, 625, 460, 158, 19, Cream);
             Label(content, "Guide physical note", "Fresh donuts become stock after they land. Rapid tray clicks can send them flying.", 0, 843, 1140, 35, 18, new Color(.76f, .80f, .70f));
@@ -279,7 +278,7 @@ namespace GoldenHour.Presentation
             var card = Center(endRoot, "End of day receipt", 870, 920);
             Paper(card, 870, 920);
             Label(card, "Receipt eyebrow", "GOLDEN HOUR  /  END OF DAY", 50, 38, 770, 32, 18, Red, FontStyle.Bold, TextAnchor.MiddleCenter);
-            endTitle = Label(card, "Day verdict", "A VERY\nGOOD DAY.", 55, 102, 760, 134, 58, Ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            endTitle = Label(card, "Day verdict", "A VERY\nGOOD DAY.", 55, 90, 760, 168, 58, Ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             endSubtitle = Label(card, "Day note", "Opening Day complete. After Hours is yours.", 60, 256, 750, 56, 23, Muted, FontStyle.Normal, TextAnchor.MiddleCenter);
             Dashes(card, 65, 336, 740, Muted);
             endMoney = Label(card, "Final sales", "$0.00", 60, 369, 750, 87, 72, Red, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -407,7 +406,7 @@ namespace GoldenHour.Presentation
         string NextStep()
         {
             var model = controller.Model;
-            if (model.FireActive) return "EXTINGUISHER  →  TURN HEAT BACK UP  →  RESUME SERVICE";
+            if (model.FireActive) return "F  EXTINGUISH  →  SET HEAT TO 2  →  RESUME SERVICE";
             if (model.PackageKind == PackageKind.None) return "1 / 2  CHOOSE PACKAGE     ·     R  PICK UP SCOOP";
             if (model.ScoopCount > 0) return "Q  POUR " + model.ScoopCount + " DONUTS INTO YOUR " + model.PackageKind.ToString().ToUpperInvariant();
             if (model.PackageCount < model.PackageCapacity) return controller.ScoopEquipped ? "R  SCOOP THREE     →     Q  POUR" : "R  PICK UP THE SCOOP     →     R  SCOOP THREE";
@@ -431,7 +430,7 @@ namespace GoldenHour.Presentation
             var model = controller.Model;
             string title = null, detail = "";
             float progress = 0;
-            if (model.FireActive) { title = "FRYER FIRE"; detail = "Click the red extinguisher beside the fryer."; progress = 1; }
+            if (model.FireActive) { title = "FRYER FIRE"; detail = "Press F or click the red extinguisher. TAB shows the whole counter."; progress = 1; }
             else if (model.FireRecovery > 0) { title = "LET THE FRYER SETTLE"; detail = "Fire out. Set the heat to 2 when the fryer is ready."; progress = 1 - (float)model.FireRecovery / 2.4f; }
             else if (model.Jammed) { title = "FEEDER JAMMED"; detail = "Hold the motor service control on the left of the machine."; progress = (float)model.RepairProgress; }
             else if (model.Overheated) { title = "THE OIL IS TOO HOT"; detail = "Left-click the heat dial to lower it. Setting 2 is steady."; progress = (float)model.FireDanger; }
@@ -676,8 +675,14 @@ namespace GoldenHour.Presentation
             Panel(rect, "Track", 0, 14, width, 6, new Color(.32f, .42f, .34f));
             var fillArea = Rect(rect, "Fill area", 0, 14, width, 6);
             var fill = Panel(fillArea, "Filled track", 0, 0, width, 6, Gold);
+            fill.anchorMin = Vector2.zero; fill.anchorMax = Vector2.one;
+            fill.offsetMin = fill.offsetMax = Vector2.zero;
             var handleArea = Rect(rect, "Handle area", 12, 0, width - 24, 35);
             var handle = Panel(handleArea, "Handle", 0, 5, 24, 24, Cream);
+            handle.pivot = new Vector2(.5f,.5f);
+            handle.anchorMin = handle.anchorMax = new Vector2(0,.5f);
+            handle.anchoredPosition = Vector2.zero;
+            handle.sizeDelta = new Vector2(24,24);
             var slider = rect.gameObject.AddComponent<Slider>();
             slider.minValue = 0; slider.maxValue = 1; slider.wholeNumbers = false;
             slider.direction = Slider.Direction.LeftToRight;

@@ -57,6 +57,8 @@ namespace GoldenHour.Editor
             a.red=Material("GH_Red",new Color(.42f,.035f,.035f));a.teal=Material("GH_Teal",new Color(.025f,.17f,.18f));
             a.gold=Material("GH_Brass",new Color(.66f,.39f,.12f),.72f,.72f);a.oil=Material("GH_Oil",new Color(.21f,.095f,.013f),.1f,.9f);
             a.glass=Material("GH_Glass",new Color(.65f,.8f,.9f),.1f,.95f);a.ground=Material("GH_Ground",new Color(.22f,.18f,.13f));a.canvas=Material("GH_Canvas",new Color(.9f,.8f,.6f));
+            a.ground.shader=Shader.Find("GoldenHour/FairgroundGround");a.ground.SetColor("_BaseColor",new Color(.30f,.29f,.265f));EditorUtility.SetDirty(a.ground);
+            a.worldText=new Material(Shader.Find("GoldenHour/WorldLettering"));Save(a.worldText,Generated+"/Materials/GH_WorldText.mat");
             a.glow=Material("GH_Bulb",new Color(1,.7f,.3f));a.glow.EnableKeyword("_EMISSION");a.glow.SetColor("_EmissionColor",new Color(1,.55f,.15f)*3);
             a.font=AssetDatabase.LoadAssetAtPath<Font>("Assets/AudioAndBrand/Fredoka-Medium.ttf");
             a.keyArt=AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/AudioAndBrand/title_keyart.png");a.seal=Texture("brand_seal.png");a.sign=Texture("counter_sign.png");
@@ -88,7 +90,7 @@ namespace GoldenHour.Editor
         {
             Directory.CreateDirectory(Generated);
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-            PlayerSettings.companyName="Golden Hour Studio";PlayerSettings.productName="Golden Hour Unity";PlayerSettings.bundleVersion="0.1.0";
+            PlayerSettings.companyName="Golden Hour Studio";PlayerSettings.productName="Golden Hour";PlayerSettings.bundleVersion="1.1.0";
             PlayerSettings.colorSpace=ColorSpace.Linear;PlayerSettings.defaultScreenWidth=1920;PlayerSettings.defaultScreenHeight=1080;
             PlayerSettings.fullScreenMode=FullScreenMode.FullScreenWindow;PlayerSettings.resizableWindow=true;PlayerSettings.runInBackground=false;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone,ScriptingImplementation.Mono2x);
@@ -99,6 +101,7 @@ namespace GoldenHour.Editor
             if(!renderer.postProcessData)throw new Exception("URP post-processing resources are missing. Resolve the Universal RP package before building.");
             Save(renderer,Generated+"/GoldenRenderer.asset");
             var pipeline=UniversalRenderPipelineAsset.Create(renderer);pipeline.msaaSampleCount=4;pipeline.renderScale=1;pipeline.supportsHDR=true;pipeline.shadowDistance=35;pipeline.mainLightShadowmapResolution=2048;pipeline.maxAdditionalLightsCount=8;
+            GoldenHourLighting.Configure(pipeline);
             Save(pipeline,Generated+"/GoldenPipeline.asset");GraphicsSettings.defaultRenderPipeline=pipeline;QualitySettings.renderPipeline=pipeline;
             Physics.defaultSolverIterations=10;Physics.defaultSolverVelocityIterations=4;Physics.gravity=new Vector3(0,-9.81f,0);
         }
@@ -129,7 +132,12 @@ namespace GoldenHour.Editor
         {
             string path="Assets/Art/"+(character?"Characters/":"Props/")+name+".fbx";
             var source=AssetDatabase.LoadAssetAtPath<GameObject>(path);if(!source)throw new Exception("Missing authored asset: "+path);
-            var instance=(GameObject)PrefabUtility.InstantiatePrefab(source);instance.name=name;
+            // FBX's handedness conversion faces the authored front toward +Z.
+            // Keep gameplay coordinates in an unrotated root and correct only the art.
+            var root=new GameObject(name);
+            var instance=(GameObject)PrefabUtility.InstantiatePrefab(source);instance.name="Graphics";
+            instance.transform.SetParent(root.transform,false);
+            if(name!="BakerHands")instance.transform.localRotation=Quaternion.Euler(0,180,0)*instance.transform.localRotation;
             foreach(var r in instance.GetComponentsInChildren<Renderer>(true))
             {
                 var mats=r.sharedMaterials;for(int i=0;i<mats.Length;i++)
@@ -147,7 +155,9 @@ namespace GoldenHour.Editor
                 serialized.FindProperty("isHands").boolValue=name=="BakerHands";serialized.ApplyModifiedPropertiesWithoutUndo();
                 Debug.Log("GH_RIG "+name+" clips="+clips.Length+" skinned="+instance.GetComponentsInChildren<SkinnedMeshRenderer>().Length);
             }
-            var prefab=PrefabUtility.SaveAsPrefabAsset(instance,Generated+"/Prefabs/"+name+".prefab");UnityEngine.Object.DestroyImmediate(instance);return prefab;
+            var prefab=PrefabUtility.SaveAsPrefabAsset(root,Generated+"/Prefabs/"+name+".prefab");UnityEngine.Object.DestroyImmediate(root);
+            if(!character&&!GoldenHourAssetAudit.Validate(prefab,name))throw new Exception("Imported geometry failed its authored bounds/pivot check: "+name);
+            return prefab;
         }
         static void Save(UnityEngine.Object asset,string path){var old=AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);if(old)AssetDatabase.DeleteAsset(path);AssetDatabase.CreateAsset(asset,path);}
     }

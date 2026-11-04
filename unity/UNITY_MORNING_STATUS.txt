@@ -1,147 +1,74 @@
-GOLDEN HOUR — UNITY MIGRATION CHECKPOINT
-2026-11-04
+GOLDEN HOUR - UNITY WINDOWS 1.1.0
+Updated 2026-11-04
 
 STATUS
-The Unity source project and authored assets are prepared. This is NOT a compiled,
-playable, release-validated Unity game. The prior Godot release remains untouched.
+Unity Personal activation is working. Unity 6000.3.28f1 successfully resolves
+packages, imports the authored assets, compiles the URP shaders and builds a
+native Windows player. No additional account or editor installation is needed.
+The Unity game is separate from the preserved Godot 1.0.6 release and its saves.
 
-BLOCKER
-Unity Editor 6000.3.28f1 is now installed. The user returned and authorized help
-with installation on 2026-11-04; the signed installer completed successfully.
-Its MD5 matches Unity's published value and its Authenticode signature is valid
-for Unity Technologies SF. Editor version was verified from the installed file.
+PLAY
+Launch builds/unity/windows/GoldenHour.exe from the repository.
+Choose Practice to learn at your own pace, or Opening Day for the timed level.
+Read unity/QUICK_START.txt for controls. The verified packaged ZIP is:
+builds/unity/releases/20261104-171636-092-bbaceec6-GoldenHour-1.1.0-windows-x64/GoldenHour-1.1.0-windows-x64.zip
+185 files verified by hash; a fresh extraction passed its 36 UI checks at 900p.
 
-The first native build attempt exited with code 198 before project compilation:
-"No valid Unity Editor license found. Please activate your license."
+CURRENT SCOPE
+One fairground venue with Opening Day, Practice, and earned After Hours.
+Physical donuts travel up the incline, fall into the tray, and become waste if
+spilled. Keep the scoop while collecting packaging; scoop, pour, coat, serve.
+Independent animated fryer dials, repair/refill, overheating/fire/extinguishing,
+rapid tray-shake chaos, a service bell and instant customer-skipping punches.
+Original authored FBX props and skinned characters, articulated hand contact,
+folded paper bags, curved sugar labels, detailed material maps, reflections,
+shadows, fairground ticket UI, warnings, end receipt, sound and score feedback.
 
-Unity Hub 3.22.5.65535 was installed with winget from Unity's official CDN package;
-winget verified the installer hash. Hub is running for the user to sign in.
-The pending task question asks whether Hub now shows an active license.
+VALIDATION
+See docs/UNITY_1_1_0_VALIDATION.md for the final exact build evidence.
+The final 1080p native regression passed 276 assertions, served six customers,
+and won Opening Day with $162.50 against a $110 target. Measured average was
+59.84 FPS with vsync on this machine. UI checks passed 36 assertions at 1080p
+and again at 720p. The pure C# core suite passed 21 scenarios,
+including 12,000 chaotic actions conserving all food IDs.
+Native asset audits validate dimensions and moving pivots for all 18 prop FBXs.
+The native tests exercise real render frames, physics, tool animations, actual
+hand-to-grip contact, independent controls, pause/resume, dropped loaded scoops,
+restart during handoff, fire, tray chaos, punch skip and a complete timed shift.
+Automated UI checks operate the actual menu/settings/guide/pause controls.
+Screenshots and native logs are retained under playtest-reports/unity and the
+player's persistent-data Acceptance/UIAcceptance directories.
 
-In Hub, sign in or create a Unity account. If no license activates automatically,
-use Settings > Licenses > Add license > Get a free personal license, then review
-the terms and activate if applicable. No additional editor download is needed.
-Official instructions: https://docs.unity.com/en-us/hub/manage-license
+BOUNDARIES
+This is a local Windows build, not a Steam/mobile store submission. Purchases,
+cosmetics, account services and additional venues remain version-2 work.
+The preserved Godot edition's six-shift campaign, nineteen upgrades, extra gag
+variants and Godot saves are not automatically imported into this Unity edition.
+Character art is original stylized 3D. There is one customer model in this build.
+Settings, best streak and the After Hours unlock persist locally; a running
+shift starts fresh when relaunched. No legacy Godot save is changed.
+Native automation and visual inspection are useful evidence, not a substitute
+for broad human usability, balance, accessibility and hardware testing.
 
-Installer:
-C:/Users/bryce/.cache/donutsgame/unity/UnitySetup64-6000.3.28f1.exe
+BUILD
+pwsh -File tools/unity/build_windows.ps1
+Optional -UnityPath '<path>/Editor/Unity.exe' overrides the detected editor.
+Unity: C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1/Editor/Unity.exe
+Project: unity/GoldenHour
+Output: builds/unity/windows/GoldenHour.exe
+The build script requires GH_BUILD Succeeded rather than trusting an old EXE.
 
-Installed editor:
-C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1/Editor/Unity.exe
+NATIVE CHECKS
+GoldenHour.exe --gh-ui-smoke
+GoldenHour.exe --gh-acceptance
+Use a visible window for captured graphics. Hidden DX11 windows can render black
+screenshots even when simulation is running. Both checks exit automatically,
+write result.json and screenshots, and avoid saving test progress/preferences.
+Require passed=true and no errors; inspect native screenshots as well.
+Logs/data: %USERPROFILE%/AppData/LocalLow/Golden Hour Studio/Golden Hour/
 
-Install destination:
-C:/Users/bryce/.cache/donutsgame/unity/6000.3.28f1
-
-No Unity license was changed by the agent. Existing entitlement data was not
-exported. License activation is required before Unity can compile the project.
-No reset credit, paid asset, or purchase was used.
-
-IMPLEMENTED IN SOURCE
-- Separate Unity 6.3 LTS / URP project; Windows desktop target.
-- Opening Day, Practice, and earned Endless modes.
-- Exact-ID food accounting through production, physical landing, scooping,
-  packaging, coating, serving, spills, and waste.
-- Independent animated heat/feed controls, jams, refills, overheating/fire,
-  extinguisher, rapid tray shakes, and instant customer-skipping punches.
-- Authored fryer/counter/tray/scoop/bags/buckets/shakers/donuts, fairground stalls,
-  canopy, bench, ferris wheel, and other props: 18 exported FBX models.
-- Two original skinned rigs: baker hands (11 clips) and Milo customer (6 clips).
-- Smooth action curves and bounded hand IK tracking; actual grip alignment and
-  reach remain to be verified in Unity. No claim of finished animation quality.
-- Compact order-ticket HUD, actionable fault notifications, menu, pause,
-  field guide, audio/reduced-motion settings, and end receipt.
-- Original/existing texture maps, packed URP metal/smoothness maps, 36 sounds,
-  generated transparent fire sprite, dusk sky shader, light/score feedback.
-- URP 17.3 source audit corrections: supported lighting APIs, connected post-
-  processing resources, saved transparent particle variant and exponential fog,
-  and refreshed authored color multipliers during material generation.
-- Shared particle textures/materials and donut physics material avoid per-order
-  native allocations; tray shake animations return to a stable resting position.
-- Setting down the scoop keeps the hand target through the motion. Seasoning a
-  held bag lowers it onto the mat first; held packaging survives scoop toggling.
-- Prop feet, countertop collision and tray floor now match authored geometry;
-  the prior tray collider would have held donuts 13 mm above its visible floor.
-- Scoop grip now targets the wooden handle, with three donuts loaded along the
-  bowl, handle facing the operator, and forward pouring around the palm pivot.
-  The former hand target was inside the bowl and its load exceeded bowl width.
-
-VERIFIED
-- Unity Editor 6000.3.28f1 and Unity Hub are installed; native editor bootstrap
-  reached its license check. Project compilation is still blocked by activation.
-- 21 pure C# acceptance scenarios pass; compiler reports zero warnings/errors.
-- 12,000 chaotic core actions conserve food.
-- A paced core simulation finishes Opening Day with $237 / 7 served.
-- 14 C# files pass Roslyn C# 7.3 syntax checks. This does NOT check Unity symbols.
-- All 18 prop FBXs roundtrip through Blender with UVs and matching dimensions.
-- Both skinned rigs roundtrip with UVs, no unweighted/non-finite vertices,
-  maximum four skin weights, and their named animation clips.
-- Asset preparation verifies required files and genuine flame alpha.
-- Offline workstation views inspected; bell/extinguisher moved for visibility.
-
-NOT VERIFIED / REQUIRED NEXT
-- Unity package resolution, C# API compilation, shader compilation and builds.
-- FBX facing/handedness, imported pivot axes, material conversion and animation
-  take names. Offline Blender previews are NOT Unity screenshots.
-- Hand/tool contact throughout scoop/pour/shake/handoff; camera and workstation
-  spacing MUST be adjusted to keep actions within natural arm reach. Offline
-  measurement found 0.666 m usable arm reach, while existing stationary-camera
-  targets require 1.31-2.38 m. The IK clamp prevents stretching but cannot make
-  those targets physically reachable. This is a known unfinished integration
-  issue, not a verified animation solution.
-  A bounded offline solution uses a persistent central camera at (.15,1.50,-.60)
-  and a right packing camera at (1.22,1.48,-.22), unpitched operator shoulders,
-  and a nearer service release. This needs native camera/interaction tuning;
-  it has not been substituted blindly into the existing overview presentation.
-  With the corrected scoop grip/pivot, the proposed central held-bag pour still
-  requires 0.787 m and fails the 0.666 m limit; the right-side mat pour is within
-  reach at 0.640 m. The central held-package staging needs further adjustment.
-  See playtest-reports/unity-assets/hand-reach-audit.md and its corrected results.
-- Native physics stability, food travel over the incline, physical tray overflow,
-  reach/hover selection, render clarity, performance, HUD scaling, and sound mix.
-- The player-side acceptance harness has been authored but has NOT been run.
-
-BUILD AFTER LICENSE ACTIVATION
-From the DonutsGame directory:
-
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity/build_windows.ps1
-
-For another editor location, pass -UnityPath "<full path>/Editor/Unity.exe".
-The script prepares assets, runs the core checks, then invokes the scene/build
-generator. The generator writes Assets/Scenes/Fairground.unity and a Windows
-player under builds/unity/windows/GoldenHour.exe. No current file at that path
-should be assumed to exist before a successful new build.
-
-Source-only checks without Unity:
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity/build_windows.ps1 -PrepareOnly
-
-PLAYER VALIDATION AFTER A SUCCESSFUL BUILD
-Launch GoldenHour.exe --gh-smoke for an eight-second scene/physics capture.
-Launch GoldenHour.exe --gh-acceptance for a real-time automated physical serving
-run, fault/gag checks and a full timed Opening Day. It writes screenshots and
-result.json under the Unity player's persistent-data Acceptance directory.
-Require GH_ACCEPTANCE passed=true, no errors, and inspect the screenshots.
-The harness now rejects sustained unreachable hand targets. It is expected to
-flag the documented stationary-camera reach issue until that staging is fixed.
-Then manually play the loop and review animation feel before calling it ready.
-
-CONTROLS IN SOURCE
-Left click: use highlighted object. Right click a dial: increase; left: decrease.
-Hold motor/hopper: repair/refill. Click tray with empty hand: shake.
-1/2 bag/bucket; R equip scoop or scoop; Q pour/lift; C/V cinnamon/powdered;
-E customer; Esc pause; F1 field guide; F11 fullscreen.
-Choosing packaging does not unequip the scoop.
-
-EXISTING PLAYABLE FALLBACK
+PRESERVED FALLBACK
 builds/windows/1.0.6/GoldenHour.exe
-Its release package and existing player saves were preserved.
+Existing Godot ZIPs and player saves remain untouched.
 
-ART PREVIEW
-playtest-reports/unity-assets/workstation-revised-nonunity.png
-This is an offline Blender composition preview, not the Unity player. The final
-preview includes the latest customer, bell/extinguisher relocation and seating
-corrections. It does not validate hand-to-tool contact during gameplay.
-
-FIRE ASSET PROVENANCE
-GoldenHour/Assets/Art/Textures/oil_flame.png
-Generated with the built-in image_gen tool; exact prompt and alpha verification:
-GoldenHour/Assets/Art/Textures/oil_flame.provenance.json
+No reset credit, paid asset or purchase was used. No game was published online.

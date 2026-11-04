@@ -4,7 +4,7 @@ All meshes are authored offline, bevelled, UV mapped and exported as FBX. Scale 
 metres. Blender Z is vertical; exported FBX is Unity Y-up. A prop's origin is its
 bottom contact point except the donut (centre) and moving machine components.
 """
-import bpy, math, random, json, shutil, sys
+import bpy, math, random, json, shutil, sys, hashlib
 import numpy as np
 from mathutils import Vector
 from pathlib import Path
@@ -15,6 +15,97 @@ TEX = ROOT / 'unity/GoldenHour/Assets/Art/Textures'
 SRC = ROOT / 'unity/GoldenHour/ArtSource'
 QA = ROOT / 'playtest-reports/unity-assets'
 for p in [OUT,TEX,SRC,QA]: p.mkdir(parents=True,exist_ok=True)
+
+MINI_DONUT_DESCRIPTION = 'Gently irregular fried dough torus with a 5mm proof hole, darker crust and a light fried seam. Approximately 65mm diameter x 25.8mm high; centre pivot.'
+
+def mini_donut_point(a,v):
+    # Keep the proof hole open and the dome smooth. High-frequency radial and
+    # vertical waves made the previous mesh read as a pleated dumpling.
+    outer=(1+math.cos(v))*.5
+    radius=.0175+.015*math.cos(v)
+    radius+=(.00016*math.sin(3*a+.35)+.00010*math.cos(5*a-1.1))*outer
+    radius+=.00006*math.sin(2*a+.4)*(1-outer)
+    z=.0128*math.sin(v)*(1+.006*math.sin(3*a+.6))
+    return (radius*math.cos(a),radius*math.sin(a),z)
+
+if '--only-mini-donut' in sys.argv:
+    def file_hash(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+    protected=[p for p in OUT.glob('*.fbx') if p.name!='MiniDonut.fbx']+[p for p in TEX.rglob('*') if p.is_file()]
+    protected_hashes={str(p.relative_to(ROOT)):file_hash(p) for p in protected}
+    manifest_path=OUT/'props_manifest.json'
+    source_path=SRC/'GoldenHour_Props.blend'
+    data=json.loads(manifest_path.read_text())
+    other_entries={k:v for k,v in data.items() if k!='MiniDonut'}
+    old_fbx_hash=file_hash(OUT/'MiniDonut.fbx')
+    bpy.ops.wm.open_mainfile(filepath=str(source_path))
+    donut=bpy.data.objects.get('MiniDonut_Body')
+    if not donut or donut.type!='MESH' or len(donut.data.vertices)!=1280 or len(donut.data.polygons)!=1280:
+        raise RuntimeError('MiniDonut_Body must retain the authored 64 x 20 torus topology.')
+    if not donut.data.uv_layers:
+        raise RuntimeError('MiniDonut must retain its authored UVs.')
+    # Verify vertex ordering before changing coordinates, accepting both the old
+    # and new shape so this narrow operation is safe to rerun.
+    old_error=new_error=0
+    for j in range(20):
+        v=2*math.pi*j/20
+        for i in range(64):
+            a=2*math.pi*i/64
+            wave=1+.035*math.sin(a*7)+.021*math.cos(a*11+v*3)
+            radius=.0173+.0151*math.cos(v)*wave
+            previous=Vector((radius*math.cos(a),radius*math.sin(a),.0125*math.sin(v)*(1+.04*math.sin(a*9))))
+            vertex=donut.data.vertices[j*64+i]
+            old_error=max(old_error,(vertex.co-previous).length)
+            new_error=max(new_error,(vertex.co-Vector(mini_donut_point(a,v))).length)
+    if min(old_error,new_error)>.000001:
+        raise RuntimeError('Unexpected donut vertex order or source shape; no assets changed.')
+    def mesh_signature(mesh,include_vertices=True):
+        values=[]
+        if include_vertices:values.append([tuple(v.co) for v in mesh.vertices])
+        values.extend([[tuple(p.vertices) for p in mesh.polygons],[(p.material_index,p.use_smooth) for p in mesh.polygons],
+                       [(layer.name,[tuple(loop.uv) for loop in layer.data]) for layer in mesh.uv_layers],
+                       [m.name if m else None for m in mesh.materials]])
+        return hashlib.sha256(repr(values).encode()).hexdigest()
+    def other_objects_signature():
+        return {o.name:(tuple(tuple(row) for row in o.matrix_world),mesh_signature(o.data) if o.type=='MESH' else o.type)
+                for o in bpy.data.objects if o!=donut}
+    other_objects=other_objects_signature()
+    topology_uv_materials=mesh_signature(donut.data,False)
+    states={o.name:(o.select_get(),o.hide_get(),o.hide_viewport,o.hide_render) for o in bpy.data.objects}
+    previous_active=bpy.context.view_layer.objects.active
+    for j in range(20):
+        for i in range(64):donut.data.vertices[j*64+i].co=mini_donut_point(2*math.pi*i/64,2*math.pi*j/20)
+    donut.data.update()
+    assert mesh_signature(donut.data,False)==topology_uv_materials, 'Donut UVs, topology, or materials changed.'
+    for o in bpy.context.view_layer.objects:o.select_set(False)
+    donut.hide_set(False);donut.hide_viewport=False;donut.select_set(True);bpy.context.view_layer.objects.active=donut
+    bpy.ops.export_scene.fbx(filepath=str(OUT/'MiniDonut.fbx'),use_selection=True,object_types={'MESH'},apply_unit_scale=True,apply_scale_options='FBX_SCALE_UNITS',axis_forward='-Z',axis_up='Y',bake_space_transform=True,use_mesh_modifiers=True,mesh_smooth_type='FACE',path_mode='STRIP',use_custom_props=True,add_leaf_bones=False,bake_anim=False)
+    for name,(selected,hidden,viewport,render) in states.items():
+        o=bpy.data.objects[name];o.hide_viewport=viewport;o.hide_render=render;o.select_set(selected);o.hide_set(hidden)
+    bpy.context.view_layer.objects.active=previous_active
+    assert other_objects_signature()==other_objects, 'An unrelated source object changed.'
+    assert {o.name:(o.select_get(),o.hide_get(),o.hide_viewport,o.hide_render) for o in bpy.data.objects}==states, 'Source visibility or selection changed.'
+    verts=[donut.matrix_world@v.co for v in donut.data.vertices]
+    lo=[min(v[i] for v in verts) for i in range(3)];hi=[max(v[i] for v in verts) for i in range(3)]
+    data['MiniDonut'].update(description=MINI_DONUT_DESCRIPTION,blenderBoundsMin=lo,blenderBoundsMax=hi,
+        unitySize=[hi[0]-lo[0],hi[2]-lo[2],hi[1]-lo[1]],vertices=len(donut.data.vertices),
+        triangles=sum(len(p.vertices)-2 for p in donut.data.polygons))
+    assert {k:v for k,v in data.items() if k!='MiniDonut'}==other_entries
+    manifest_path.write_text(json.dumps(data,indent=2))
+    bpy.context.preferences.filepaths.save_version=0
+    bpy.ops.wm.save_as_mainfile(filepath=str(source_path))
+    changed=[name for name,digest in protected_hashes.items() if file_hash(ROOT/name)!=digest]
+    if changed:raise RuntimeError('Protected assets changed: '+', '.join(changed))
+    radii=[math.hypot(v.co.x,v.co.y) for v in donut.data.vertices[640:704]]
+    report={'passed':True,'unitySizeMetres':data['MiniDonut']['unitySize'],
+        'pinholeDiameterRangeMetres':[2*min(radii),2*max(radii)],'vertices':len(donut.data.vertices),
+        'triangles':data['MiniDonut']['triangles'],'uvTopologyMaterialsUnchanged':True,
+        'otherSourceObjectsUnchanged':len(other_objects),'otherFbxUnchanged':len([p for p in OUT.glob('*.fbx') if p.name!='MiniDonut.fbx']),
+        'protectedFileCount':len(protected_hashes),'protectedSha256':protected_hashes,
+        'previousFbxSha256':old_fbx_hash,'newFbxSha256':file_hash(OUT/'MiniDonut.fbx')}
+    (QA/'mini-donut-refinement.json').write_text(json.dumps(report,indent=2))
+    print('MINI_DONUT_REFINED',json.dumps({k:v for k,v in report.items() if k!='protectedSha256'}))
+    sys.exit(0)
+
 if '--verify-only' in sys.argv:
     expected=json.loads((OUT/'props_manifest.json').read_text());report={};failures=[]
     for name,info in expected.items():
@@ -451,13 +542,12 @@ verts=[];faces=[];coords=[]
 for j in range(20):
     v=2*math.pi*j/20
     for i in range(64):
-        a=2*math.pi*i/64;wave=1+.035*math.sin(a*7)+.021*math.cos(a*11+v*3)
-        rr=.0173+.0151*math.cos(v)*wave;z=.0125*math.sin(v)*(1+.04*math.sin(a*9))
-        verts.append((rr*math.cos(a),rr*math.sin(a),z))
+        a=2*math.pi*i/64
+        verts.append(mini_donut_point(a,v))
 for j in range(20):
     for i in range(64):faces.append((j*64+i,j*64+(i+1)%64,((j+1)%20)*64+(i+1)%64,((j+1)%20)*64+i));coords.append(((i/64,j/20),((i+1)/64,j/20),((i+1)/64,(j+1)/20),(i/64,(j+1)/20)))
 mesh('Proofed irregular mini donut',verts,faces,'Dough',coords,True)
-export('MiniDonut','Domed irregular fried dough torus with small proof hole, darker crust and a light fried seam. Approximately 65mm diameter x 26mm high; centre pivot.')
+export('MiniDonut',MINI_DONUT_DESCRIPTION)
 
 begin('Extinguisher')
 lathe('Red cylinder tank',[(0,.005),(.052,.005),(.061,.016),(.064,.04),(.064,.235),(.059,.258),(.045,.274),(.02,.28)],'Red',segments=64)

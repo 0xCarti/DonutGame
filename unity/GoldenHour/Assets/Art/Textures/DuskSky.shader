@@ -2,9 +2,9 @@ Shader "GoldenHour/DuskSky"
 {
     Properties
     {
-        _Zenith ("Deep evening", Color) = (0.025,0.055,0.12,1)
-        _Horizon ("Last light", Color) = (0.36,0.25,0.25,1)
-        _Ground ("Below horizon", Color) = (0.055,0.07,0.09,1)
+        _Zenith ("Deep evening", Color) = (0.08,0.14,0.24,1)
+        _Horizon ("Last light", Color) = (0.36,0.40,0.48,1)
+        _Ground ("Below horizon", Color) = (0.10,0.12,0.15,1)
     }
     SubShader
     {
