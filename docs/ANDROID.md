@@ -20,6 +20,9 @@ See [the release verification notes](RELEASE_1_2_VALIDATION.md) and package logs
 The earlier 1.0.7 ARM64 candidate completed a touch-only sale under CPU translation,
 but that translated configuration failed a background/resume check. Native
 emulator checks are not physical-phone tests.
+Final emulator cold launches also showed a 17–18 second initial render stall
+before the interface became responsive. Startup time needs checking on real
+phones; this emulator result is not a handset performance benchmark.
 Installation and gameplay on a physical Android device have not been verified.
 Desktop mobile-preview tests do not establish phone compatibility, frame rate,
 battery use, temperature, or reliable resume behavior on a particular handset.

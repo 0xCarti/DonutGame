@@ -41,6 +41,20 @@ and host GPU rendering. It exercises actual Android touch input rather than
 desktop mouse emulation. Evidence is in
 `playtest-reports/android/1.2.0-native-verification.json` and its screenshots.
 
+The installed final APK's SHA256 was verified on the emulator. Native touch checks
+passed for a completed order, maintenance, all three venues, every catalogue
+category, badge pages, operator previews, both Back routes, and background/resume.
+Preview exit restored the ordinary hand pose and scoop interaction. App logcat
+contained no script error, crash or ANR matches.
+
+Cold launches showed a **17–18 second initial render stall** on this emulator,
+with a cached-shader recompilation warning; the interface responded afterward.
+This is a measured limitation of this test environment, not a physical-phone
+benchmark or a confirmed diagnosis of its cause. Check startup time on real
+devices before release. Purchased-supply HUD labels were checked in automated
+and rendered tests but not naturally exercised with the emulator's preserved
+zero-Ticket career.
+
 ## iPhone
 
 The unsigned ARM64 Release package, source manifest, export logs and Xcode build
@@ -58,7 +72,7 @@ runtime and executable version 1.2.0, and left all ten existing player-save path
 unchanged. Its evidence is in
 `builds/logs/20261105-003843-230/12-packaged-native-result.json`.
 
-Neither package has been tested on a physical phone in this work. Device-specific
+Neither mobile package has been tested on a physical phone in this work. Device-specific
 touch comfort, cutouts, performance, thermals, battery use and prolonged resume
 behavior still require real Android/iPhone testing. No App Store, TestFlight or
 Google Play submission has been performed.
