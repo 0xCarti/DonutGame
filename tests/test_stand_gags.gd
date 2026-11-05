@@ -333,6 +333,7 @@ func _test_hat_and_resets() -> void:
 	var inventory: Array = _inventory()
 	app._act("customer")
 	check(app._hat_customer == 7 and app.model.missed == 0 and _inventory() == inventory, "Scoop-only hat interaction is cosmetic and preserves the customer and inventory")
+	check(not bool(app.model.orders[0].get("hat", false)) and not app.model.unlocked_achievements.has("head_chef"), "admiring an existing random hat cannot create a Head Chef achievement tag")
 	advance(1.2)
 	var hat_sounds: int = sounds.count("hat")
 	check(hat_sounds == 1, "Eligible hat interaction reaches the actual world reaction and sound")
@@ -346,9 +347,14 @@ func _test_hat_and_resets() -> void:
 	reset(819)
 	check(app._bell_clicks == 0 and app._bell_window == 0.0 and app._bell_reply == 0.0 and app._bell_cooldown == 0.0 and app._powder_count == 0 and app._sneeze_delay == 0.0 and app._sneeze_customer == -1 and app._hat_customer == -1, "A new shift resets every gag counter, timer and customer binding")
 	app.profile.badges.erase("unscheduled_delivery")
+	var profile_before: Dictionary = app.profile.get_summary()
 	app._on_gag_sound("seagull")
 	app._on_gag_sound("seagull")
-	check(app.profile.badges.count("unscheduled_delivery") == 1, "Seagull gag awards its secret badge once in the isolated test profile")
+	check(app.profile.get_summary() == profile_before, "practice seagull gags cannot award badges or Tickets")
+	app.practice = false
+	app._on_gag_sound("seagull")
+	app._on_gag_sound("seagull")
+	check(app.profile.badges.count("unscheduled_delivery") == 1, "a real-run seagull gag awards its secret badge once in the isolated profile")
 
 func _test_gag_capacity_during_punch() -> void:
 	reset(830)

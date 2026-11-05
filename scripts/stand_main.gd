@@ -7,7 +7,8 @@ const Audio = preload("res://scripts/stand_audio.gd")
 const Hud = preload("res://scripts/stand_hud.gd")
 const MobileInput = preload("res://scripts/mobile_input.gd")
 const MobileQuality = preload("res://scripts/mobile_quality.gd")
-const VERSION = "1.0.7"
+const Market = preload("res://scripts/stand_market.gd")
+const VERSION = "1.2.0"
 const SAVE_PATH = "user://golden_hour_run.json"
 const SETTINGS_PATH = "user://golden_hour_settings.json"
 const LEGACY_SAVE_PATH = "user://stand_run.json"
@@ -24,6 +25,7 @@ const STATION_NAMES = {
 	"supply": "Scoop fresh donuts", "package": "Your order", "cinnamon": "Coat with cinnamon",
 	"powdered": "Coat with powdered sugar", "serve": "Hand to the customer",
 	"heat_down": "Turn heat down", "heat_up": "Turn heat up",
+	"speed_down": "Slow the feeder", "speed_up": "Speed up the feeder",
 	"repair": "Hold to free the jam", "refill": "Hold to refill batter", "trash": "Empty the order",
 	"bell": "Ring the service bell", "extinguish": "Use the fire extinguisher"
 }
@@ -96,6 +98,12 @@ var _powder_count = 0
 var _sneeze_delay = 0.0
 var _sneeze_customer = -1
 var _hat_customer = -1
+var _market_category = "sets"
+var _market_page = 0
+var _preview_loadout: Dictionary = {}
+var _preview_return = "collection"
+var _badge_page = 0
+var _market_return_to_opening = false
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Golden Hour")
@@ -124,6 +132,7 @@ func _ready() -> void:
 	model.external_delivery = true
 	world.delivery_settled.connect(_on_delivery_settled)
 	world.stock_spilled.connect(_on_stock_spilled)
+	world.air_mail_caught.connect(_on_air_mail_caught)
 	audio = Audio.new()
 	add_child(audio)
 	world.gag_sound.connect(_on_gag_sound)
@@ -357,6 +366,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
 			return
 		if event.keycode == KEY_ESCAPE:
+			if current_view == "preview":
+				_end_market_preview()
+				return
 			if mobile_mode:
 				_mobile_back()
 				return
@@ -375,6 +387,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E: _act("serve")
 			KEY_MINUS: _act("heat_down")
 			KEY_EQUAL: _act("heat_up")
+			KEY_BRACKETLEFT: _act("speed_down")
+			KEY_BRACKETRIGHT: _act("speed_up")
 			KEY_R: _start_hold("repair")
 			KEY_T: _start_hold("refill")
 			KEY_X: _act("trash")
@@ -413,6 +427,9 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST: _save_run()
 
 func _mobile_back() -> void:
+	if current_view == "preview":
+		_end_market_preview()
+		return
 	_cancel_mobile_input()
 	_save_settings()
 	if is_instance_valid(overlay):
@@ -435,6 +452,15 @@ func _act(station: String) -> void:
 		if held_tool == "package": station = "serve"
 		elif held_tool == "none": station = "punch"
 		elif held_tool == "scoop":
+			if not world.is_action_busy() and model.scoop_count > 0 and not model.orders.is_empty():
+				var hat_receipt: Dictionary = model.hat_customer()
+				if bool(hat_receipt.get("ok", false)):
+					world.play_gag("hat_toss", {"order_id": int(hat_receipt.order_id)})
+					_toast("A chef's hat, fresh from the fryer.", GOLD)
+					_process_events()
+					_sync_world()
+					_save_run()
+				return
 			if not world.is_action_busy() and world.front_customer_has_donut_hat() and not model.orders.is_empty():
 				var customer_id = int(model.orders[0].id)
 				if _hat_customer != customer_id:
@@ -449,7 +475,7 @@ func _act(station: String) -> void:
 	if station == "punch" and (world.is_action_busy() or held_tool != "none"): return
 	# A single buffered next move keeps quick clicks responsive without cutting a
 	# physical transfer halfway through or duplicating the same scoop/pour.
-	if world.is_action_busy() and station not in ["heat_down", "heat_up"]:
+	if world.is_action_busy() and station not in ["heat_down", "heat_up", "speed_down", "speed_up"]:
 		if _queued_action.is_empty() and station != _last_hand_action:
 			_queued_action = station
 		return
@@ -525,10 +551,16 @@ func _act(station: String) -> void:
 					tier = feedback.tier_for(result)
 					feedback.celebrate(result, ui.get_global_transform().affine_inverse() * world.station_screen_position("serve"))
 				world.burst_reward(amount, tier)
+				if str(result.get("special", "")) == "seagulls" and bool(result.get("correct", true)):
+					world.play_gag("seagulls_reveal", {"order_id": int(result.get("order_id", -1))})
+				if not bool(result.get("correct", true)):
+					_toast("Partial order accepted · lower payout and appeal", RED)
 				if practice: _practice_served += 1
 			elif result.get("code", "") == "wrong_order": held_tool = "none"
 		"heat_down": result = model.adjust_heat(-1)
 		"heat_up": result = model.adjust_heat(1)
+		"speed_down": result = model.adjust_speed(-1)
+		"speed_up": result = model.adjust_speed(1)
 		"trash":
 			result = model.discard()
 			held_tool = "none"
@@ -537,13 +569,13 @@ func _act(station: String) -> void:
 	if bool(result.get("ok", false)):
 		if station not in ["serve", "punch"]: audio.play_action(station)
 		world.animate_action(station)
-		if station not in ["heat_down", "heat_up"]: _last_hand_action = station
+		if station not in ["heat_down", "heat_up", "speed_down", "speed_up"]: _last_hand_action = station
 		_save_run()
 	else:
 		audio.play_warning(str(result.get("code", "mistake")))
 	# The dashboard explains normal scoop/pour actions continuously. Reserve
 	# transient notices for errors and actions with information worth reading.
-	if not bool(result.get("ok", false)) or station in ["trash", "heat_down", "heat_up", "extinguish"]:
+	if not bool(result.get("ok", false)) or station in ["trash", "heat_down", "heat_up", "speed_down", "speed_up", "extinguish"]:
 		_toast(str(result.get("message", "")), MINT if bool(result.get("ok", false)) else RED)
 	_process_events()
 	_sync_world()
@@ -565,11 +597,14 @@ func _on_gag_sound(id: String) -> void:
 	if id == "donut_shower":
 		_toast("The donuts have left the building.", GOLD)
 	elif id == "seagull":
+		model.note_gag("seagull_feed")
 		audio.play_action(id)
 		_toast("One very satisfied walk-up customer.", GOLD)
-		if profile != null and profile.record_gag("unscheduled_delivery"):
-			profile.save_profile()
-			_toast("SECRET BADGE · Unscheduled Delivery", MINT)
+		if not practice and profile != null:
+			var before: Dictionary = profile.get_summary()
+			if profile.record_gag("unscheduled_delivery"):
+				if profile.save_profile(): _toast("SECRET BADGE · Unscheduled Delivery", MINT)
+				else: profile.from_data(before)
 	else: audio.play_action(id)
 
 func _drain_action_queue() -> void:
@@ -606,6 +641,7 @@ func _handle_hold_result(result: Dictionary) -> void:
 
 func _process_events() -> void:
 	_ensure_food_session()
+	var reconcile = false
 	for event in model.events:
 		var kind = str(event.get("type", ""))
 		if kind == "production" and event.has("delivery_id") and int(event.get("delivery_epoch", -1)) == _food_epoch:
@@ -616,7 +652,29 @@ func _process_events() -> void:
 			if kind == "walkout": _toast("A customer left. Read the new front ticket.", RED)
 			elif kind == "fire": _toast("FRYER FIRE! Click the red extinguisher or press Q.", RED)
 		elif kind in ["repair", "refill"]: audio.play_action(kind)
+		elif kind == "achievement" and not practice:
+			reconcile = true
+		elif kind == "shift_end" and not practice:
+			reconcile = true
 	model.events.clear()
+	if reconcile: _reconcile_career()
+
+func _reconcile_career() -> bool:
+	if practice or profile == null: return true
+	var before: Dictionary = profile.get_summary()
+	var earned: Array[String] = []
+	for id in model.unlocked_achievements:
+		if profile.record_achievement(str(id)): earned.append(str(id))
+	var reward = profile.grant_shift_reward(run_id, model.shift_index, {"completed": model.phase in ["shop", "won"] and bool(model.last_result.get("cleared", false)), "served": model.served})
+	if earned.is_empty() and not bool(reward.get("granted", false)): return true
+	if not profile.save_profile():
+		profile.from_data(before)
+		_toast("Career rewards could not be saved. They will be retried when this shift is loaded.", RED)
+		return false
+	for badge in profile.get_badges():
+		if earned.has(str(badge.id)): _toast("BADGE EARNED · " + str(badge.name), MINT)
+	if bool(reward.get("granted", false)): _toast("+%d Tickets for your collection" % int(reward.get("tickets", 0)), GOLD)
+	return true
 
 func _ensure_food_session() -> void:
 	model.external_delivery = true
@@ -633,20 +691,36 @@ func _ensure_food_session() -> void:
 	_sneeze_delay = 0
 	_sneeze_customer = -1
 	_hat_customer = -1
+	world.reserve_food_ids(model.to_save().get("_caught_stock_ids", []))
 	world.reset_food(model.supply, model.supply_capacity, model.pending_delivery_ids())
 
 func _on_delivery_settled(id: int, kept: bool) -> void:
 	if _food_model != model: return
 	model.settle_delivery(id, kept, _food_epoch)
+	_process_events()
 
 func _on_stock_spilled(_id: int) -> void:
 	if _food_model != model or _food_epoch != model.delivery_epoch: return
 	model.spill_stock(1)
 
+func _on_air_mail_caught(stock_id: int) -> void:
+	var accepted = false
+	if _food_model == model and _food_epoch == model.delivery_epoch and not paused and current_view == "play":
+		accepted = bool(model.catch_air_mail(stock_id).get("ok", false))
+	world.resolve_air_mail(stock_id, accepted)
+	if accepted:
+		_toast("AIR MAIL! One donut, delivered directly.", GOLD)
+		_process_events()
+		_save_run()
+
 func _view_state() -> Dictionary:
 	return {"phase": model.phase, "shift_index": model.shift_index, "time_left": model.time_left,
 		"orders": model.orders, "supply": model.supply, "batter": model.batter,
 		"temperature": model.temperature, "heat_setting": model.heat_setting,
+		"appeal": model.appeal, "production_speed": model.production_speed,
+		"venue_id": model.venue_id(), "machine_id": model.machine_id(),
+		"active_buff": model.active_buff, "pending_buff": model.pending_buff,
+		"cosmetic_loadout": _preview_loadout if not _preview_loadout.is_empty() else (profile.cosmetic_loadout() if profile != null else {}),
 		"jammed": model.jammed, "overheated": model.overheated, "jam_progress": model.jam_progress,
 		"fire_active": model.fire_active, "fire_danger": model.fire_danger,
 		"fire_recovery": model.fire_recovery, "foam_time": model.foam_time,
@@ -981,7 +1055,23 @@ func _start_new_run() -> void:
 	held_tool = "none"
 	_close_overlay()
 	if not tutorial_seen: _show_help(true)
-	else: _begin_shift()
+	else: _show_opening()
+
+func _show_opening() -> void:
+	var p = _modal(Vector2(1040, 620))
+	_label(p, "Before the first rush.", Vector2(32, 28), Vector2(976, 57), 40)
+	_text(p, "18 shifts. Three venues. One little stand.\nClear the fairground to earn the Twin-Lane at the concert; reach the stadium for the Festival Pro.", Vector2(34, 112), Vector2(972, 132), 27, MUTED)
+	_text(p, "Correct, quick orders build appeal. Wrong containers or flavors still sell, but at a reduced reward and rating. Punching hurts your reputation.", Vector2(34, 267), Vector2(972, 100), 25, CREAM)
+	var speed_name = ["SLOW", "NORMAL", "FAST"][model.production_speed]
+	_mobile_menu_button(p, "FEED: " + speed_name, Vector2(32, 403), Vector2(465, 80), func():
+		model.adjust_speed(-2 if model.production_speed == 2 else 1)
+		_show_opening(), PANEL)
+	_mobile_menu_button(p, "SHIFT SUPPLIES", Vector2(517, 403), Vector2(491, 80), func():
+		_market_return_to_opening = true
+		_market_category = "buffs"
+		_market_page = 0
+		_show_market(), GOLD)
+	_mobile_menu_button(p, "OPEN THE STAND", Vector2(32, 513), Vector2(976, 80), _begin_shift, MINT)
 
 func _start_practice() -> void:
 	if current_view == "play" and not practice: _save_run()
@@ -993,6 +1083,22 @@ func _start_practice() -> void:
 	_toast("Practice is open. Your saved campaign is safe.", MINT)
 
 func _begin_shift() -> void:
+	# Keep the completed shift's reward evidence until its career receipt is safe.
+	# Starting the next shift replaces its index and per-shift customer count.
+	if not practice and model.phase == "shop" and not _reconcile_career(): return
+	if not model.pending_buff.is_empty() and not practice:
+		if not _save_run(): return
+		var before: Dictionary = profile.get_summary()
+		var next_shift = model.shift_index + (1 if model.phase == "shop" else 0)
+		var transaction = "%s:%d:%s" % [run_id, next_shift, model.pending_buff]
+		if not profile.consume_buff(model.pending_buff, transaction):
+			_toast("That supply is no longer in your inventory. Choose another at the Ticket Booth.", RED)
+			model.pending_buff = ""
+			return
+		if not profile.save_profile():
+			profile.from_data(before)
+			_toast("Could not save your supplies. Free some disk space, then try again.", RED)
+			return
 	model.start_shift()
 	held_tool = "none"
 	_active_faults.clear()
@@ -1018,11 +1124,13 @@ func _continue_run() -> void:
 	_active_faults.clear()
 	_quota_announced = model.sales >= model.target
 	if model.phase == "shop": _show_shop()
+	elif model.phase == "ready": _show_opening()
 	else: _show_play()
+	_reconcile_career()
 	_sync_world()
 
 func _shift_count() -> int:
-	return model.TARGETS.size()
+	return Model.Content.SHIFTS.size()
 
 func _show_play() -> void:
 	current_view = "play"
@@ -1223,10 +1331,11 @@ func _show_shop() -> void:
 	if offers.is_empty():
 		_text(screen, "Your equipment is fully upgraded.\nTake your stand into the next rush.", Vector2(290, 390), Vector2(700, 100), 29, MINT).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_button(screen, "START NEXT SHIFT  >", Vector2(831, 664), Vector2(395, 58), _begin_shift, MINT)
+	_button(screen, "TICKET BOOTH", Vector2(426, 664), Vector2(385, 58), _show_market, GOLD)
 	_button(screen, "Save & return to title", Vector2(54, 664), Vector2(352, 58), func():
 		_save_run()
 		_show_title(), PANEL)
-	_label(screen, "Earn coins by meeting your quota. All equipment is bought with coins earned in this run.", Vector2(56, 751), Vector2(1160, 24), 15, MUTED)
+	_label(screen, "Appeal %d / 100  ·  Next: %s  ·  %s" % [int(model.appeal), str(info.get("venue_name", "Fairground")), "No supply queued" if model.pending_buff.is_empty() else model.pending_buff.replace("_", " ").capitalize() + " queued"], Vector2(56, 737), Vector2(1160, 26), 18, MUTED)
 
 func _buy_upgrade(id: String) -> void:
 	var result = model.buy_upgrade(id)
@@ -1256,10 +1365,11 @@ func _build_mobile_shop() -> void:
 		button.disabled = model.credits < cost
 		if button.disabled: button.text = "NEED %d MORE COINS" % (cost - model.credits)
 	if offers.is_empty(): _text(screen, "Your equipment is fully upgraded.\nTake your stand into the next rush.", Vector2(180, 330), Vector2(920, 120), 31, MINT)
-	_mobile_menu_button(screen, "SAVE & RETURN TO TITLE", Vector2(40, 684), Vector2(576, 88), func():
+	_mobile_menu_button(screen, "SAVE & TITLE", Vector2(40, 684), Vector2(380, 88), func():
 		_save_run()
 		_show_title(), PANEL)
-	_mobile_menu_button(screen, "START NEXT SHIFT", Vector2(644, 684), Vector2(596, 88), _begin_shift, MINT)
+	_mobile_menu_button(screen, "TICKET BOOTH", Vector2(436, 684), Vector2(380, 88), _show_market, GOLD)
+	_mobile_menu_button(screen, "START NEXT SHIFT", Vector2(832, 684), Vector2(408, 88), _begin_shift, MINT)
 
 func _finish_run() -> void:
 	current_view = "result"
@@ -1267,7 +1377,7 @@ func _finish_run() -> void:
 	_sync_world()
 	var won: bool = model.phase == "won"
 	var stats: Dictionary = model.get_stats()
-	var career_saved: bool = true
+	var career_saved: bool = _reconcile_career()
 	if not _result_recorded:
 		_result_recorded = true
 		if not test_mode and not practice and profile != null:
@@ -1276,7 +1386,7 @@ func _finish_run() -> void:
 	if not test_mode and not practice:
 		# Recording is idempotent in memory; persistence can be retried independently.
 		# Keep the last playable checkpoint until career progress is on disk.
-		career_saved = profile != null and profile.save_profile()
+		career_saved = career_saved and profile != null and profile.save_profile()
 		if career_saved:
 			saved_run.clear()
 			_legacy_migration_done = true
@@ -1286,7 +1396,7 @@ func _finish_run() -> void:
 	var p = _panel(screen, Vector2(235, 87), Vector2(810, 627), INK)
 	_label(p, "THE LAST DONUT HAS A LITTLE MAGIC." if won else "EVERY GREAT STAND FINDS ITS RHYTHM.", Vector2(34, 28), Vector2(742, 26), 16, GOLD)
 	_label(p, "Rush handled." if won else "Closing time.", Vector2(30, 82), Vector2(750, 71), 55)
-	_text(p, "The fair is winding down, and your stand made its mark. Endless Rush and the Cherry Jubilee palette are yours." if won else "Take a breath. Keep your scoop in hand, read the first ticket, and use quiet moments to refill and service the fryer.", Vector2(36, 173), Vector2(738, 88), 23, MUTED)
+	_text(p, "From the fairground to championship night, your stand made its mark. Endless Rush and the Cherry Jubilee palette are yours." if won else "Take a breath. Keep your scoop in hand, read the first ticket, and use quiet moments to refill and service the fryer.", Vector2(36, 173), Vector2(738, 88), 23, MUTED)
 	_label(p, ("ROUND %d" % [model.shift_index + 1] if selected_mode == "endless" else "SHIFT %d / %d" % [model.shift_index + 1, _shift_count()]) + "   ·   %s / $%d" % [_money(model.sales), model.target], Vector2(36, 278), Vector2(738, 33), 25, GOLD)
 	var values = [[str(stats.get("total_served", model.served)), "CUSTOMERS SERVED"], [_money(float(stats.get("total_sales", model.sales))), "TOTAL SALES"], [str(maxi(best_streak, int(stats.get("best_streak", 0)))), "BEST STREAK"]]
 	for i in range(3):
@@ -1332,6 +1442,7 @@ func _show_pause() -> void:
 			model.batter = 0
 			_close_overlay()
 			_refresh_hud(), PANEL)
+		_button(p, "EXPLORE VENUES & MACHINES", Vector2(30, 345), Vector2(524, 36), _show_practice_venues, PANEL)
 	_button(p, "LEAVE PRACTICE" if practice else "Save & return to title", Vector2(30, 391 if practice else 316), Vector2(524, 54), func():
 		_save_run()
 		_show_title(), PANEL)
@@ -1354,7 +1465,7 @@ func _show_help(start_after: bool) -> void:
 		var card = _panel(p, Vector2(32, 138 + i * 94), Vector2(878, 81), PANEL)
 		_label(card, steps[i][0], Vector2(15, 10), Vector2(848, 23), 17, GOLD)
 		_text(card, steps[i][1], Vector2(16, 39), Vector2(846, 38), 16, MUTED)
-	_text(p, "Right-drag to look around; Home recentres. Esc pauses. G rings the bell. Watch for fairground surprises!\nPractice freezes time and patience, and lets you try machine faults from its pause menu.", Vector2(34, 528), Vector2(874, 56), 16, MUTED)
+	_text(p, "Right-drag to look; Home recentres. [ / ] changes feed speed. Esc pauses. G rings the bell.\nWrong orders sell for less and lower appeal. Practice freezes time and patience.", Vector2(34, 528), Vector2(874, 56), 16, MUTED)
 	_button(p, "LET'S OPEN  >" if start_after else "GOT IT", Vector2(34, 616), Vector2(566, 48), func():
 		_close_overlay()
 		if start_after:
@@ -1384,12 +1495,27 @@ func _show_mobile_pause() -> void:
 			model.batter = 0
 			_close_overlay()
 			_refresh_hud(), PANEL)
-		_text(p, "Try a machine fault, then use the large Tools controls to recover.", Vector2(34, 528), Vector2(912, 55), 23, MUTED)
+		_mobile_menu_button(p, "EXPLORE VENUES & MACHINES", Vector2(32, 518), Vector2(916, 80), _show_practice_venues, PANEL)
 	else:
 		_text(p, "Choose Back to the counter when you are ready.\nSave & return to title keeps your shift for later.", Vector2(34, 423), Vector2(912, 100), 24, MUTED)
 	_mobile_menu_button(p, "LEAVE PRACTICE" if practice else "SAVE & RETURN TO TITLE", Vector2(32, 608), Vector2(916, 88), func():
 		_save_run()
 		_show_title(), PANEL)
+
+func _show_practice_venues() -> void:
+	if not practice: return
+	var p = _modal(Vector2(1000, 590))
+	_label(p, "Take the stand on tour.", Vector2(32, 28), Vector2(936, 57), 39)
+	_text(p, "Try every venue and machine here. Practice resets your practice counter and never awards Tickets, badges, or campaign progress.", Vector2(34, 106), Vector2(932, 100), 25, MUTED)
+	for i in range(3):
+		var venue: Dictionary = Model.Content.VENUES[i]
+		var machine: Dictionary = Model.Content.MACHINES[i]
+		_mobile_menu_button(p, str(venue.name).to_upper() + " · " + str(machine.name), Vector2(32, 225 + i * 92), Vector2(936, 80), func():
+			model.new_run(4182, "relaxed", "campaign")
+			model.shift_index = i * 6
+			_practice_served = 0
+			_begin_shift(), GOLD if i == 0 else PANEL)
+	_mobile_menu_button(p, "BACK", Vector2(32, 505), Vector2(936, 80), _show_pause, PANEL)
 
 func _show_settings() -> void:
 	if mobile_mode:
@@ -1431,13 +1557,13 @@ func _show_mobile_help(start_after: bool) -> void:
 		["1  READ THE FRONT TICKET", "Tap a bag for 6 donuts or a bucket for 12. The large cream ticket is your next customer."],
 		["2  SCOOP, POUR, COAT", "Tap the scoop, then the fresh tray, then your package. Fill it and tap the requested sugar."],
 		["3  LIFT AND HAND OVER", "Tap the finished package to lift it, then tap the customer. The large action button follows your next step."],
-		["4  KEEP THE FRYER RUNNING", "Touch and hold the hopper to refill or the motor to repair. Lift your finger to stop. Tools gives you larger controls for heat and the extinguisher."]
+		["4  KEEP THE FRYER RUNNING", "Touch and hold the hopper to refill or the motor to repair. Lift your finger to stop. Tools has feed speed, heat and extinguisher controls."]
 	]
 	for i in range(steps.size()):
 		var card = _panel(p, Vector2(30, 91 + i * 119), Vector2(1000, 107), PANEL)
 		_label(card, steps[i][0], Vector2(17, 9), Vector2(966, 30), 22, GOLD)
 		_text(card, steps[i][1], Vector2(17, 43), Vector2(966, 58), 21, MUTED)
-	_text(p, "Drag the counter to look. Center resets your view. Tap Pause to save your shift.\nPractice lets you learn without a timer or impatient customers.", Vector2(32, 575), Vector2(996, 66), 21, MINT)
+	_text(p, "Drag the counter to look. Center resets your view. Tap Pause to save your shift.\nWrong orders sell for less and lower appeal. Practice has no timer.", Vector2(32, 575), Vector2(996, 66), 21, MINT)
 	_button(p, "OPEN THE STAND" if start_after else "GOT IT", Vector2(30, 658), Vector2(640, 62), func():
 		_close_overlay()
 		if start_after:
@@ -1540,7 +1666,7 @@ func _show_collection() -> void:
 	var summary: Dictionary = profile.get_summary() if profile != null else {}
 	_label(screen, "%d customers served   ·   %d campaigns completed   ·   %d best streak" % [int(summary.get("total_served", 0)), int(summary.get("campaign_wins", 0)), int(summary.get("best_streak", 0))], Vector2(56, 148), Vector2(1168, 30), 21, MINT)
 	var cosmetics: Array = profile.get_cosmetics() if profile != null else []
-	for i in range(cosmetics.size()):
+	for i in range(mini(3, cosmetics.size())):
 		var item: Dictionary = cosmetics[i]
 		var card = _panel(screen, Vector2(54 + i * 397, 220), Vector2(378, 290), PANEL)
 		var swatch = _panel(card, Vector2(20, 20), Vector2(338, 55), item.get("accent", GOLD))
@@ -1561,8 +1687,9 @@ func _show_collection() -> void:
 		var card = _panel(screen, Vector2(54 + i * 197, 585), Vector2(187, 96), PANEL)
 		_label(card, str(badge.name), Vector2(10, 12), Vector2(167, 23), 13, MINT if badge.get("unlocked", false) else MUTED)
 		_text(card, "EARNED" if badge.get("unlocked", false) else str(badge.description), Vector2(10, 41), Vector2(167, 46), 11, GOLD if badge.get("unlocked", false) else MUTED)
-	_button(screen, "BACK TO THE STAND", Vector2(831, 714), Vector2(395, 51), _show_title)
-	_label(screen, "Every look is earned by playing. Your chosen palette never changes the rules.", Vector2(56, 725), Vector2(735, 29), 15, MUTED)
+	_button(screen, "ALL 16 BADGES", Vector2(54, 714), Vector2(362, 62), _show_mobile_badges, PANEL)
+	_button(screen, "TICKET BOOTH", Vector2(436, 714), Vector2(375, 62), _show_market, MINT)
+	_button(screen, "BACK TO THE STAND", Vector2(831, 714), Vector2(395, 62), _show_title)
 
 func _select_cosmetic(id: String) -> void:
 	if profile == null or not profile.select_cosmetic(id): return
@@ -1588,24 +1715,132 @@ func _build_mobile_collection() -> void:
 			button.disabled = selected
 		else:
 			_text(card, str(item.get("requirement", "Keep serving to unlock")), Vector2(20, 282), Vector2(344, 88), 23, GOLD)
-	_text(screen, "Every look is earned by playing. Your chosen palette never changes the rules.", Vector2(44, 583), Vector2(1192, 65), 24, MUTED)
-	_mobile_menu_button(screen, "CAREER BADGES", Vector2(40, 684), Vector2(576, 88), _show_mobile_badges, PANEL)
-	_mobile_menu_button(screen, "BACK TO THE STAND", Vector2(644, 684), Vector2(596, 88), _show_title)
+	_text(screen, "Original career looks stay earned. Visit the Ticket Booth for new sets, operator pieces, celebrations and shift supplies.", Vector2(44, 583), Vector2(1192, 65), 24, MUTED)
+	_mobile_menu_button(screen, "CAREER BADGES", Vector2(40, 684), Vector2(380, 88), _show_mobile_badges, PANEL)
+	_mobile_menu_button(screen, "TICKET BOOTH", Vector2(436, 684), Vector2(380, 88), _show_market, MINT)
+	_mobile_menu_button(screen, "BACK TO THE STAND", Vector2(832, 684), Vector2(408, 88), _show_title)
 
 func _show_mobile_badges() -> void:
 	var p = _modal(Vector2(1080, 740))
-	_label(p, "Career badges", Vector2(30, 20), Vector2(1020, 49), 35)
+	_label(p, "The bragging wall", Vector2(30, 20), Vector2(720, 49), 35)
 	var badges: Array = profile.get_badges() if profile != null and profile.has_method("get_badges") else []
-	for i in range(mini(badges.size(), 6)):
-		var badge: Dictionary = badges[i]
+	var pages = maxi(1, int(ceil(badges.size() / 6.0)))
+	_badge_page = clampi(_badge_page, 0, pages - 1)
+	_label(p, "%d / %d" % [_badge_page + 1, pages], Vector2(870, 30), Vector2(180, 34), 24, GOLD)
+	for i in range(mini(badges.size() - _badge_page * 6, 6)):
+		var badge: Dictionary = badges[_badge_page * 6 + i]
 		var card = _panel(p, Vector2(30 + (i % 3) * 344, 91 + int(i / 3) * 245), Vector2(328, 223), PANEL)
 		_text(card, str(badge.name), Vector2(16, 14), Vector2(296, 62), 24, MINT if badge.get("unlocked", false) else CREAM)
 		_text(card, "EARNED" if badge.get("unlocked", false) else str(badge.description), Vector2(16, 91), Vector2(296, 113), 22, GOLD if badge.get("unlocked", false) else MUTED)
-	_mobile_menu_button(p, "BACK TO COLLECTION", Vector2(30, 630), Vector2(1020, 88), _close_overlay)
+	_mobile_menu_button(p, "‹ PREVIOUS", Vector2(30, 630), Vector2(270, 88), func():
+		_badge_page -= 1
+		_show_mobile_badges(), PANEL).disabled = _badge_page == 0
+	_mobile_menu_button(p, "NEXT ›", Vector2(320, 630), Vector2(270, 88), func():
+		_badge_page += 1
+		_show_mobile_badges(), PANEL).disabled = _badge_page == pages - 1
+	_mobile_menu_button(p, "BACK TO COLLECTION", Vector2(610, 630), Vector2(440, 88), _close_overlay)
 
 func _apply_cosmetic() -> void:
 	if profile != null and is_instance_valid(world) and world.has_method("set_cosmetic"):
 		world.set_cosmetic(profile.selected_cosmetic)
+	if is_instance_valid(feedback) and profile != null:
+		feedback.celebration_style = str(profile.cosmetic_loadout().get("celebration", "celebration_confetti"))
+	if is_instance_valid(world): _sync_world()
+
+func _show_market() -> void:
+	var panel = _modal(Vector2(1220, 740))
+	var market = Market.new()
+	market.catalog = profile.get_catalog()
+	market.balance = int(profile.get_summary().get("tickets", 0))
+	market.can_queue = model.phase in ["ready", "shop"] and not practice and not run_id.is_empty()
+	market.pending_buff = model.pending_buff
+	market.category = _market_category
+	market.page = _market_page
+	market.purchase_requested.connect(_market_purchase)
+	market.equip_requested.connect(_market_equip)
+	market.preview_requested.connect(_market_preview)
+	market.buff_requested.connect(_market_buff)
+	market.buff_cleared.connect(func():
+		var previous: String = model.pending_buff
+		model.pending_buff = ""
+		if not _save_run(): model.pending_buff = previous
+		_show_market())
+	market.page_requested.connect(func(category: String, page: int):
+		_market_category = category
+		_market_page = page
+		_show_market())
+	market.closed.connect(func():
+		_close_overlay()
+		if _market_return_to_opening:
+			_market_return_to_opening = false
+			_show_opening()
+		elif current_view == "shop": _show_shop())
+	panel.add_child(market)
+
+func _market_purchase(id: String) -> void:
+	var before: Dictionary = profile.get_summary()
+	var result: Dictionary = profile.purchase_with_tickets(id)
+	if not result.get("ok", false):
+		_toast("Not enough Tickets for that item.", GOLD)
+		return
+	if not profile.save_profile():
+		profile.from_data(before)
+		_toast("Your purchase could not be saved. No Tickets were spent.", RED)
+		return
+	_show_market()
+	_toast("Added to your collection.", MINT)
+
+func _market_equip(id: String) -> void:
+	var before: Dictionary = profile.get_summary()
+	if not profile.equip_item(id).get("ok", false): return
+	if not profile.save_profile():
+		profile.from_data(before)
+		_toast("Your look could not be saved.", RED)
+		return
+	_apply_cosmetic()
+	_show_market()
+	_toast("New look equipped.", MINT)
+
+func _market_buff(id: String) -> void:
+	if profile.buff_count(id) <= 0: return
+	var result: Dictionary = model.equip_buff(id)
+	if not result.get("ok", false):
+		_toast(str(result.get("message", "Choose one supply between shifts.")), GOLD)
+		return
+	_save_run()
+	_show_market()
+	_toast("Queued for the next shift. Inventory is used when you open.", MINT)
+
+func _market_preview(id: String) -> void:
+	_preview_return = current_view
+	_preview_loadout = profile.cosmetic_loadout().duplicate(true)
+	var item: Dictionary = {}
+	for entry in profile.get_catalog():
+		if str(entry.id) == id: item = entry
+	if item.is_empty(): return
+	_preview_loadout[str(item.slot)] = id
+	current_view = "preview"
+	_new_screen()
+	world.reset_look()
+	_sync_world()
+	var operator_preview: bool = str(item.slot).begins_with("operator_")
+	world.set_operator_preview(operator_preview)
+	var ribbon = _panel(screen, Vector2(40, 30 if operator_preview else 630), Vector2(1200, 140), INK)
+	_label(ribbon, "PREVIEW · " + str(item.name), Vector2(22, 15), Vector2(768, 45), 30, GOLD)
+	_text(ribbon, "Try a new look before spending your Tickets.", Vector2(22, 77), Vector2(768, 40), 22, MUTED)
+	_mobile_menu_button(ribbon, "BACK TO TICKET BOOTH", Vector2(800, 28), Vector2(376, 86), _end_market_preview, MINT)
+	if str(item.slot) == "celebration":
+		feedback.celebration_style = id
+		feedback.visible = true
+		feedback.celebrate({"amount": 54.0, "tip": 12.0, "streak": 10})
+
+func _end_market_preview() -> void:
+	world.set_operator_preview(false)
+	_preview_loadout.clear()
+	if _preview_return == "shop": _show_shop()
+	else: _show_collection()
+	_apply_cosmetic()
+	_show_market()
 
 func _show_credits() -> void:
 	if mobile_mode:
@@ -1803,8 +2038,10 @@ func _toast(value: String, color: Color = CREAM) -> void:
 	tween.tween_property(panel, "modulate:a", 0, 0.2)
 	tween.tween_callback(panel.queue_free)
 
-func _save_run() -> void:
-	if test_mode or practice or model.phase not in ["playing", "shop"]: return
+func _save_run() -> bool:
+	if test_mode or practice: return true
+	if model.phase == "ready" and run_id.is_empty(): return true
+	if model.phase not in ["ready", "playing", "shop"]: return false
 	saved_run = {"model": model.to_save(), "held_tool": held_tool, "run_id": run_id, "best_streak": best_streak}
 	if _write_json_atomic(SAVE_PATH, saved_run):
 		_save_failed = false
@@ -1812,9 +2049,11 @@ func _save_run() -> void:
 		if not _legacy_migration_done:
 			_legacy_migration_done = true
 			_save_settings()
+		return true
 	elif not _save_failed:
 		_save_failed = true
 		_toast("Your shift could not be saved. Check free disk space before closing.", RED)
+	return false
 
 func _load_saved_run(paths: Array = []) -> void:
 	saved_run.clear()

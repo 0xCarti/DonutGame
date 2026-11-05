@@ -100,14 +100,22 @@ these discoveries are not required to finish the campaign.
 
 ## Build your rhythm
 
-The campaign has six named shifts, each with its own crowd and opportunities.
+The campaign has 18 named shifts across the fairground, concert and stadium.
+Each has its own crowd and opportunities. Larger machines are earned at shifts 7 and 13.
 Meet the displayed sales target before closing time. Between shifts, spend
 coins earned in that run on equipment and service improvements. The shop
 explains the next shift before you commit to an upgrade.
 
 Complete the campaign to unlock Endless Rush. Your career records, badges and
-three stand palettes are earned through play and saved across runs. Choose
-your look in Collection. Stand colours do not change the gameplay rules.
+three original stand palettes stay earned through play. Your Collection now
+includes 16 badges and the Ticket Booth for more cosmetics and five optional
+one-shift supplies, all available for earned Tickets. Real-money checkout is
+unavailable. Stand colours do not change the gameplay rules.
+
+Use Tools > Fryer on touch screens, or [ / ] on a keyboard, to change feed speed.
+Appeal rises with quick correct service and falls with long waits or punches.
+Wrong full/coated orders can be served for a partial payout and lower appeal.
+Practice > Pause > Explore Venues & Machines lets you try all three locations.
 
 Your active run saves automatically. Pause and choose Save & return to title
 to continue later. Practice never replaces it. New runs replace only the active

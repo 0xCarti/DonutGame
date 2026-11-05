@@ -75,12 +75,14 @@ func _test_order_validation_and_recovery() -> void:
 	_check(cleared.returned == 6 and cleared.wasted == 0 and model.supply == 18, "clear recovers both plain packed and held donuts")
 	_check(model.package_type.is_empty() and model.scoop_count == 0, "clear resets package and scoop")
 	_fill(model, "bag", "powdered")
-	var old_patience: float = model.orders[0].patience
-	var rejected: Dictionary = model.serve()
-	_check(not rejected.ok and rejected.code == "wrong_order", "wrong coating rejected by customer")
-	_check(model.package_count == 6 and model.package_flavor == "powdered" and model.orders.size() == 1, "wrong service preserves food and customer for recovery")
-	_check(model.mistakes == 1 and model.orders[0].patience == old_patience - 4.0 and model.sales == 0.0, "wrong order costs patience and breaks streak without awarding money")
 	_check(not model.coat("cinnamon").ok and model.package_flavor == "powdered", "existing coating cannot be silently replaced")
+	var rejected: Dictionary = model.serve()
+	_check(rejected.ok and not rejected.correct and rejected.code == "imperfect_order", "wrong coating is accepted as an explicitly imperfect order")
+	_check(model.package_count == 0 and model.orders.is_empty(), "imperfect service consumes food and advances the actual customer once")
+	_check(model.mistakes == 1 and model.appeal == 51.0 and model.sales == 7.2 and rejected.tip == 0.0, "wrong order receives fractional payment, loses appeal and earns no tips")
+	model.new_run(8)
+	model.start_shift()
+	_fill(model, "bag", "powdered")
 	cleared = model.discard()
 	_check(cleared.returned == 0 and cleared.wasted == 6, "coated donuts are discarded instead of returning to plain supply")
 	_check(model.waste_count == 6 and model.get_stats().total_wasted == 6, "discarded coated food is included in the same waste accounting as physical spills")
@@ -89,7 +91,8 @@ func _test_order_validation_and_recovery() -> void:
 	model.new_run(9)
 	model.start_shift()
 	_fill(model, "bucket", "cinnamon")
-	_check(not model.serve().ok and model.package_count == 12, "correct flavor in wrong package is rejected intact")
+	var wrong_package: Dictionary = model.serve()
+	_check(wrong_package.ok and not wrong_package.correct and model.package_count == 0, "wrong package is accepted for a fraction of the cheaper menu price")
 	model.discard()
 	model.choose_package("bag")
 	model.supply = 1
@@ -316,7 +319,7 @@ func _test_fire_save_migration() -> void:
 		if version == 2:
 			for key in ["waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries"]: legacy.erase(key)
 		var unchanged: Dictionary = legacy.duplicate(true)
-		_check(restored.from_save(JSON.parse_string(JSON.stringify(legacy))) and restored.to_save().version == 4, "version%d save migrates explicitly through the v4 fire schema" % version)
+		_check(restored.from_save(JSON.parse_string(JSON.stringify(legacy))) and restored.to_save().version == 5, "version%d save migrates through fire and expansion schemas" % version)
 		_check(legacy == unchanged and restored.package_count == original.package_count and restored.scoop_count == original.scoop_count and restored.supply == original.supply and is_equal_approx(restored.time_left, original.time_left), "version%d migration preserves old input and work in progress" % version)
 		_check(not restored.fire_active and restored.fire_danger == 0.0 and restored.fire_recovery == 0.0 and restored.foam_time == 0.0, "version%d migration does not invent a fire or recovery delay" % version)
 		if version == 3: _check(restored.pending_delivery_ids() == original._pending_deliveries, "v3 migration preserves every uncredited physical donut delivery")
@@ -460,11 +463,11 @@ func _test_orders_and_phases() -> void:
 	model.tick(1000.0)
 	_check(model.phase == "lost" and model.time_left == 0.0, "missing timed quota loses cleanly")
 	model.new_run(131)
-	for index in range(6):
+	for index in range(18):
 		model.start_shift()
 		model.sales = model.target
 		model.finish_shift()
-	_check(model.phase == "won" and model.shift_index == 5, "sixth completed shift wins without a seventh shift")
+	_check(model.phase == "won" and model.shift_index == 17, "eighteenth completed shift wins the full three-venue campaign")
 	var old_credits: int = model.credits
 	model.finish_shift()
 	_check(model.credits == old_credits and not model.scoop().ok, "completed game cannot award credits twice or keep serving")
@@ -518,16 +521,16 @@ func _test_save_and_corruption() -> void:
 
 func _test_campaign_content_and_practice() -> void:
 	var model = Stand.new()
-	_check(model.total_shifts() == 6 and Stand.UPGRADES.size() >= 16, "complete campaign has six shifts and at least sixteen equipment choices")
+	_check(model.total_shifts() == 18 and Stand.UPGRADES.size() >= 16, "complete campaign has eighteen shifts and at least sixteen equipment choices")
 	var names: Dictionary = {}
-	for index in range(6):
+	for index in range(18):
 		model.start_shift()
 		var info: Dictionary = model.get_campaign_info()
 		names[model.shift_name] = true
 		_check(not model.shift_description.is_empty() and info.modifiers.size() >= 1 and int(info.display_round) == index + 1, "shift has explanatory name, rules and round metadata")
 		model.sales = model.target
 		model.finish_shift()
-	_check(names.size() == 6, "all six rushes have distinct names")
+	_check(names.size() == 18, "all eighteen rushes have distinct names")
 	model.new_run(301, "relaxed")
 	model.start_shift()
 	_check(model.target == 88 and model.time_left == 126.0 and model.supply == 24, "relaxed mode grants explicit time, quota and opening-stock relief")
@@ -642,7 +645,7 @@ func _test_preventive_service_and_legacy_save() -> void:
 	var migrated = Stand.new()
 	_check(migrated.from_save(JSON.parse_string(JSON.stringify(old))), "version1 active save migrates into expanded campaign")
 	_check(migrated.package_count == 3 and migrated.supply == model.supply and migrated.target == 110 and is_equal_approx(migrated.time_left, model.time_left), "migration protects work-in-progress, stock, target and remaining time")
-	_check(migrated._legacy_shift and migrated.total_shifts() == 6, "migration marks preserved legacy shift inside full campaign")
+	_check(migrated._legacy_shift and migrated.total_shifts() == 18, "migration marks preserved legacy shift inside full campaign")
 	migrated.sales = migrated.target
 	migrated.finish_shift()
 	migrated.start_shift()
@@ -663,9 +666,9 @@ func _test_paced_runs() -> void:
 			elif action_seconds == 0.65: print("FAST DRAFT REVIEW seed%d: %s" % [1600 + seed_index, str(result)])
 			if int(result.cleared) >= 1: first_clears += 1
 			if seed_index == 0: example = result
-			_check(result.steps < 12000, "paced run terminates %.2fs/action seed%d" % [action_seconds, seed_index])
+			_check(result.steps < 50000, "paced run terminates %.2fs/action seed%d" % [action_seconds, seed_index])
 		if action_seconds == 0.65:
-			_check(wins == sample_count, "competent tool-aware play can complete all six shifts across64seeds")
+			_check(wins == sample_count, "competent tool-aware play can complete all eighteen shifts across64seeds")
 		_check(first_clears == sample_count, "learnable opening is clearable at %.2fs per physical action" % action_seconds)
 		print("STAND BALANCE %.2fs/action: %d/%d wins; example %s" % [action_seconds, wins, sample_count, str(example)])
 	var relaxed_wins: int = 0
@@ -703,7 +706,7 @@ func _simulate_run(seed_number: int, action_seconds: float, difficulty: String =
 	var refill_time: float = 0.0
 	while model.phase == "playing" or model.phase == "shop":
 		steps += 1
-		if steps >= 12000: break
+		if steps >= 50000: break
 		if model.phase == "shop":
 			history.append({"sales": model.sales, "served": model.served, "walkouts": model.missed, "stock_wait": snappedf(stock_wait, 0.1)})
 			cleared += 1

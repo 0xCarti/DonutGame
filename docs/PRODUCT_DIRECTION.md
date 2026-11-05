@@ -14,7 +14,7 @@ Version 1.0.0 provides a complete fairground campaign with six timed shifts, a q
 
 Start at a **warm fairground** with canopy fabric, wood counters, steel machinery, practical lights, nearby stalls, and a visible customer across the counter. The camera belongs to the operator. Visible arms, held tools, local object responses, and bounded look movement reinforce presence. Interaction targets must remain visible and reachable at the normal camera angle.
 
-Future **concert and sports venues** should change the environment around a familiar operating layout: crowds, music, neighboring concessions, lighting, signage, and atmosphere. Venue unlock progression is a future feature. Keep scenery and lighting separate from order and production rules so cosmetic venue choices do not silently alter difficulty.
+The **concert and stadium venues** change the environment around a familiar operating layout: crowds, music, neighboring concessions, lighting, signage, and atmosphere. Version 1.2 earns a venue and machine transition after each six-shift chapter. Keep scenery and lighting separate from order and production rules so cosmetic venue choices do not silently alter difficulty.
 
 ## Art and animation
 
@@ -36,17 +36,17 @@ Base effects on the authoritative completed-sale receipt. Do not duplicate the r
 
 Reduced motion should remove shake and disruptive movement while retaining readable outcomes. Sound, music, and motion remain independent settings.
 
-## V1 scope and V2 purchases
+## Historical V1 scope and current purchase boundary
 
 The user selected a **free game with optional temporary gameplay boosts and cosmetic purchases**, then explicitly deferred all purchase and Steam integration work to **version 2** because no Steamworks account or app exists. V1 must be a finished offline game with at least one complete venue, finalized graphics and the full gameplay loop. Its venue is the fairground, structured as a six-shift campaign.
 
 V1 has no paid store, checkout, paid entitlements, purchase prompts or usable gameplay boosts. Its equipment, badges, palettes and Endless unlock are earned by play. The dormant future-boost API is disabled. No external platform account is required.
 
-V2 will specify boost effects, durations, pricing, purchase validation and restore behaviour alongside platform integration. Keep run simulation and presentation independent of any future entitlement system. Do not retroactively charge for V1's earned unlocks. Additional concert and sports venues remain separate future content.
+The latest approval brings the cosmetic catalog and five earnable one-shift buffs into 1.2. Real platform checkout, receipt validation and restoration still require a configured store account. Keep run simulation and presentation independent of any future entitlement system. Do not retroactively charge for V1's earned unlocks. The concert and stadium are now part of the eighteen-shift campaign.
 
 ## Deferred gameplay ideas â€” 2026-11-04
 
-**Status: saved for later only. Do not implement these until the user requests it.**
+**Status: implementation authorized by the user; included in version1.2.0.**
 
 1. **Stand appeal and customer ratings.** Give the stand an overall appeal score
    that affects how many customers approach. If the customer currently being
@@ -58,8 +58,7 @@ V2 will specify boost effects, durations, pricing, purchase validation and resto
 3. **Adjustable machine production speed.** Add a player control that slows the
    machine's donut production rate.
 
-The appeal scale, rating weights, partial-reward amounts, and production-control
-design remain undecided. These notes do not change the current game or builds.
+The implementation uses appeal 0–100, customer ratings, partial payouts of25% or40%, and an independent Slow/Normal/Fast feed control. See `EXPANSION_1_2.md` for the complete approved expansion, achievements, shop, and validation limits.
 
 ## What to learn from this pivot
 

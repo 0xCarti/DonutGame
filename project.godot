@@ -6,7 +6,7 @@ config/name="Golden Hour — Mini Donut Club"
 run/main_scene="res://scenes/stand_main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://assets/icon.svg"
-config/version="1.0.7"
+config/version="1.2.0"
 
 [display]
 window/size/viewport_width=1280

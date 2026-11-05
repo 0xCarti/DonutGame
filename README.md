@@ -1,8 +1,7 @@
 # Golden Hour
 
 **Godot is the active development project again:** open `project.godot` with
-Godot **4.7.2 stable**. The current release target is **Android 1.0.7**, building
-on the Godot 1.0.6 campaign. The separate **Unity Windows 1.1.0** edition remains
+Godot **4.7.2 stable**. The active expansion is **Godot 1.2.0**, with Android and iPhone as the primary targets. The separate **Unity Windows 1.1.0** edition remains
 a preserved checkpoint; its project, packaged release, and saves are retained.
 
 ## iPhone demo — start here, Hashim
@@ -10,32 +9,36 @@ a preserved checkpoint; its project, packaged release, and saves are retained.
 The iOS handoff uses this **Godot project at the repository root**. Follow
 [the iPhone build and signing guide](docs/IOS_HANDOFF.md) to export an Xcode
 project on a Mac, install it on your iPhone, or distribute through TestFlight.
-The shared mobile controls and an iOS export preset are included. **The first
-unsigned ARM64 iPhone build compiled successfully** with Godot 4.7.2 and Xcode
-26.6 (iPhoneOS SDK 26.5), from source commit `a3e89cd`. Its IPA still needs signing;
-the guide includes a Sideloadly option. Real iPhone installation/runtime testing
-and TestFlight remain pending. Apple credentials are not part of this repository.
+The shared mobile controls and an iOS export preset are included. The **1.2.0
+unsigned ARM64 iPhone build** uses Godot 4.7.2 and Xcode 26.6 (iPhoneOS SDK 26.5).
+The guide identifies the verified package and its exact source manifest. The IPA
+still needs signing; the user chose FlareStore. Real iPhone installation/runtime
+testing and TestFlight remain pending. Apple credentials are not part of this repository.
 
-## Android — 1.0.7
+## Android and iPhone - 1.2.0
 
-The Android work adds landscape touch controls, a larger mobile HUD, an optional
-Tools drawer, camera recentering, and touch-accessible help/settings. Tap the
-physical counter objects to work; drag to look. Hold the repair lever or batter
-hopper to perform maintenance, then release to stop. No keyboard is required.
+Mobile is the primary target. The 1.2.0 package paths are:
 
-Low, Balanced, and High graphics profiles adjust 3D detail without reducing HUD
-resolution. Start with Balanced. Android Back opens a safe menu, and backgrounding
-pauses play, cancels held actions, and saves the run. Settings include device
-information and access to the bundled engine and font notices.
+- Android: `builds/android/1.2.0/GoldenHour-1.2.0-Android.apk`
+- iPhone: `builds/ios/1.2.0/r3/GoldenHour-1.2.0-iOS-unsigned.ipa`
 
-The signed ARMv7 + ARM64 + x86_64 APK target is:
-`builds/android/1.0.7/GoldenHour-1.0.7-Android.apk`.
-Signing/package verification and 569 automated checks passed. Android emulator
-checks cover touch interaction, saved orders/settings, and background/resume.
-**Physical-phone installation, ergonomics, sustained performance, and lifecycle
-acceptance remain pending**.
-Frame-rate caps are targets, not measured phone performance. See the
-[Android build and sideload guide](docs/ANDROID.md) before sharing a build.
+Both contain the full expansion and touch interface. The APK uses the existing
+release signing key so it can update the earlier demo without removing saves.
+The IPA must be signed with the tester's own provisioning through FlareStore or
+another signing workflow. Build manifests accompany generated packages; local
+build artifacts are excluded from the source repository.
+
+Tap counter objects to work; drag to look. Tools has larger controls for the
+feeder speed, heat, repair, refill and extinguisher. Start on Balanced graphics.
+Practice > Pause > Explore Venues & Machines previews all three locations.
+Backgrounding pauses play and saves the run. The interface respects safe areas
+and keeps text at native resolution when 3D resolution is reduced.
+
+See the [Android install guide](docs/ANDROID.md) and
+[iPhone build/signing handoff](docs/IOS_HANDOFF.md), with
+[1.2.0 validation evidence](docs/RELEASE_1_2_VALIDATION.md). Physical-phone installation,
+performance, thermals and sustained lifecycle behavior still require testing.
+The signed 1.0.7 APK and earlier unsigned IPA remain preserved checkpoints.
 
 ## The Godot game
 
@@ -43,11 +46,7 @@ A first-person mini-donut stand game. Work a warm fairground booth:
 scoop fresh donuts, fill bags and buckets, add cinnamon or powdered sugar, and
 hand each order to its customer while keeping the fryer running.
 
-The Godot campaign carried forward from **1.0.6** contains six named shifts,
-nineteen earned equipment and service upgrades, Standard and Relaxed difficulty,
-no-pressure practice, an unlockable Endless Rush, career badges and three earned
-stand palettes. All play is local and offline. Purchases and platform services
-are reserved for version 2.
+Version 1.2.0 adds an **eighteen-shift tour** through the fairground, concert and stadium, earned Compact/Twin-Lane/Festival Pro machines, stand appeal, partial orders, and independent feed speed. Nineteen run upgrades, Standard/Relaxed, Practice and Endless remain. The Ticket Booth adds earnable cosmetics and five one-shift supplies; sixteen career badges include new physical secrets. **Real-money checkout is unavailable until a store is configured.** See [the expansion guide](docs/EXPANSION_1_2.md).
 
 The interaction system connects production to real food objects: donuts ride
 up the exit ramp, drop into the tray, collide and settle. Full trays spill onto
@@ -72,10 +71,11 @@ small pinhole-center donuts, recessed discard opening, folded kraft bags,
 curved shaker labels, detailed customers and gloves, authored wood/paper
 surfaces, sweeping chute, independent dials and fairground ticket menu remain.
 
-## Preserved Windows and Web releases
+## Windows companion and preserved Web release
 
-Extract the Windows ZIP from `builds/releases/` and launch `GoldenHour.exe`.
-The unpacked build also lives at `builds/windows/1.0.6/GoldenHour.exe`.
+The secondary Windows 1.2.0 build contains the same expansion. Extract its ZIP
+from `builds/releases/` and launch `GoldenHour.exe`. The unpacked build also lives
+at `builds/windows/1.2.0/GoldenHour.exe`; the earlier 1.0.6 release is preserved.
 Keep the included `LICENSES` folder and `Quick Start.txt` with the executable.
 
 Choose **Open the Stand** for the campaign or **Practice** to learn without a
@@ -94,8 +94,7 @@ runs and career progress save locally; practice preserves the campaign save.
 
 The companion browser build is `builds/web/1.0.6/`. Serve it over HTTP; it needs
 WebGL 2 and WebAssembly. These existing desktop/browser releases remain available
-while Android 1.0.7 is developed. Gamepad controls, Steam services and additional
-venues remain future work.
+as historical checkpoints. Gamepad controls and Steam billing/services remain future work.
 
 ## Preserved Unity Windows checkpoint — 1.1.0
 

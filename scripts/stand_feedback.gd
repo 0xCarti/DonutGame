@@ -12,6 +12,7 @@ const MAX_COINS = 48
 const MAX_SPARKS = 70
 
 var reduced_motion = false
+var celebration_style = "celebration_confetti"
 var active_receipt: Dictionary = {}
 var coins: Array = []
 var sparks: Array = []
@@ -31,6 +32,7 @@ var _goal: Label
 var _flash = 0.0
 
 static func tier_for(receipt: Dictionary) -> int:
+	if not bool(receipt.get("correct", true)): return 0
 	var streak = int(receipt.get("streak", 1))
 	if streak >= 10: return 3
 	if streak >= 6 or float(receipt.get("amount", 0)) >= 45.0: return 2
@@ -101,6 +103,7 @@ func celebrate(receipt: Dictionary, origin: Vector2 = Vector2(680, 340)) -> void
 	_group.visible = true
 	_group.modulate.a = 1.0
 	_title.text = TITLES[tier]
+	if not bool(receipt.get("correct", true)): _title.text = "CLOSE ENOUGH"
 	_title.add_theme_color_override("font_color", PALETTE[tier])
 	_amount.add_theme_font_size_override("font_size", 54 + tier * 8)
 	_amount.text = _money(float(receipt.amount)) if reduced_motion else "+$0"
@@ -113,6 +116,10 @@ func celebrate(receipt: Dictionary, origin: Vector2 = Vector2(680, 340)) -> void
 		if value > 0: bonuses.append("%s $%.2f" % [part[1], value])
 	if not bonuses.is_empty(): _detail.text += "\n" + "  ·  ".join(bonuses)
 	_chain.text = "%d HAPPY CUSTOMERS IN A ROW" % int(receipt.get("streak", 1)) if int(receipt.get("streak", 1)) >= 2 else "HOT DONUTS. HAPPY CUSTOMER."
+	if receipt.has("rating"):
+		_chain.text = "%s  ·  APPEAL %+.0f" % ["★".repeat(clampi(int(receipt.rating), 1, 5)), float(receipt.get("appeal_delta", 0))]
+	if not bool(receipt.get("correct", true)):
+		_detail.text = "Partial payout · order did not match the ticket"
 	_flash = (0.08 + tier * 0.045) if not reduced_motion else 0.0
 	if reduced_motion:
 		queue_redraw()
@@ -207,7 +214,16 @@ func _draw() -> void:
 	for spark in sparks:
 		var alpha = 1.0 - float(spark.age)/float(spark.life)
 		var vector = Vector2(cos(float(spark.rotation)),sin(float(spark.rotation))) * 3
-		draw_line(Vector2(spark.position)-vector,Vector2(spark.position)+vector,Color(spark.color,alpha),2.5,true)
+		if celebration_style == "celebration_tickets":
+			var p = Vector2(spark.position)
+			draw_rect(Rect2(p - Vector2(6,3), Vector2(12,6)), Color(spark.color,alpha))
+			draw_line(p-Vector2(2,2),p+Vector2(2,2),Color(INK,alpha),1,true)
+		elif celebration_style == "celebration_fireworks":
+			var tail = Vector2(spark.velocity).normalized() * 12
+			draw_line(Vector2(spark.position)-tail,Vector2(spark.position),Color(spark.color,alpha*.5),2,true)
+			draw_circle(Vector2(spark.position),2.8,Color(CREAM,alpha),true,-1,true)
+		else:
+			draw_line(Vector2(spark.position)-vector,Vector2(spark.position)+vector,Color(spark.color,alpha),2.5,true)
 	if goal_age < 2.7:
 		var alpha = 1.0-smoothstep(2.2,2.7,goal_age)
 		draw_rect(Rect2(374,351,532,42),Color(INK,0.93*alpha))

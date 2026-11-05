@@ -34,6 +34,12 @@ and shaders. No models or textures from the reference commercial games are
 included. Equipment names in the design discussion are references; the game
 uses an original fictional machine design.
 
+The 1.2.0 concert stage, stadium field and seating, venue crowds, added machine
+hardware, feed-speed selector, and three-seagull customer are original procedural
+geometry in `scripts/stand_expansion.gd`. The cosmetic sets use original material
+colors and a generated gingham pattern; their trim, clothing, packaging accents,
+and celebration effects do not use downloaded artwork or models.
+
 Three bitmap illustrations were generated for Golden Hour using OpenAI's built-in
 image generation tool on 2026-11-04 UTC: `assets/art/title_keyart.png` (title
 illustration), `assets/art/brand_seal.png` (packaging emblem), and

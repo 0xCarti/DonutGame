@@ -41,7 +41,7 @@ func _run() -> void:
 	hud.mobile_hold_ended.connect(func(action: String): ended.append(action))
 	hud.configure_mobile(true)
 	var touch = hud.mobile_controls
-	var state = {"sales":12.5, "target":110, "time_left":95, "temperature":175, "heat_setting":2, "supply":18, "supply_capacity":36, "batter":42, "held_tool":"none", "package_type":"", "package_count":0, "package_flavor":"", "hold_station":"", "orders":[{"package":"bag","flavor":"cinnamon","patience":40,"max_patience":50},{"package":"bucket","flavor":"powdered","patience":50,"max_patience":50}]}
+	var state = {"sales":12.5, "target":110, "time_left":95, "temperature":175, "heat_setting":2, "production_speed":2, "appeal":87, "venue_id":"concert", "machine_id":"twin_lane", "active_buff":"good_vibes", "supply":18, "supply_capacity":36, "batter":42, "held_tool":"none", "package_type":"", "package_count":0, "package_flavor":"", "hold_station":"", "orders":[{"package":"bag","flavor":"cinnamon","patience":40,"max_patience":50},{"package":"bucket","flavor":"powdered","patience":50,"max_patience":50}]}
 	var context = {"station":"bag", "prompt":"Take the right container", "key":"B", "hint":"Press B to take a bag", "step":"CHOOSE · B", "machine_status":"MAKING DONUTS", "faults":[], "practice":false}
 	hud.refresh(state,context)
 	await process_frame
@@ -50,6 +50,14 @@ func _run() -> void:
 	check(hud.mobile.progress.text == "$12.50 / $110", "mobile status preserves exact money")
 	check(hud.mobile.clock.text == "1:35 remaining", "mobile clock is readable and accurate")
 	check(hud.mobile.machine.text.contains("175°") and hud.mobile.stock.text.contains("Batter 42"), "essential fryer resources stay visible")
+	check(hud.mobile.appeal.text.contains("87") and hud.mobile.venue.text == "Concert · Twin-Lane" and hud.mobile.buff.text.contains("Good Vibes"), "touch HUD exposes authoritative appeal venue machine and active supply")
+	check(hud.mobile.flow.text.contains("Fast"), "feed speed is separate from heat on the touch HUD")
+	for buff_id in ["", "fresh_oil", "freshly_serviced", "good_vibes", "emergency_batter", "rush_contract"]:
+		state.active_buff = buff_id
+		hud.refresh(state,context)
+		var label: Label = hud.mobile.buff
+		var text_width = label.get_theme_font("font").get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, label.get_theme_font_size("font_size")).x
+		check(text_width <= label.size.x, "appeal hint or active supply fits without ellipsis: " + label.text)
 	check(not hud.controls.orders[0].card.visible, "desktop overlay is hidden in mobile mode")
 	check(touch.mouse_filter == Control.MOUSE_FILTER_IGNORE and hud._mobile_layer.mouse_filter == Control.MOUSE_FILTER_IGNORE, "open counter space remains available to touch gestures")
 	check(not touch.drawer.visible, "secondary tool controls start collapsed")
@@ -79,6 +87,13 @@ func _run() -> void:
 	touch.set_tools_open(true)
 	touch.buttons.fryer_tab.pressed.emit()
 	check(touch.fryer_page.visible and not touch.order_page.visible, "fryer controls are separated from order shortcuts")
+	for station in ["speed_down", "speed_up"]:
+		touch.set_tools_open(true)
+		touch.buttons.fryer_tab.pressed.emit()
+		touch.buttons[station].pressed.emit()
+		check(actions.back() == station, "touch feeder control routes distinct action: " + station)
+	touch.set_tools_open(true)
+	touch.buttons.fryer_tab.pressed.emit()
 	touch.buttons.repair.button_down.emit()
 	touch.buttons.repair.button_down.emit()
 	check(started == ["repair"], "a hold starts exactly once")

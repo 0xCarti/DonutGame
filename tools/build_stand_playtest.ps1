@@ -45,8 +45,8 @@ if (-not (Test-Path -LiteralPath $ProjectPath -PathType Leaf)) {
 $versionMatch = [regex]::Match([IO.File]::ReadAllText($ProjectPath), '(?m)^config/version="([^"]+)"')
 if (-not $versionMatch.Success) { throw 'project.godot is missing config/version.' }
 $GameVersion = $versionMatch.Groups[1].Value -replace '[^A-Za-z0-9._-]', '-'
-if ($GameVersion -notmatch '^1\.0\.\d+$') {
-    throw "This Golden Hour package expects a version 1.0 release; project has $GameVersion."
+if ($GameVersion -notmatch '^1\.\d+\.\d+$') {
+    throw "This Golden Hour package expects a version 1 release; project has $GameVersion."
 }
 if ([IO.File]::ReadAllText($ProjectPath) -notmatch '(?m)^run/main_scene="res://scenes/stand_main.tscn"') {
     throw 'Golden Hour requires scenes/stand_main.tscn as the project main scene.'
@@ -221,7 +221,11 @@ foreach ($artGate in @(
     @{Step='08j-gag-controller-tests'; Script='res://tests/test_stand_gags.gd'; Marker='STAND GAGS'},
     @{Step='08k-gag-world-tests'; Script='res://tests/test_stand_world_gags.gd'; Marker='WORLD GAGS QA'},
     @{Step='08l-fire-visual-tests'; Script='res://tests/test_fryer_fire.gd'; Marker='FRYER FIRE QA'},
-    @{Step='08m-display-quality-tests'; Script='res://tests/test_display_quality.gd'; Marker='DISPLAY QUALITY QA'}
+    @{Step='08m-display-quality-tests'; Script='res://tests/test_display_quality.gd'; Marker='DISPLAY QUALITY QA'},
+    @{Step='08n-expansion-model'; Script='res://tests/test_expansion_model.gd'; Marker='EXPANSION MODEL'},
+    @{Step='08o-expansion-economy'; Script='res://tests/test_stand_economy.gd'; Marker='ECONOMY'},
+    @{Step='08p-expansion-controller'; Script='res://tests/test_expansion_controller.gd'; Marker='EXPANSION CONTROLLER'},
+    @{Step='08q-expansion-world'; Script='res://tests/test_stand_expansion.gd'; Marker='EXPANSION WORLD QA'}
 )) {
     $result = Invoke-GodotStep -Step $artGate.Step -Arguments @('--script', $artGate.Script)
     if ($result.Output -notmatch ('(?im)' + $artGate.Marker + ':\s+(\d+) checks,\s+0 failures') -or [int]$Matches[1] -lt 1) {
@@ -248,6 +252,7 @@ func _initialize() -> void:
         return
     var required = ["res://scenes/stand_main.tscn", "res://scripts/stand_main.gd", "res://scripts/stand_model.gd", "res://scripts/stand_content.gd", "res://scripts/stand_world.gd", "res://scripts/stand_food_physics.gd", "res://scripts/stand_hud.gd", "res://scripts/stand_feedback.gd", "res://scripts/player_profile.gd", "res://scripts/stand_audio.gd", "res://scripts/game_audio.gd", "res://assets/fonts/Fredoka-Medium.ttf", "res://assets/art/title_keyart.png", "res://assets/art/brand_seal.png", "res://assets/art/counter_sign.png", "res://assets/shaders/oil.gdshader", "res://assets/shaders/donut_crust.gdshader", "res://assets/shaders/powder_sugar.gdshader", "res://assets/shaders/fairground_sky.gdshader", "res://assets/audio/stand/evening_theme.wav", "res://assets/audio/stand/fryer_loop.wav", "res://assets/audio/sale_jackpot.wav"]
     required.append_array(["res://scripts/fryer_fire.gd", "res://assets/shaders/fryer_fire.gdshader", "res://assets/art/shaker_cinnamon.svg", "res://assets/art/shaker_powdered.svg", "res://assets/models/fairgoer_geometry.res", "res://scripts/customer_geometry.gd"])
+    required.append_array(["res://scripts/stand_catalog.gd", "res://scripts/purchase_gateway.gd", "res://scripts/stand_market.gd", "res://scripts/stand_expansion.gd", "res://scripts/mobile_controls.gd", "res://scripts/mobile_input.gd", "res://scripts/mobile_quality.gd"])
     for gag in ["punch", "bell", "bell_reply", "sneeze", "seagull", "hat", "fire", "extinguish"]:
         required.append("res://assets/audio/gags/" + gag + ".wav")
     for material in ["counter_wood", "kraft_paper", "detail_steel", "detail_dough", "detail_canvas", "detail_paper", "detail_ground"]:

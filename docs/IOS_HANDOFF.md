@@ -1,179 +1,131 @@
-# Golden Hour: iPhone demo handoff
+# Golden Hour: iPhone handoff
 
-Hashim: use the **Godot project in the repository root**, not the preserved
-`unity/` project. This is the same game as the Android 1.0.7 edition, with native
-touch controls, a mobile HUD, landscape layout, local saves, and graphics options.
+Use the Godot project at the repository root. The preserved `unity/` project is
+not the source of this iOS build.
 
-**Current status:** the first unsigned ARM64 iPhone build compiled successfully
-from source commit `a3e89cd`, using Godot 4.7.2, Xcode 26.6, and iPhoneOS SDK 26.5.
-It is version **1.0.7**, build **107**, bundle ID `com.goldenhourgame.minidonuts`,
-with an iOS 15.0 minimum. The IPA needs signing before installation. Real iPhone
-installation/runtime testing and TestFlight remain pending. Source downloads
-cannot be installed by opening them on a phone.
+## Verified 1.2.0 final revision 3 build
 
-## Install the unsigned IPA with Sideloadly
+An unsigned **Release ARM64 iPhoneOS build** was compiled on November 4, 2026.
+Final revision **r3** includes the corrected operator cosmetic preview, feed-dial
+direction, reliable shift reward retry, and clearer mobile status text. It is version **1.2.0**, build **120**, bundle ID
+`com.goldenhourgame.minidonuts`, with an **iOS 15.0** minimum. This is the expanded
+18-shift game with mobile controls. **No physical iPhone installation, runtime,
+performance, signing, or TestFlight test has been performed for this build.**
 
-If you already have the unsigned IPA, you can sign and install it with
-[Sideloadly](https://sideloadly.io/) instead of rebuilding in Xcode:
+The unsigned IPA is available at:
 
-1. Connect and unlock your iPhone, trust the computer, and select the phone in
-   Sideloadly.
-2. Drag the unsigned IPA into Sideloadly and use its Apple ID signing option.
-   Enter your own Apple account directly in the app; no credentials belong in
-   this repository.
-3. Start signing/installing and follow any device trust or Developer Mode
-   prompts. Then complete the iPhone acceptance checks below.
+- Windows workspace: `builds/ios/1.2.0/r3/GoldenHour-1.2.0-iOS-unsigned.ipa`
+- Mac desktop: `~/Desktop/GoldenHour-iOS-1.2.0-r3/GoldenHour-1.2.0-iOS-unsigned.ipa`
+- Mac build source: `~/Documents/DonutGame-iOS-1.2.0-r3/`
 
-A free Apple account can be used; its signed installation needs refreshing
-after seven days. Sideloadly supports re-signing/refreshing. This route does not
-upload to TestFlight, and a successful compile alone does not verify phone play.
+Use the IPA with your **FlareStore self-signing workflow**. The IPA has no Apple
+signature or provisioning profile; it requires signing before installation.
+Signing/account setup belongs in your signing tool. No Apple account,
+certificate, private key, or password was used to produce this build.
 
-## Get the project running on your iPhone
+The earlier `~/Documents/DonutGame-iOS` checkout and its 1.0.7 build were preserved,
+as were the initial 1.2.0 and r2 builds, desktop folders, and verification evidence.
 
-1. Clone or download this repository and open its root folder.
-2. Install the **standard Godot 4.7.2 stable macOS editor**, not the .NET edition.
-   Install its matching export templates through **Editor > Manage Export
-   Templates**. The game uses GDScript and has no third-party native plugins.
-3. Install Xcode, launch it once, finish its setup, and install iOS platform
-   support. Add your Apple account in Xcode Settings. Full Xcode is required;
-   the standalone Command Line Tools package is insufficient.
-4. With Python 3.9 or later available, run the commands below from the repository
-   root. Replace the team ID and bundle ID with your actual values. The team ID
-   is the ten-character code, not your display name. Use an identifier your team
-   can register; the example is not a registered app.
+## Build evidence
+
+Verified toolchain: macOS 26.6.2, Godot 4.7.2 stable with matching iOS templates,
+Xcode 26.6 (17F113), and iPhoneOS SDK 26.5. The native build completed with
+`BUILD SUCCEEDED` using signing explicitly disabled.
+
+The package checks verified:
+
+- Release ARM64 executable and version/build/bundle/deployment metadata.
+- No code signature or embedded provisioning profile.
+- ZIP integrity and preserved executable permissions.
+- Embedded game pack matches the exported pack byte-for-byte.
+- All **90 runtime resource roots and three license notices** exist in the pack;
+  script roots load from the pack in an otherwise empty directory.
+- Local Python source/export-handoff regression suite: **21 tests passed**.
+- Dial/world regression suite: **95 checks passed**, including Slow-left,
+  Normal-upright, and Fast-right positions.
+
+The IPA contains 64,116,652 bytes. Its SHA256 is:
+
+```text
+a633d60435c5bc4c1112ea858c7fa3d24b0a2f23f1c08bb7f91bc7af20a710da
+```
+
+At build time this was a workspace snapshot containing the new runtime files,
+based on Git HEAD `d9a664a1a97db15042d00d69f1a6f34b9ffabde1`. That base commit alone
+does not contain the expansion; use the current 1.2.0 source or the exact snapshot
+below. The 205-file snapshot has these SHA256s:
+
+```text
+source-1.2.0.tar.gz
+9a4c2619998a1f3f3fd0655c8ab41360fc2f4e168042633012a3628a9c10d0e0
+source-manifest.json
+a0f32b92977da7210f655828759a210979fd4ec5f66e590b2f41ab1787358a6e
+```
+
+`source-manifest.json` records each source file's hash. `build-verification.json`,
+`pack-verification.log`, `import.log`, `export.log`, and `xcode-build.log` are in
+`builds/ios/1.2.0/r3/`. The desktop handoff includes the IPA, checksums, build report,
+and this document.
+
+Xcode reported template warnings for empty microphone, camera, and photo-library
+usage-description strings. This game does not request those permissions. It also
+reported the template's `#pragma once` note and skipped App Intents extraction
+because there is no AppIntents dependency. These warnings did not fail the build;
+App Store submission has not been validated.
+
+## Reproduce an unsigned build on the Mac
+
+The helper validates the exact Godot version and stages only the explicit game
+source directories. It does not modify the tracked signing preset. Choose a
+**new empty output folder** for every export; existing output is preserved.
 
 ```sh
 python3 tools/prepare_ios.py --check
 python3 tools/prepare_ios.py \
-  --godot /Applications/Godot.app/Contents/MacOS/Godot \
-  --team-id YOURTEAMID \
-  --bundle-id com.yourcompany.goldenhourdemo
+  --godot /Users/tridenteventgroup/.cache/donutsgame/godot/Godot-4.7.2/Godot.app/Contents/MacOS/Godot \
+  --team-id 0000000000 \
+  --configuration release \
+  --output builds/ios/1.2.0/new-release
+
+xcodebuild \
+  -project builds/ios/1.2.0/new-release/GoldenHour.xcodeproj \
+  -scheme GoldenHour -configuration Release -sdk iphoneos \
+  -destination 'generic/platform=iOS' \
+  -derivedDataPath builds/ios/1.2.0/new-release/DerivedData \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= build
 ```
 
-The helper checks the exact editor version, exports a **debug Xcode project**
-into a fresh output directory, and prints the project path. It stages the game
-separately so your signing identifiers never modify the tracked export preset.
-It does not sign, install, upload, or submit anything. Existing builds and saves
-are preserved. Importing the textures on the first run can take a while.
+`0000000000` is only a placeholder accepted for project export; it is not an Apple
+team or signing identity. For a signed Xcode installation or TestFlight, configure
+your actual team and provisioning separately. No upload or store submission is
+part of these commands.
 
-5. Open the printed `.xcodeproj`. Select the game target and **Signing &
-   Capabilities**, enable **Automatically manage signing**, and select your
-   team. Confirm the bundle identifier matches the one supplied above.
-6. Connect and unlock your iPhone, trust the Mac, and select the phone as the
-   Xcode run destination. Enable Developer Mode on the phone if Xcode requests
-   it. Press **Run**. This builds, signs, and installs the game directly on that
-   phone; it does not require a public App Store release.
-
-The initial deployment target is **iOS 15.0 or later**, with ARM64 and the
-Compatibility renderer. This is a build target, not a claim that every iOS 15
-device has acceptable performance. Start on Balanced graphics; try Low on an
-older phone and record the model and iOS version.
-
-If you only have a free Personal Team, Xcode allows personal-device testing with
-limits. Its provisioning profiles expire after seven days, so you will need to
-rebuild/reinstall. TestFlight requires a paid Apple Developer Program team.
-
-## TestFlight instead of a cable install
-
-Use your paid developer team and choose the final demo bundle identifier before
-creating its App Store Connect app record. Keep using that identifier for updates.
-
-1. Export a release project with the same command and
-   `--configuration release` added.
-2. Open the generated Xcode project, select your team with automatic signing,
-   and choose a generic iOS device destination. Build and validate on a real
-   phone before sending the demo to others.
-3. In Xcode, choose **Product > Archive**, then use Organizer to validate and
-   distribute the archive to **App Store Connect**. Resolve any signing,
-   privacy-manifest, SDK, or validation errors reported by the current Xcode.
-4. In App Store Connect, complete the required beta information and any export
-   compliance questions. The current demo is offline, has no login, ads,
-   analytics SDK, purchases, or custom encryption; review the actual uploaded
-   build when answering Apple's questions.
-5. Add the processed build to TestFlight. The first build for external testers
-   must pass Apple's beta review. Then share the TestFlight invitation with
-   Bryce. TestFlight is separate from publishing the game on the public store.
-
-The source preset uses marketing version **1.0.7**, build **107**. After a build
-has been uploaded, increment the build number for the next upload in the
-generated Xcode project's build settings. Keep the version consistent with the
-app record. Do not commit certificates, private keys, provisioning profiles, or
-account credentials to GitHub. The repository deliberately contains none.
-
-An ad hoc IPA is another option for a paid team, but it must be signed for
-registered test devices. Simply emailing an arbitrary unsigned IPA does not
-install it. For this first demo, direct Xcode installation is the shortest route;
-TestFlight is easier once several remote people need to test.
-
-## If you prefer Godot's export window
-
-Open `project.godot` in Godot 4.7.2. Choose **Project > Export > iOS**, enter your
-team ID and unique bundle identifier locally, and keep **Export Project Only**
-enabled. Export into a new empty folder using `GoldenHour` as the project name
-(no spaces). Then follow the Xcode steps above. Do not commit your local signing
-configuration. The command-line helper is preferable because it leaves the
-tracked preset unchanged.
-
-## Five-minute demo
-
-Start **Practice** to learn without the campaign timer. Rotate the phone to
-landscape. Tap objects to interact and drag across the scene to look; **Center**
-returns the camera. **Tools** exposes large touch controls if an object is hard
-to reach. The large action button follows the next step in the current order.
-
-- Read the front customer's ticket: bag or bucket, cinnamon or powdered sugar.
-- Take the matching container, pick up the scoop, scoop the catch tray, and pour
-  into the container. Repeat to fill it: a bag takes six donuts, a bucket twelve.
-- Add the requested coating, lift the finished package, and hand it to the
-  customer. Watch the next-step prompt throughout.
-- Hold the repair lever or batter hopper for maintenance and release to stop.
-  Use **Pause** for settings, help, or returning to the title.
-
-Practice does not replace a campaign save. For the timed game, return to the
-title and choose **Open the Stand**. Purchases and online services are outside
-this version.
+Package the built `GoldenHour.app` beneath `Payload/` in a ZIP named `.ipa`,
+preserving Unix executable permissions. The build's `package_unsigned_ipa.py`
+helper and verification output are retained in the isolated Mac stage and local
+build folder. Re-export after changing game code or assets: the generated Xcode
+project embeds a game pack, not a live link to the source checkout.
 
 ## First iPhone acceptance checks
 
-Before calling this an iOS playtest build, record the device model, iOS version,
-Xcode version, game version/build, and source commit. Check:
+Record the device model, iOS version, graphics preset, and version/build. Start
+with Practice and Balanced graphics in landscape. Confirm:
 
-- The title and game render correctly, with readable HUD and no notch or home
-  indicator overlap in landscape. Try both landscape directions if supported.
-- Complete a cinnamon bag, powdered bag, and bucket. Test both physical object
-  taps and the large Tools controls; drags must not trigger accidental actions.
-- Hold and release repair/refill, then background during a hold. Returning must
-  leave the game paused and the held action stopped.
-- Save a partly filled campaign order, close and relaunch the app, and resume it.
-  Confirm its contents, progress, and graphics/audio settings survive.
-- Play for at least ten minutes, including a busy/full tray and fire effects.
-  Record visible stutters, heat, frame-rate observations, and the graphics preset.
-- Check sound, phone interruptions, headphones, pause/resume, and the on-screen
-  Help/Settings/license pages.
+- Title, tickets, prompts, shop, settings, and touch controls remain readable
+  around the notch and home indicator. Try both supported landscape directions.
+- Complete a cinnamon bag, powdered bag, and bucket using physical taps and the
+  large touch controls. Camera dragging must not trigger an unintended action.
+- Try the tutorial, campaign, appeal feedback, feed-speed controls, maintenance,
+  imperfect service, and shop/equipped shift buff flow.
+- Hold and release repair/refill. Background during a hold; returning should
+  pause the game and stop the held action.
+- Save a partly filled campaign order, close the app, and resume. Confirm the
+  order, progression, profile unlocks, and settings survive.
+- Play for at least ten minutes, including a busy tray, fire, and a later venue.
+  Record stutters, heating, sound interruptions, and any graphics adjustments.
+- Confirm Practice does not overwrite the campaign save, and check Help and
+  license pages.
 
-Existing evidence includes shared automated mobile testing, an Android emulator
-playthrough, and the successful unsigned iPhoneOS compile on a Mac. It does not
-yet include an iPhone runtime test. Report problems with a short screen recording
-and the device/build details. Leave platform acceptance pending until these
-checks are actually performed.
-
-## Troubleshooting and references
-
-- A missing iOS template means the matching Godot export templates are not yet
-  installed. Use 4.7.2 templates with the 4.7.2 editor.
-- If `xcode-select -p` points to standalone Command Line Tools, select the full
-  Xcode installation in Xcode's Locations settings (or follow Godot's documented
-  `xcode-select` repair). Install the iOS SDK in Xcode.
-- A signing error usually needs the correct Apple team, a unique registered
-  bundle identifier, a trusted device, or an updated provisioning profile.
-- Re-export after changing game code/assets; the generated Xcode project embeds
-  an exported game pack, not a live link to this repository.
-- The helper supports `--help` and `--check` on Windows too, but actual iOS
-  export requires macOS and Xcode. It never substitutes an Android or Web build.
-
-Official references checked for this handoff:
-[Godot 4.7 iOS export](https://docs.godotengine.org/en/4.7/tutorials/export/exporting_for_ios.html),
-[Godot iOS export options](https://docs.godotengine.org/en/4.7/classes/class_editorexportplatformios.html),
-[Apple device testing](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices),
-[Apple account/testing limits](https://developer.apple.com/help/account/basics/about-your-developer-account),
-[TestFlight](https://developer.apple.com/testflight/).
+A successful build and self-sign do not establish device compatibility or
+performance. Keep physical iPhone acceptance pending until these checks run.

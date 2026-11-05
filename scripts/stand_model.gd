@@ -3,18 +3,20 @@ extends RefCounted
 ## The clock, food, orders, heat, repairs and money are authoritative here.
 
 const Content = preload("res://scripts/stand_content.gd")
-const SAVE_VERSION: int = 4
+const SAVE_VERSION: int = 5
 const FIRE_BUILDUP_SECONDS: float = 12.0
 const FIRE_RECOVERY_SECONDS: float = 2.4
 const FOAM_SECONDS: float = 8.0
 const ENABLE_FUTURE_BOOSTS: bool = false
-const TARGETS: Array[int] = [110, 175, 250, 330, 420, 520]
-const SHIFT_TIMES: Array[float] = [105.0, 110.0, 115.0, 120.0, 125.0, 130.0]
+const TARGETS: Array[int] = [110, 175, 250, 330, 420, 520, 480, 510, 550, 590, 620, 660, 670, 700, 730, 770, 810, 850]
+const SHIFT_TIMES: Array[float] = [105.0, 110.0, 115.0, 120.0, 150.0, 155.0, 150.0, 155.0, 160.0, 165.0, 170.0, 175.0, 165.0, 170.0, 175.0, 180.0, 185.0, 190.0]
 const ARRIVAL_TIMES: Array[float] = [15.0, 12.0, 10.5, 9.2, 8.4, 7.8]
 const PATIENCE_TIMES: Array[float] = [56.0, 51.0, 48.0, 45.0, 43.0, 42.0]
 const FLAVORS: Dictionary = {"cinnamon": {"name": "Cinnamon", "color": Color("cf843f")}, "powdered": {"name": "Powdered sugar", "color": Color("fff2dc")}}
 const PACKAGES: Dictionary = {"bag": {"name": "Bag", "capacity": 6, "price": 18.0}, "bucket": {"name": "Bucket", "capacity": 12, "price": 32.0}}
 const UPGRADES: Dictionary = Content.UPGRADES
+const BUFFS: Dictionary = Content.BUFFS
+const ACHIEVEMENTS: Array[String] = ["rush_hour", "no_crumb_left_behind", "this_is_fine", "head_chef", "express_checkout", "air_mail", "close_enough", "five_star_comeback", "slow_and_steady", "definitely_human"]
 
 var phase: String = "ready"
 var shift_index: int = 0
@@ -66,6 +68,24 @@ var heat_warning: bool = false
 var assisted: bool = false
 var active_boosts: Dictionary = {}
 var last_save_error: String = ""
+var appeal: float = 60.0
+var production_speed: int = 1
+var machine_tier: int = 0
+var pending_buff: String = ""
+var active_buff: String = ""
+var unlocked_achievements: Array = []
+var _run_elapsed: float = 0.0
+var _run_correct: int = 0
+var _recent_correct_times: Array = []
+var _last_extinguish_time: float = -1.0
+var _shift_punches: int = 0
+var _slow_only: bool = true
+var _appeal_was_low: bool = false
+var _seagull_feeds: int = 0
+var _special_customer_pending: bool = false
+var _caught_stock_ids: Array = []
+var _emergency_batter_ready: bool = false
+var _saved_shift_rules: Dictionary = {}
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _production_clock: float = 0.0
@@ -115,6 +135,19 @@ func new_run(run_seed: int = 0, run_difficulty: String = "normal", game_mode: St
 	assisted = false
 	active_boosts = {}
 	_legacy_shift = false
+	appeal = 60.0
+	production_speed = 1
+	machine_tier = 0
+	pending_buff = ""
+	active_buff = ""
+	unlocked_achievements = []
+	_run_elapsed = 0.0
+	_run_correct = 0
+	_recent_correct_times = []
+	_last_extinguish_time = -1.0
+	_appeal_was_low = false
+	_seagull_feeds = 0
+	_special_customer_pending = false
 	_reset_shift()
 
 
@@ -122,7 +155,13 @@ func _reset_shift() -> void:
 	delivery_epoch += 1
 	_pending_deliveries.clear()
 	waste_count = 0
+	_shift_punches = 0
+	_slow_only = true
+	_caught_stock_ids = []
+	_saved_shift_rules = {}
+	machine_tier = maxi(machine_tier, mini(2, shift_index / 6))
 	_rules = Content.shift_info(shift_index, difficulty, mode)
+	_apply_buff_rules(_rules, active_buff)
 	_legacy_shift = false
 	shift_name = str(_rules["name"])
 	shift_description = str(_rules["description"])
@@ -130,7 +169,7 @@ func _reset_shift() -> void:
 	time_left = shift_duration
 	target = int(_rules["target"])
 	orders = []
-	supply_capacity = 36 + level("extra_tray") * 12
+	supply_capacity = int(Content.MACHINES[machine_tier]["tray"]) + level("extra_tray") * 12
 	supply = mini(supply_capacity, 18 + level("extra_tray") * 6 + level("opening_stock") * 12 + (6 if difficulty == "relaxed" else 0))
 	batter = batter_capacity()
 	temperature = 175.0
@@ -158,7 +197,8 @@ func _reset_shift() -> void:
 	heat_warning = false
 	_production_clock = 0.0
 	_arrival_clock = float(_rules["arrival"])
-	_next_jam_at = int(_rules["jam_interval"]) + _rng.randi_range(-2, 2) + level("steady_feed") * 10
+	_next_jam_at = int(_rules["jam_interval"]) + _rng.randi_range(-2, 2) + _feed_grace()
+	_emergency_batter_ready = active_buff == "emergency_batter"
 	_orders_created = 0
 	_refill_age = 10.0
 	_service_age = 10.0
@@ -175,10 +215,14 @@ func start_shift() -> void:
 	if mode == "campaign" and shift_index >= TARGETS.size():
 		phase = "won"
 		return
+	var previous_machine: int = machine_tier
+	active_buff = pending_buff
+	pending_buff = ""
 	_reset_shift()
 	phase = "playing"
 	_spawn_order()
-	events.append({"type": "shift_start", "shift": shift_index, "target": target})
+	events.append({"type": "shift_start", "shift": shift_index, "target": target, "venue_id": venue_id(), "machine_id": machine_id(), "active_buff": active_buff})
+	if machine_tier > previous_machine: events.append({"type": "machine_unlocked", "machine_id": machine_id(), "tier": machine_tier})
 
 
 func tick(delta: float) -> void:
@@ -206,6 +250,7 @@ func tick_practice(delta: float) -> void:
 func _step(step: float, practice: bool = false) -> void:
 	if not practice: time_left = maxf(0.0, time_left - step)
 	_machine_elapsed += step
+	_run_elapsed += step
 	_refill_age = minf(10.0, _refill_age + step)
 	_service_age = minf(10.0, _service_age + step)
 	fire_recovery = maxf(0.0, fire_recovery - step)
@@ -214,7 +259,7 @@ func _step(step: float, practice: bool = false) -> void:
 		active_boosts[boost] = maxf(0.0, float(active_boosts[boost]) - step)
 		if float(active_boosts[boost]) <= 0.000001: active_boosts.erase(boost)
 	var desired: float = [90.0, 135.0, 175.0, 210.0, 240.0][heat_setting]
-	if level("thermostat") > 0 and heat_setting == 3: desired = 190.0
+	if (level("thermostat") > 0 or active_buff == "fresh_oil") and heat_setting == 3: desired = 190.0
 	var thermal_rate: float = 0.06 if desired < temperature else 0.035
 	temperature = clampf(temperature + (desired - temperature) * thermal_rate * step, 20.0, 260.0)
 	if active_boosts.has("coolant"):
@@ -229,13 +274,18 @@ func _step(step: float, practice: bool = false) -> void:
 		overheated = false
 		events.append({"type": "cooled", "temperature": temperature})
 	_update_fire(step, desired)
+	if batter <= 0 and _emergency_batter_ready:
+		batter = batter_capacity()
+		_emergency_batter_ready = false
+		events.append({"type": "buff_used", "id": "emergency_batter", "batter": batter})
 	if _can_produce():
-		var interval: float = clampf(1.5 - (temperature - 145.0) * 0.01, 0.85, 1.5) * pow(0.85, float(level("fast_motor")))
+		var interval: float = clampf(1.5 - (temperature - 145.0) * 0.01, 0.85, 1.5) * pow(0.85, float(level("fast_motor"))) * float(Content.MACHINES[machine_tier]["interval"]) / [0.70, 1.0, 1.30][production_speed]
 		_production_clock += step
 		while _production_clock >= interval and _can_produce():
 			_production_clock -= interval
 			batter -= 1
 			production_count += 1
+			if production_speed != 0: _slow_only = false
 			var delivery_id: int = _next_delivery_id
 			_next_delivery_id += 1
 			_pending_deliveries.append(delivery_id)
@@ -247,6 +297,8 @@ func _step(step: float, practice: bool = false) -> void:
 				events.append({"type": "jam", "count": production_count})
 	_refresh_alerts()
 	if practice: return
+	if not orders.is_empty() and float(orders[0]["max_patience"]) - float(orders[0]["patience"]) > 24.0:
+		_change_appeal(-0.04 * step)
 	for index in range(orders.size() - 1, -1, -1):
 		orders[index]["patience"] = maxf(0.0, float(orders[index]["patience"]) - step)
 		if float(orders[index]["patience"]) <= 0.0:
@@ -255,6 +307,7 @@ func _step(step: float, practice: bool = false) -> void:
 			missed += 1
 			_run_missed += 1
 			streak = 0
+			_change_appeal(-6.0)
 			events.append({"type": "walkout", "order_id": leaving["id"], "missed": missed})
 	_arrival_clock -= step
 	if _arrival_clock <= 0.0:
@@ -262,8 +315,9 @@ func _step(step: float, practice: bool = false) -> void:
 			_spawn_order()
 			var interval: float = float(_rules["arrival"])
 			if bool(_rules.get("waves", false)):
-				interval = (6.5 if _orders_created % 4 < 2 else 10.5) * (1.15 if difficulty == "relaxed" else 1.0)
-			_arrival_clock += interval + _rng.randf_range(-0.75, 0.75)
+				interval = (float(_rules.get("wave_fast", 6.5)) if _orders_created % 4 < 2 else float(_rules.get("wave_slow", 10.5))) * (1.15 if difficulty == "relaxed" else 1.0)
+				if active_buff == "rush_contract": interval *= 0.82
+			_arrival_clock += maxf(3.0, interval * arrival_multiplier() + _rng.randf_range(-0.75, 0.75))
 		else:
 			_arrival_clock = 2.5
 
@@ -297,6 +351,7 @@ func extinguish_fire() -> Dictionary:
 	fire_danger = 0.0
 	fire_recovery = FIRE_RECOVERY_SECONDS
 	foam_time = FOAM_SECONDS
+	_last_extinguish_time = _run_elapsed
 	heat_setting = 0
 	temperature = 175.0
 	overheated = false
@@ -359,10 +414,15 @@ func _spawn_order() -> void:
 	else:
 		kind = "bucket" if _rng.randf() < float(_rules["bucket_chance"]) else "bag"
 		flavor = "powdered" if _rng.randf() < float(_rules.get("powder_chance", 0.5)) else "cinnamon"
+	var special: String = "seagulls" if _special_customer_pending else ""
+	if not special.is_empty():
+		kind = "bag"
+		flavor = "powdered"
+		_special_customer_pending = false
 	var welcome: bool = level("warm_welcome") > 0 and _orders_created < 3
-	var patience: float = float(_rules["patience"]) + (float(_rules.get("bucket_patience", 8.0)) if kind == "bucket" else 0.0) + float(level("calm_queue") * 7) + (12.0 if welcome else 0.0)
+	var patience: float = float(_rules["patience"]) + (float(_rules.get("bucket_patience", 8.0)) if kind == "bucket" else 0.0) + float(level("calm_queue") * 7) + (12.0 if welcome else 0.0) + (10.0 if active_buff == "good_vibes" else 0.0)
 	var premium: float = float(_rules.get("menu_premium", 0.0)) + (float(_rules.get("powder_premium", 0.0)) if flavor == "powdered" else 0.0)
-	var order: Dictionary = {"id": _next_order_id, "package": kind, "flavor": flavor, "patience": patience, "max_patience": patience, "base_price": float(PACKAGES[kind]["price"]) + premium, "menu_premium": premium, "welcome": welcome}
+	var order: Dictionary = {"id": _next_order_id, "package": kind, "flavor": flavor, "patience": patience, "max_patience": patience, "base_price": float(PACKAGES[kind]["price"]) + premium, "menu_premium": premium, "welcome": welcome, "special": special, "hat": false}
 	_next_order_id += 1
 	_orders_created += 1
 	orders.append(order)
@@ -414,27 +474,42 @@ func serve() -> Dictionary:
 	if phase != "playing": return _fail("closed", "The stand is closed.")
 	if orders.is_empty(): return _fail("no_customer", "Wait for a customer to reach the counter.")
 	if package_type.is_empty() or package_count == 0: return _fail("no_food", "Prepare the customer's order first.")
+	if package_count != package_capacity() or package_flavor.is_empty(): return _fail("unfinished_order", "Fill and season the package before handing it over.")
 	var order: Dictionary = orders[0]
-	if package_type != str(order["package"]) or package_count != int(PACKAGES[order["package"]]["capacity"]) or package_flavor != str(order["flavor"]):
-		mistakes += 1
-		streak = 0
-		order["patience"] = maxf(0.0, float(order["patience"]) - (1.0 if level("second_chance") > 0 else 4.0))
-		events.append({"type": "wrong_order", "order_id": order["id"], "mistakes": mistakes})
-		return _fail("wrong_order", "They want a %s of %s donuts. Your food is still on the counter." % [str(order["package"]), str(order["flavor"])], {"order_id": order["id"]})
-	var earnings: Dictionary = get_tip_breakdown(order)
+	var delivered_package: String = package_type
+	var delivered_flavor: String = package_flavor
+	var correct: bool = package_type == str(order["package"]) and package_flavor == str(order["flavor"])
+	var earnings: Dictionary = get_tip_breakdown(order) if correct else _imperfect_earnings(order)
 	var tip: float = float(earnings["tip"])
 	var amount: float = float(earnings["amount"])
 	sales = snappedf(sales + amount, 0.01)
 	served += 1
 	_run_served += 1
 	_run_sales = snappedf(_run_sales + amount, 0.01)
-	streak += 1
+	var rating: int = customer_rating(order) if correct else 1
+	var old_appeal: float = appeal
+	if correct:
+		streak += 1
+		_run_correct += 1
+		_change_appeal({2: -2.0, 3: 0.5, 4: 2.0, 5: 3.0}[rating] + (2.0 if active_buff == "good_vibes" else 0.0))
+		_recent_correct_times.append(_run_elapsed)
+		while not _recent_correct_times.is_empty() and _run_elapsed - float(_recent_correct_times[0]) > 45.0: _recent_correct_times.pop_front()
+		while _recent_correct_times.size() > 5: _recent_correct_times.pop_front()
+		if _recent_correct_times.size() >= 5: _unlock_achievement("rush_hour")
+		if _last_extinguish_time >= 0.0 and _run_elapsed - _last_extinguish_time <= 10.0: _unlock_achievement("this_is_fine")
+		if bool(order.get("hat", false)): _unlock_achievement("head_chef")
+		if str(order.get("special", "")) == "seagulls": _unlock_achievement("definitely_human")
+	else:
+		mistakes += 1
+		streak = 0
+		_change_appeal(-5.0 if level("second_chance") > 0 else -9.0)
+		_unlock_achievement("close_enough")
 	_best_streak = maxi(_best_streak, streak)
 	orders.pop_front()
 	package_type = ""
 	package_count = 0
 	package_flavor = ""
-	var receipt: Dictionary = _ok("served", "Order served! +$%.2f" % amount, {"amount": amount, "tip": tip, "order_id": order["id"], "streak": streak, "package": order["package"], "flavor": order["flavor"], "assisted": assisted})
+	var receipt: Dictionary = _ok("served" if correct else "imperfect_order", ("Order served! +$%.2f" if correct else "Not what they ordered. Partial payment: $%.2f") % amount, {"amount": amount, "tip": tip, "order_id": order["id"], "streak": streak, "package": delivered_package, "flavor": delivered_flavor, "requested_package": order["package"], "requested_flavor": order["flavor"], "correct": correct, "rating": rating, "appeal": appeal, "appeal_delta": snappedf(appeal - old_appeal, 0.01), "special": order.get("special", ""), "hat": order.get("hat", false), "assisted": assisted})
 	receipt.merge(earnings)
 	var event: Dictionary = receipt.duplicate(true)
 	event["type"] = "sale"
@@ -449,8 +524,11 @@ func punch_customer() -> Dictionary:
 	missed += 1
 	_run_missed += 1
 	streak = 0
+	_shift_punches += 1
+	_change_appeal(-12.0)
+	if _shift_punches >= 3: _unlock_achievement("express_checkout")
 	if orders.is_empty(): _arrival_clock = minf(_arrival_clock, 1.2)
-	var receipt: Dictionary = _ok("customer_punched", "That customer has had enough!", {"order_id": leaving["id"], "missed": missed})
+	var receipt: Dictionary = _ok("customer_punched", "That customer has had enough! Appeal -12.", {"order_id": leaving["id"], "missed": missed, "rating": 1, "appeal": appeal})
 	events.append({"type": "customer_punched", "order_id": leaving["id"], "missed": missed})
 	return receipt
 
@@ -479,7 +557,9 @@ func get_tip_breakdown(requested_order: Dictionary = {}) -> Dictionary:
 		["Crowd pleaser", float(level("crowd_pleaser") * 3) if orders.size() >= 3 else 0.0],
 		["Sunset rush", float(_rules.get("rush_tip", 0.0)) if age <= 14.0 else 0.0],
 		["Stage-break crowd", float(_rules.get("crowd_tip", 0.0)) if orders.size() >= 3 else 0.0],
-		["Fireworks tip", float(_rules.get("closing_tip", 0.0)) if time_left <= 30.0 else 0.0],
+		["Closing tip", float(_rules.get("closing_tip", 0.0)) if time_left <= float(_rules.get("closing_window", 30.0)) else 0.0],
+		["Bag special", float(_rules.get("bag_tip", 0.0)) if kind == "bag" else 0.0],
+		["Bucket special", float(_rules.get("bucket_tip", 0.0)) if kind == "bucket" else 0.0],
 	]
 	var upgrade_tip: float = 0.0
 	for extra in extras:
@@ -487,6 +567,11 @@ func get_tip_breakdown(requested_order: Dictionary = {}) -> Dictionary:
 			parts.append({"label": str(extra[0]), "amount": float(extra[1])})
 			upgrade_tip += float(extra[1])
 	var tip: float = patience_tip + streak_tip + upgrade_tip
+	if active_buff == "rush_contract":
+		var bonus: float = snappedf((float(order["base_price"]) + tip) * 0.25, 0.01)
+		parts.append({"label": "Rush contract", "amount": bonus})
+		upgrade_tip += bonus
+		tip += bonus
 	return {"base_price": float(order["base_price"]), "menu_premium": premium, "patience_tip": patience_tip, "streak_tip": streak_tip, "upgrade_tip": upgrade_tip, "tip": tip, "amount": snappedf(float(order["base_price"]) + tip, 0.01), "tip_breakdown": parts, "assisted": assisted}
 
 
@@ -511,6 +596,118 @@ func adjust_heat(change: int) -> Dictionary:
 	return _ok("heat_changed", "Heat setting %d / 4." % heat_setting, {"setting": heat_setting})
 
 
+func adjust_speed(change: int) -> Dictionary:
+	if phase not in ["ready", "playing", "shop"]: return _fail("closed", "Start a new run to adjust the machine.")
+	production_speed = clampi(production_speed + clampi(change, -2, 2), 0, 2)
+	return _ok("speed_changed", "Production speed: %s." % ["Slow", "Normal", "Fast"][production_speed], {"speed": production_speed})
+
+
+func equip_buff(id: String) -> Dictionary:
+	if phase not in ["ready", "shop"]: return _fail("shift_started", "Choose a shift buff before opening the stand.")
+	if not BUFFS.has(id): return _fail("unknown_buff", "That shift buff is not available.")
+	if not pending_buff.is_empty(): return _fail("buff_queued", "One buff is already queued for the next shift.")
+	pending_buff = id
+	return _ok("buff_equipped", "%s is ready for the next shift." % str(BUFFS[id]["name"]), {"id": id})
+
+
+func _apply_buff_rules(rules: Dictionary, buff: String) -> void:
+	if buff == "rush_contract":
+		rules["target"] = int(ceil(float(rules["target"]) * 1.15))
+		rules["arrival"] = float(rules["arrival"]) * 0.82
+
+
+func _feed_grace() -> int:
+	return level("steady_feed") * 10 + int(Content.MACHINES[machine_tier]["jam_grace"]) + (18 if active_buff == "freshly_serviced" else 0)
+
+
+func venue_id() -> String:
+	return str(Content.VENUES[(shift_index / 6) % Content.VENUES.size()]["id"])
+
+
+func machine_id() -> String:
+	return str(Content.MACHINES[machine_tier]["id"])
+
+
+func arrival_multiplier() -> float:
+	return clampf(1.0 + (60.0 - appeal) * 0.003, 0.88, 1.18)
+
+
+func customer_rating(order: Dictionary) -> int:
+	var age: float = maxf(0.0, float(order["max_patience"]) - float(order["patience"]))
+	if age <= 12.0: return 5
+	if age <= 24.0: return 4
+	return 3 if float(order["patience"]) / maxf(1.0, float(order["max_patience"])) >= 0.45 else 2
+
+
+func _imperfect_earnings(order: Dictionary) -> Dictionary:
+	var fraction: float = 0.25 if package_type != str(order["package"]) and package_flavor != str(order["flavor"]) else 0.40
+	var amount: float = snappedf(minf(float(order["base_price"]), float(PACKAGES[package_type]["price"])) * fraction, 0.01)
+	return {"base_price": amount, "menu_premium": 0.0, "patience_tip": 0.0, "streak_tip": 0.0, "upgrade_tip": 0.0, "tip": 0.0, "amount": amount, "fraction": fraction, "tip_breakdown": [{"label": "Imperfect order (%d%%)" % int(fraction * 100), "amount": amount}], "assisted": assisted}
+
+
+func _change_appeal(change: float) -> void:
+	appeal = clampf(appeal + change, 0.0, 100.0)
+	if appeal <= 25.0: _appeal_was_low = true
+	if _appeal_was_low and appeal >= 85.0: _unlock_achievement("five_star_comeback")
+
+
+func _unlock_achievement(id: String) -> void:
+	if not ACHIEVEMENTS.has(id) or unlocked_achievements.has(id): return
+	unlocked_achievements.append(id)
+	events.append({"type": "achievement", "id": id})
+
+
+func _check_clean_shift_achievement() -> void:
+	# The controller freezes physical food at the buzzer. In-flight donuts have
+	# not become waste; assess the completed shift rather than waiting forever.
+	if phase != "playing" and not last_result.is_empty() and bool(last_result.get("cleared", false)) and served >= 8 and waste_count == 0:
+		_unlock_achievement("no_crumb_left_behind")
+
+
+func note_gag(id: String, order_id: int = -1) -> Dictionary:
+	if phase != "playing": return _fail("closed", "Open the stand first.")
+	if id == "hat":
+		for order in orders:
+			if order_id < 0 or int(order["id"]) == order_id:
+				order["hat"] = true
+				return _ok("hat_tagged", "A customer is wearing your chef hat.", {"order_id": order["id"]})
+		return _fail("no_customer", "That customer has already left.")
+	if id == "seagull_feed":
+		_seagull_feeds += 1
+		if _seagull_feeds % 3 == 0: _special_customer_pending = true
+		return _ok("seagull_fed", "The seagulls are getting ideas.", {"feeds": _seagull_feeds, "special_pending": _special_customer_pending})
+	return _fail("unknown_gag", "That counter event is not tracked.")
+
+
+func catch_air_mail(stock_id: int = -1) -> Dictionary:
+	if phase != "playing": return _fail("closed", "Open the stand first.")
+	if stock_id < -2147483648 or stock_id > 2147483647: return _fail("invalid_stock", "That donut is no longer available.")
+	if stock_id != -1 and _caught_stock_ids.has(stock_id): return _fail("already_caught", "That donut has already been caught.")
+	if supply <= 0: return _fail("empty_supply", "There is no donut to catch.")
+	if package_type != "bag" or not package_flavor.is_empty() or package_count >= package_capacity(): return _fail("no_open_bag", "Put out an unfinished plain bag to catch the donut.")
+	supply -= 1
+	package_count += 1
+	if stock_id != -1: _caught_stock_ids.append(stock_id)
+	_unlock_achievement("air_mail")
+	return _ok("air_mail_caught", "Caught straight in the bag!", {"stock_id": stock_id, "supply": supply, "package_count": package_count})
+
+
+func hat_customer() -> Dictionary:
+	if phase != "playing": return _fail("closed", "Open the stand first.")
+	if orders.is_empty(): return _fail("no_customer", "There is nobody to give a donut hat.")
+	if scoop_count <= 0: return _fail("empty_scoop", "Scoop a donut before tossing a chef hat.")
+	if bool(orders[0].get("hat", false)): return _fail("already_hatted", "This customer already has a donut hat.")
+	scoop_count -= 1
+	waste_count += 1
+	_run_wasted += 1
+	var result: Dictionary = note_gag("hat", int(orders[0]["id"]))
+	result["code"] = "customer_hatted"
+	result["wasted"] = 1
+	result["scoop_count"] = scoop_count
+	events.append({"type": "customer_hatted", "order_id": result["order_id"]})
+	return result
+
+
 func repair(delta: float) -> Dictionary:
 	if phase != "playing": return _fail("closed", "The stand is closed.")
 	if not jammed and jam_risk < 0.5 and jam_progress <= 0.0: return _fail("not_jammed", "The feeder is healthy. Preventive service is available above 50% feed risk.")
@@ -530,7 +727,7 @@ func repair(delta: float) -> Dictionary:
 
 func _reset_feed_risk(extra_grace: int = 0) -> void:
 	_last_jam_production = production_count
-	_next_jam_at = production_count + int(_rules.get("jam_interval", 27)) + _rng.randi_range(-2, 2) + level("steady_feed") * 10 + extra_grace
+	_next_jam_at = production_count + int(_rules.get("jam_interval", 27)) + _rng.randi_range(-2, 2) + _feed_grace() + extra_grace
 	_service_age = 10.0
 	_jam_warned = false
 	_refresh_alerts()
@@ -593,6 +790,9 @@ func finish_shift() -> void:
 	credits += earned
 	phase = ("won" if mode == "campaign" and shift_index == TARGETS.size() - 1 else "shop") if cleared else "lost"
 	last_result = {"cleared": cleared, "shift": shift_index + 1, "sales": sales, "target": target, "served": served, "missed": missed, "mistakes": mistakes, "wasted": waste_count, "total_wasted": _run_wasted, "credits_earned": earned, "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode}
+	_check_clean_shift_achievement()
+	if cleared and _slow_only and production_count > 0: _unlock_achievement("slow_and_steady")
+	last_result.merge({"appeal": appeal, "total_correct": _run_correct, "achievements": unlocked_achievements.duplicate(), "venue_id": venue_id(), "machine_id": machine_id(), "active_buff": active_buff})
 	events.append({"type": "shift_end", "phase": phase, "result": last_result.duplicate(true)})
 	if phase == "shop": _generate_offers()
 
@@ -649,7 +849,7 @@ func buy_upgrade(id: String) -> bool:
 	if credits < cost or level(id) >= int(UPGRADES[id]["max_level"]): return false
 	credits -= cost
 	owned[id] = level(id) + 1
-	if id == "extra_tray": supply_capacity = 36 + level("extra_tray") * 12
+	if id == "extra_tray": supply_capacity = int(Content.MACHINES[machine_tier]["tray"]) + level("extra_tray") * 12
 	_offers.erase(id)
 	events.append({"type": "upgrade", "id": id, "name": UPGRADES[id]["name"], "level": level(id)})
 	return true
@@ -673,7 +873,7 @@ func scoop_capacity() -> int:
 
 
 func batter_capacity() -> int:
-	return 72 + level("large_hopper") * 30
+	return int(Content.MACHINES[machine_tier]["hopper"]) + level("large_hopper") * 30
 
 
 func production_status() -> String:
@@ -691,7 +891,7 @@ func production_status() -> String:
 
 
 func get_stats() -> Dictionary:
-	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "waste_count": waste_count, "total_wasted": _run_wasted, "pending_deliveries": _pending_deliveries.size(), "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning, "fire_active": fire_active, "fire_danger": fire_danger, "fire_recovery": fire_recovery, "foam_time": foam_time}
+	return {"scoop_capacity": scoop_capacity(), "batter_capacity": batter_capacity(), "supply_capacity": supply_capacity, "production_count": production_count, "waste_count": waste_count, "total_wasted": _run_wasted, "pending_deliveries": _pending_deliveries.size(), "total_served": _run_served, "total_missed": _run_missed, "total_sales": _run_sales, "best_streak": _best_streak, "assisted": assisted, "difficulty": difficulty, "mode": mode, "shift_duration": shift_duration, "repair_duration": 1.8 * (0.65 if level("easy_repair") > 0 else 1.0), "service_duration": 1.2 * (0.65 if level("easy_repair") > 0 else 1.0), "refill_duration": 1.2 if level("quick_refill") > 0 else 2.0, "jam_risk": jam_risk, "heat_warning": heat_warning, "fire_active": fire_active, "fire_danger": fire_danger, "fire_recovery": fire_recovery, "foam_time": foam_time, "appeal": appeal, "production_speed": production_speed, "machine_tier": machine_tier, "machine_id": machine_id(), "venue_id": venue_id(), "pending_buff": pending_buff, "active_buff": active_buff, "total_correct": _run_correct, "achievements": unlocked_achievements.duplicate(), "arrival_multiplier": arrival_multiplier()}
 
 
 func total_shifts() -> int:
@@ -709,6 +909,14 @@ func get_campaign_info() -> Dictionary:
 	result["endless"] = mode == "endless"
 	result["total_shifts"] = total_shifts()
 	result["assisted"] = assisted
+	result["venue_id"] = venue_id()
+	result["venue_name"] = Content.VENUES[(shift_index / 6) % Content.VENUES.size()]["name"]
+	result["machine_id"] = machine_id()
+	result["machine_name"] = Content.MACHINES[machine_tier]["name"]
+	result["pending_buff"] = pending_buff
+	result["active_buff"] = active_buff
+	result["buff_name"] = str(BUFFS.get(active_buff, {}).get("name", ""))
+	result["buff_description"] = str(BUFFS.get(active_buff, {}).get("description", ""))
 	return result
 
 
@@ -739,6 +947,7 @@ func from_save(data: Dictionary) -> bool:
 			return false
 	if data.get("version") == 2: data = _migrate_v2(data)
 	if data.get("version") == 3: data = _migrate_v3(data)
+	if data.get("version") == 4: data = _migrate_v4(data)
 	if not _valid_save(data):
 		last_save_error = "This save is damaged or from an unsupported version. Start a new run."
 		return false
@@ -747,6 +956,7 @@ func from_save(data: Dictionary) -> bool:
 	_next_delivery_id = maxi(previous_next_id, _next_delivery_id)
 	delivery_epoch += 1
 	for index in range(_pending_deliveries.size()): _pending_deliveries[index] = int(_pending_deliveries[index])
+	for index in range(_caught_stock_ids.size()): _caught_stock_ids[index] = int(_caught_stock_ids[index])
 	for order in orders:
 		order["id"] = int(order["id"])
 		order["patience"] = float(order["patience"])
@@ -759,6 +969,8 @@ func from_save(data: Dictionary) -> bool:
 		if last_result.has(key): last_result[key] = float(last_result[key])
 	_rules = Content.shift_info(shift_index, difficulty, mode)
 	if _legacy_shift: _rules = _legacy_rules(shift_index)
+	_rules.merge(_saved_shift_rules, true)
+	_apply_buff_rules(_rules, active_buff)
 	seed_value = int(str(data["seed_value"]))
 	_rng.seed = seed_value
 	_rng.state = int(str(data["rng_state"]))
@@ -767,7 +979,7 @@ func from_save(data: Dictionary) -> bool:
 
 
 func _saved_keys() -> Array[String]:
-	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries", "fire_active", "fire_danger", "fire_recovery", "foam_time"]
+	return ["phase", "shift_index", "time_left", "shift_duration", "orders", "supply", "supply_capacity", "batter", "temperature", "heat_setting", "jammed", "jam_progress", "overheated", "refill_progress", "production_count", "package_type", "package_count", "package_flavor", "scoop_count", "sales", "served", "missed", "mistakes", "streak", "target", "credits", "owned", "last_result", "_production_clock", "_arrival_clock", "_next_jam_at", "_next_order_id", "_orders_created", "_refill_age", "_offers", "_offers_generated", "_run_served", "_run_missed", "_run_sales", "difficulty", "mode", "shift_name", "shift_description", "jam_risk", "heat_warning", "_best_streak", "_legacy_shift", "_machine_elapsed", "_last_jam_production", "_service_age", "_jam_warned", "assisted", "active_boosts", "waste_count", "_run_wasted", "_next_delivery_id", "_pending_deliveries", "fire_active", "fire_danger", "fire_recovery", "foam_time", "appeal", "production_speed", "machine_tier", "pending_buff", "active_buff", "unlocked_achievements", "_run_elapsed", "_run_correct", "_recent_correct_times", "_last_extinguish_time", "_shift_punches", "_slow_only", "_appeal_was_low", "_seagull_feeds", "_special_customer_pending", "_caught_stock_ids", "_emergency_batter_ready", "_saved_shift_rules"]
 
 
 func _legacy_rules(index: int) -> Dictionary:
@@ -801,6 +1013,18 @@ func _migrate_v3(old: Dictionary) -> Dictionary:
 	return migrated
 
 
+func _migrate_v4(old: Dictionary) -> Dictionary:
+	var migrated: Dictionary = old.duplicate(true)
+	var saved_rules: Dictionary = {}
+	if old.get("mode") == "campaign" and _integer_in(old.get("shift_index"), 4, 5):
+		saved_rules = {"duration": old.get("shift_duration")}
+	migrated.merge({"version": SAVE_VERSION, "appeal": 60.0, "production_speed": 1, "machine_tier": 0, "pending_buff": "", "active_buff": "", "unlocked_achievements": [], "_run_elapsed": old.get("_machine_elapsed", 0.0), "_run_correct": 0, "_recent_correct_times": [], "_last_extinguish_time": -1.0, "_shift_punches": 0, "_slow_only": false, "_appeal_was_low": false, "_seagull_feeds": 0, "_special_customer_pending": false, "_caught_stock_ids": [], "_emergency_batter_ready": false, "_saved_shift_rules": saved_rules}, true)
+	if migrated.get("mode") == "campaign" and migrated.get("phase") == "won" and migrated.get("shift_index") == 5:
+		migrated["phase"] = "shop"
+		migrated["_offers_generated"] = false
+	return migrated
+
+
 func _valid_save(data: Dictionary) -> bool:
 	if not _integer_in(data.get("version"), SAVE_VERSION, SAVE_VERSION): return false
 	for key in _saved_keys():
@@ -808,14 +1032,14 @@ func _valid_save(data: Dictionary) -> bool:
 	if not data.get("phase") is String or not str(data["phase"]) in ["ready", "playing", "shop", "won", "lost"]: return false
 	if not data.get("difficulty") is String or not str(data["difficulty"]) in ["normal", "relaxed"]: return false
 	if not data.get("mode") is String or not str(data["mode"]) in ["campaign", "endless"]: return false
-	if not _integer_in(data.get("shift_index"), 0, 5 if str(data["mode"]) == "campaign" else 999): return false
+	if not _integer_in(data.get("shift_index"), 0, 17 if str(data["mode"]) == "campaign" else 999): return false
 	if not data.get("shift_name") is String or not data.get("shift_description") is String: return false
 	if not _valid_int64_text(data.get("seed_value")) or not _valid_int64_text(data.get("rng_state")): return false
-	for spec in [["time_left", 0, 180], ["shift_duration", 100, 180], ["temperature", 20, 260], ["jam_progress", 0, 1], ["refill_progress", 0, 1], ["sales", 0, 1000000000], ["_production_clock", 0, 3], ["_arrival_clock", -1, 30], ["_refill_age", 0, 10], ["_service_age", 0, 10], ["_machine_elapsed", 0, 10000000], ["jam_risk", 0, 1], ["_run_sales", 0, 10000000000]]:
+	for spec in [["time_left", 0, 240], ["shift_duration", 100, 240], ["temperature", 20, 260], ["jam_progress", 0, 1], ["refill_progress", 0, 1], ["sales", 0, 1000000000], ["_production_clock", 0, 3], ["_arrival_clock", -1, 30], ["_refill_age", 0, 10], ["_service_age", 0, 10], ["_machine_elapsed", 0, 10000000], ["jam_risk", 0, 1], ["_run_sales", 0, 10000000000], ["appeal", 0, 100], ["_run_elapsed", 0, 100000000], ["_last_extinguish_time", -1, 100000000]]:
 		if not _number_in(data.get(spec[0]), float(spec[1]), float(spec[2])): return false
 	for spec in [["fire_danger", 0.0, 1.0], ["fire_recovery", 0.0, FIRE_RECOVERY_SECONDS], ["foam_time", 0.0, FOAM_SECONDS]]:
 		if not _number_in(data.get(spec[0]), float(spec[1]), float(spec[2])): return false
-	for spec in [["supply", 0, 60], ["supply_capacity", 36, 60], ["batter", 0, 132], ["heat_setting", 0, 4], ["production_count", 0, 100000], ["package_count", 0, 12], ["scoop_count", 0, 6], ["served", 0, 100000], ["missed", 0, 100000], ["mistakes", 0, 100000], ["streak", 0, 100000], ["credits", 0, 1000000], ["_next_jam_at", 1, 100000], ["_next_order_id", 1, 100000], ["_orders_created", 0, 100000], ["_run_served", 0, 100000], ["_run_missed", 0, 100000], ["_last_jam_production", 0, 100000], ["_best_streak", 0, 100000], ["waste_count", 0, 1000000], ["_run_wasted", 0, 100000000], ["_next_delivery_id", 1, 1000000000]]:
+	for spec in [["supply", 0, 84], ["supply_capacity", 36, 84], ["batter", 0, 192], ["heat_setting", 0, 4], ["production_count", 0, 100000], ["package_count", 0, 12], ["scoop_count", 0, 6], ["served", 0, 100000], ["missed", 0, 100000], ["mistakes", 0, 100000], ["streak", 0, 100000], ["credits", 0, 1000000], ["_next_jam_at", 1, 100000], ["_next_order_id", 1, 100000], ["_orders_created", 0, 100000], ["_run_served", 0, 100000], ["_run_missed", 0, 100000], ["_last_jam_production", 0, 100000], ["_best_streak", 0, 100000], ["waste_count", 0, 1000000], ["_run_wasted", 0, 100000000], ["_next_delivery_id", 1, 1000000000], ["production_speed", 0, 2], ["machine_tier", 0, 2], ["_run_correct", 0, 100000], ["_shift_punches", 0, 100000], ["_seagull_feeds", 0, 100000]]:
 		if not _integer_in(data.get(spec[0]), int(spec[1]), int(spec[2])): return false
 	if int(data["_run_wasted"]) < int(data["waste_count"]): return false
 	if not data["_pending_deliveries"] is Array or data["_pending_deliveries"].size() > mini(64, int(data["production_count"])): return false
@@ -823,13 +1047,16 @@ func _valid_save(data: Dictionary) -> bool:
 	for id in data["_pending_deliveries"]:
 		if not _integer_in(id, 1, int(data["_next_delivery_id"]) - 1) or delivery_ids.has(int(id)): return false
 		delivery_ids[int(id)] = true
-	for key in ["jammed", "overheated", "fire_active", "_offers_generated", "heat_warning", "_legacy_shift", "_jam_warned", "assisted"]:
+	for key in ["jammed", "overheated", "fire_active", "_offers_generated", "heat_warning", "_legacy_shift", "_jam_warned", "assisted", "_slow_only", "_appeal_was_low", "_special_customer_pending", "_emergency_batter_ready"]:
 		if not data[key] is bool: return false
 	if bool(data["fire_active"]) and (not bool(data["overheated"]) or float(data["fire_danger"]) != 1.0 or float(data["fire_recovery"]) > 0.0): return false
 	if not bool(data["fire_active"]) and float(data["fire_danger"]) >= 1.0: return false
 	if float(data["fire_recovery"]) > float(data["foam_time"]): return false
 	if bool(data["_legacy_shift"]) and (str(data["mode"]) != "campaign" or int(data["shift_index"]) > 2): return false
 	var definition: Dictionary = _legacy_rules(int(data["shift_index"])) if bool(data["_legacy_shift"]) else Content.shift_info(int(data["shift_index"]), str(data["difficulty"]), str(data["mode"]))
+	if not _valid_expansion_save(data): return false
+	definition.merge(data["_saved_shift_rules"], true)
+	_apply_buff_rules(definition, str(data["active_buff"]))
 	if not _integer_in(data.get("target"), int(definition["target"]), int(definition["target"])): return false
 	if float(data["shift_duration"]) != float(definition["duration"]) or float(data["time_left"]) > float(data["shift_duration"]): return false
 	if not data["active_boosts"] is Dictionary or (not ENABLE_FUTURE_BOOSTS and (bool(data["assisted"]) or not data["active_boosts"].is_empty())): return false
@@ -837,8 +1064,8 @@ func _valid_save(data: Dictionary) -> bool:
 	for id in data["owned"]:
 		if not UPGRADES.has(id) or not _integer_in(data["owned"][id], 1, int(UPGRADES[id]["max_level"])): return false
 		if UPGRADES[id].has("requires") and int(data["owned"].get(UPGRADES[id]["requires"], 0)) <= 0: return false
-	if int(data["supply_capacity"]) != 36 + int(data["owned"].get("extra_tray", 0)) * 12 or int(data["supply"]) > int(data["supply_capacity"]): return false
-	if int(data["batter"]) > 72 + int(data["owned"].get("large_hopper", 0)) * 30: return false
+	if int(data["supply_capacity"]) != int(Content.MACHINES[int(data["machine_tier"])]["tray"]) + int(data["owned"].get("extra_tray", 0)) * 12 or int(data["supply"]) > int(data["supply_capacity"]): return false
+	if int(data["batter"]) > int(Content.MACHINES[int(data["machine_tier"])]["hopper"]) + int(data["owned"].get("large_hopper", 0)) * 30: return false
 	if int(data["scoop_count"]) > (6 if int(data["owned"].get("deep_scoop", 0)) > 0 else (4 if int(data["owned"].get("wide_scoop", 0)) > 0 else 3)): return false
 	if not data["package_type"] is String or not data["package_flavor"] is String: return false
 	if str(data["package_type"]) != "" and not PACKAGES.has(data["package_type"]): return false
@@ -856,6 +1083,8 @@ func _valid_save(data: Dictionary) -> bool:
 		if not _number_in(order.get("base_price"), 1, 1000): return false
 		if order.has("menu_premium") and not _number_in(order["menu_premium"], 0, 20): return false
 		if order.has("welcome") and not order["welcome"] is bool: return false
+		if order.has("hat") and not order["hat"] is bool: return false
+		if order.has("special") and order["special"] not in ["", "seagulls"]: return false
 	if not data["_offers"] is Array or data["_offers"].size() > 3: return false
 	var offers_seen: Dictionary = {}
 	for id in data["_offers"]:
@@ -878,6 +1107,38 @@ func _valid_save(data: Dictionary) -> bool:
 		if result.has("assisted") and not result["assisted"] is bool: return false
 		if result.has("difficulty") and not result["difficulty"] in ["normal", "relaxed"]: return false
 		if result.has("mode") and not result["mode"] in ["campaign", "endless"]: return false
+	return true
+
+
+func _valid_expansion_save(data: Dictionary) -> bool:
+	for key in ["pending_buff", "active_buff"]:
+		if not data[key] is String or (str(data[key]) != "" and not BUFFS.has(data[key])): return false
+	if bool(data["_emergency_batter_ready"]) and data["active_buff"] != "emergency_batter": return false
+	if int(data["machine_tier"]) > mini(2, int(data["shift_index"]) / 6): return false
+	if int(data["_run_correct"]) > int(data["_run_served"]): return false
+	if float(data["_last_extinguish_time"]) > float(data["_run_elapsed"]): return false
+	if not data["unlocked_achievements"] is Array or data["unlocked_achievements"].size() > ACHIEVEMENTS.size(): return false
+	var seen: Dictionary = {}
+	for id in data["unlocked_achievements"]:
+		if not id is String or not ACHIEVEMENTS.has(id) or seen.has(id): return false
+		seen[id] = true
+	if not data["_recent_correct_times"] is Array or data["_recent_correct_times"].size() > 5: return false
+	var previous: float = 0.0
+	for at in data["_recent_correct_times"]:
+		if not _number_in(at, previous, float(data["_run_elapsed"])): return false
+		previous = float(at)
+	if not data["_caught_stock_ids"] is Array or data["_caught_stock_ids"].size() > 1000: return false
+	seen.clear()
+	for id in data["_caught_stock_ids"]:
+		if not _integer_in(id, -2147483648, 2147483647) or int(id) == -1 or seen.has(int(id)): return false
+		seen[int(id)] = true
+	if not data["_saved_shift_rules"] is Dictionary: return false
+	var retained: Dictionary = data["_saved_shift_rules"]
+	if not retained.is_empty():
+		if retained.size() != 1 or not retained.has("duration") or data["mode"] != "campaign" or int(data["shift_index"]) not in [4, 5]: return false
+		var scale: float = 1.2 if data["difficulty"] == "relaxed" else 1.0
+		var durations: Array = [125.0, 150.0] if int(data["shift_index"]) == 4 else [130.0, 155.0]
+		if not _number_in(retained["duration"], 100, 240) or not (is_equal_approx(float(retained["duration"]), float(durations[0]) * scale) or is_equal_approx(float(retained["duration"]), float(durations[1]) * scale)): return false
 	return true
 
 

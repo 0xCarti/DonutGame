@@ -107,7 +107,7 @@ func _test_physical_counter() -> void:
 	var camera: Camera3D = app.world.get_camera()
 	_check(camera.projection == Camera3D.PROJECTION_PERSPECTIVE, "stand uses a perspective 3D camera")
 	_check(app.world._view_hands.get_parent() == camera and app.world._view_hands.visible, "operator hands occupy the player's camera space")
-	_check(app.world._stations.size() == 15, "all fifteen actions have physical stations")
+	_check(app.world._stations.size() == 17, "all seventeen actions have physical stations including separate feeder speed")
 	var bounds: Rect2 = root.get_visible_rect()
 	for station in Controller.STATION_NAMES:
 		var point: Vector2 = app.world.station_screen_position(station)
@@ -279,15 +279,28 @@ func _test_bucket_and_mistakes() -> void:
 	_check(app.model.package_count == 12 and app.model.supply == 6, "four scoops fill a twelve-donut bucket")
 	await _key(KEY_C)
 	await _key(KEY_SPACE)
-	var patience: float = app.model.orders[0]["patience"]
-	await _key(KEY_E)
-	_check(app.model.served == 0 and app.model.sales == 0.0 and app.model.mistakes == 1, "wrong sugar does not pay and records the mistake")
-	_check(app.model.package_count == 12 and app.model.orders[0]["patience"] < patience, "wrong order preserves food and costs customer patience")
 	app.hover_station = "serve"
 	var recovery: Dictionary = app._guide_context()
 	_check(recovery.station == "trash" and recovery.key == "X" and recovery.prompt == "Discard this order", "wrong coated food points to discard even when hovering the customer")
 	await _key(KEY_P)
 	_check(app.model.package_flavor == "cinnamon", "wrong coating cannot be overwritten")
+	var appeal_before: float = app.model.appeal
+	await _key(KEY_E)
+	_check(app.model.served == 1 and app.model.sales > 0.0 and app.model.sales < 32.0 and app.model.mistakes == 1, "wrong sugar receives a partial payout and records the mistake")
+	_check(app.model.package_count == 0 and app.model.orders.is_empty() and app.model.appeal < appeal_before, "imperfect handoff consumes food advances the queue and lowers appeal")
+	var partial_sales: float = app.model.sales
+	await _key(KEY_E)
+	_check(app.model.sales == partial_sales and app.model.served == 1, "partial order cannot be sold twice")
+	_reset_shift(1733)
+	app.model.orders[0]["package"] = "bucket"
+	app.model.orders[0]["flavor"] = "powdered"
+	app.model.orders[0]["base_price"] = 32.0
+	await _key(KEY_V)
+	await _key(KEY_S)
+	for portion in range(4):
+		await _key(KEY_F)
+		await _key(KEY_SPACE)
+	await _key(KEY_C)
 	await _key(KEY_X)
 	_check(app.model.package_type.is_empty() and app.model.supply == 6, "discarding coated food does not return edible stock")
 	await _key(KEY_B)
@@ -485,9 +498,12 @@ func _test_modes_and_atomic_save() -> void:
 	await _click_text(app.screen, "RELAXED")
 	await _click_text(app.screen, "OPEN THE STAND  >")
 	_check(app.model.difficulty == "relaxed" and app.model.target < Model.TARGETS[0] and app.model.shift_duration > Model.SHIFT_TIMES[0], "Relaxed selection applies real model difficulty changes")
+	_check(app.model.phase == "ready" and is_instance_valid(app.overlay), "experienced run offers pre-shift setup before its clock starts")
+	await _click_text(app.overlay, "OPEN THE STAND")
 	app.profile.campaign_wins = 1
 	app._show_title()
 	await _click_text(app.screen, "ENDLESS RUSH")
+	await _click_text(app.overlay, "OPEN THE STAND")
 	_check(app.model.mode == "endless" and app.hud.shift.text.begins_with("ROUND 1"), "earned Endless starts an actual endless run with round-specific HUD")
 	app.model.sales = app.model.target
 	app.model.finish_shift()
@@ -529,21 +545,23 @@ func _test_shop_and_results() -> void:
 	await _click_text(app.screen, "START NEXT SHIFT  >")
 	_check(app.current_view == "play" and app.model.shift_index == 1 and app.model.phase == "playing", "next shift advances from the shop")
 	_check(app.model.owned == owned_before and app.model.sales == 0.0 and app.model.time_left == Model.SHIFT_TIMES[1], "next shift keeps upgrades and resets the working clock and sales")
-	app.model.shift_index = Model.TARGETS.size() - 1
+	app.model.shift_index = Model.Content.SHIFTS.size() - 1
 	app.model.target = Model.TARGETS[-1]
 	app.model.sales = app.model.target
 	app.model.finish_shift()
 	app._process(0.0)
 	_check(app.model.phase == "won" and app.current_view == "result" and _has_label(app.screen, "Rush handled."), "final campaign shift shows the success result")
-	_check(_has_label_containing(app.screen, "SHIFT 6 / 6"), "success reports the actual final campaign shift")
+	_check(_has_label_containing(app.screen, "SHIFT 18 / 18"), "success reports the actual final campaign shift")
 	await _click_text(app.screen, "Back to the stand")
 	_check(app.current_view == "title", "result can return to the title")
 	_reset_shift(738)
 	app.model.time_left = 0.05
 	app._process(0.1)
 	_check(app.model.phase == "lost" and app.current_view == "result" and _has_label(app.screen, "Closing time."), "missed quota opens the failure result")
-	_check(_has_label_containing(app.screen, "SHIFT 1 / 6"), "failure reports the actual failed shift")
+	_check(_has_label_containing(app.screen, "SHIFT 1 / 18"), "failure reports the actual failed shift")
 	await _click_text(app.screen, "OPEN AGAIN")
+	_check(app.model.phase == "ready" and is_instance_valid(app.overlay), "replay offers the same pre-shift setup")
+	await _click_text(app.overlay, "OPEN THE STAND")
 	_check(app.current_view == "play" and app.model.phase == "playing" and app.model.shift_index == 0, "replay starts a fresh first shift")
 	_check(app.model.sales == 0.0 and app.model.owned.is_empty() and app.held_tool == "none", "replay clears earnings, upgrades and held tools")
 

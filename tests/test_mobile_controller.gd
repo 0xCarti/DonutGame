@@ -171,6 +171,44 @@ func _run() -> void:
 	_check_mobile_menu("Collection", app.screen)
 	app._show_mobile_badges()
 	_check_mobile_menu("Career badges", app.overlay)
+	app._close_overlay()
+	app._market_category = "sets"
+	app._show_market()
+	_check_mobile_menu("Ticket Booth sets", app.overlay)
+	app._market_category = "buffs"
+	app._show_market()
+	_check_mobile_menu("Ticket Booth shift supplies", app.overlay)
+	app._close_overlay()
+	app.model.new_run(9841)
+	app._show_opening()
+	_check_mobile_menu("Pre-shift setup", app.overlay)
+	app._close_overlay()
+	app._start_practice()
+	app._show_practice_venues()
+	_check_mobile_menu("Practice venues and machines", app.overlay)
+	for size_and_insets in [
+		[Vector2i(2532, 1170), Vector4(96, 0, 96, 48)],
+		[Vector2i(2340, 1080), Vector4(72, 0, 24, 36)],
+		[Vector2i(1920, 1200), Vector4(0, 24, 0, 24)]
+	]:
+		root.size = size_and_insets[0]
+		app.mobile_safe_insets = size_and_insets[1]
+		app._resize()
+		await process_frame
+		_check_mobile_menu("Practice venues at " + str(root.size), app.overlay)
+		app._show_market()
+		_check_mobile_menu("Ticket Booth at " + str(root.size), app.overlay)
+		var device_safe: Rect2 = app._mobile_safe_rect(root.get_visible_rect().size)
+		var buttons: Array = []
+		_collect_buttons(app.overlay, buttons)
+		var safe_buttons = not buttons.is_empty()
+		for control in buttons: safe_buttons = safe_buttons and device_safe.encloses(control.get_global_rect())
+		_check(safe_buttons, "Notch and home-indicator safe area contains every shop control at " + str(root.size))
+		app._show_practice_venues()
+	root.size = Vector2i(1280, 800)
+	app.mobile_safe_insets = Vector4.ZERO
+	app._resize()
+	app._close_overlay()
 	app._save_run()
 	app._save_settings()
 	app._delete_run_files()

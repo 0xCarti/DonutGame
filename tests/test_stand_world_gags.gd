@@ -26,7 +26,7 @@ func _run() -> void:
 	advance(world,0.9)
 	await physics_frame
 	await physics_frame
-	check(world._stations.size()==15,"Bell and extinguisher are the only added counter stations")
+	check(world._stations.size()==17,"Bell, extinguisher and two independent feed controls have physical targets")
 	check(not world._stations.has("customer") and not world._stations.has("punch"),"Customer targeting has no phantom area")
 	for id in world._stations.keys()+["customer"]:
 		var point: Vector2=world.station_screen_position(id)

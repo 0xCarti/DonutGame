@@ -25,14 +25,14 @@ func _run() -> void:
 			results.append(result)
 			if bool(result.won): wins += 1
 			if int(result.cleared) > 0: openings += 1
-			_check(int(result.steps) < 12000, "actual-duration campaign terminates: %s seed%d" % [difficulty, seed_number])
+			_check(int(result.steps) < 50000, "actual-duration campaign terminates: %s seed%d" % [difficulty, seed_number])
 		report.difficulties[difficulty] = {"wins": wins, "opening_clears": openings, "sample_count": 12, "results": results}
 		_check(openings == 12, "opening shift supports actual hand durations: " + difficulty)
 		_check(wins == 12, "complete campaign supports actual hand durations across twelve seeds: " + difficulty)
 		print("ACTION PACING %s: opening %d/12; campaign %d/12; example %s" % [difficulty, openings, wins, str(results[0])])
 	var folder: String = ProjectSettings.globalize_path("res://playtest-reports")
 	DirAccess.make_dir_recursive_absolute(folder)
-	var file = FileAccess.open(folder.path_join("action-pacing-1.0.2" + report_suffix + ".json"), FileAccess.WRITE)
+	var file = FileAccess.open(folder.path_join("action-pacing-1.2.0" + report_suffix + ".json"), FileAccess.WRITE)
 	if file != null:
 		file.store_string(JSON.stringify(report, "\t"))
 		file.close()

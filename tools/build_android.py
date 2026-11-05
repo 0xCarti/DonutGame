@@ -95,7 +95,11 @@ def main():
     signing_env(java_home, env)
     run([GODOT, '--headless', '--path', ROOT, '--editor', '--import'], 'import.log', env)
     if not args.skip_tests:
-        for name in ['mobile_input', 'mobile_controller', 'mobile_ui', 'mobile_quality', 'stand_controller']:
+        for name in ['mobile_input', 'mobile_controller', 'mobile_ui', 'mobile_quality',
+                     'stand_controller', 'stand_model', 'expansion_model', 'stand_economy',
+                     'expansion_controller', 'stand_expansion', 'stand_food_physics',
+                     'stand_food_integration', 'stand_hand_motion', 'stand_gags',
+                     'stand_world_gags', 'player_profile', 'stand_presentation']:
             run([GODOT, '--headless', '--path', ROOT, '--script', f'res://tests/test_{name}.gd'], f'{name}.log', env)
     run([GODOT, '--headless', '--path', ROOT, '--export-release', 'Android', apk], 'export.log', env)
     if not apk.is_file():

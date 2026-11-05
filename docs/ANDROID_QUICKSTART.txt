@@ -1,7 +1,7 @@
-GOLDEN HOUR - ANDROID 1.0.7
+GOLDEN HOUR - ANDROID 1.2.0
 
 INSTALL
-Download GoldenHour-1.0.7-Android.apk onto your Android device and open it.
+Download GoldenHour-1.2.0-Android.apk onto your Android device and open it.
 If prompted, allow your browser or file app to install this APK, then choose
 Install. Open Golden Hour. No store account or internet connection is needed
 to play. Android 7.0 or later is required; phone performance still needs testing.
@@ -26,4 +26,10 @@ an issue. A screenshot or short recording is useful.
 PROGRESS
 Campaign progress saves on this device. Practice preserves your campaign.
 Install matching signed updates over the existing app to keep your progress.
-Uninstalling removes local saves. This build has no purchases or ads.
+Uninstalling removes local saves. The Ticket Booth uses earned Tickets. Real-money checkout is unavailable; no ads.
+
+NEW IN 1.2
+Appeal affects arrivals. Wrong full/coated orders sell for less and hurt appeal.
+Tools > Fryer adjusts feed speed independently of heat.
+Your Collection > Ticket Booth offers cosmetics and one-shift supplies.
+Practice > Pause > Explore Venues & Machines previews all three locations.

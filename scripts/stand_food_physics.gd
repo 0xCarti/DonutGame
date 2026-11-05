@@ -31,6 +31,9 @@ var _world: Node3D
 var _capacity: int = 36
 var _paused: bool = false
 var _machine_running: bool = true
+var _lane_count: int = 1
+var _feed_multiplier: float = 1.0
+var _lane_serial: int = 0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _entries: Array[Dictionary] = []
 var _surfaces: Node3D
@@ -207,7 +210,7 @@ func _loosen_tray(pulse: int = 0) -> void:
 		var horizontal: Vector3 = Vector3(body.linear_velocity.x, 0, body.linear_velocity.z)
 		body.sleeping = false
 		var lift: float = 0.20 * (1.0 - crowding * 0.4)
-		if rage: lift = 1.70 + (_shake_strength - 3.0) * 0.55 - body.linear_velocity.y
+		if rage: lift = 2.30 + (_shake_strength - 3.0) * 0.65 - body.linear_velocity.y
 		body.apply_central_impulse((direction * speed - horizontal + Vector3(0, lift, 0)) * body.mass)
 		if rage:
 			body.angular_velocity = Vector3(_rng.randf_range(-4.0, 4.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-4.0, 4.0))
@@ -243,7 +246,7 @@ func _update_tray_shake(delta: float) -> void:
 
 
 func set_capacity(capacity: int) -> void:
-	_capacity = clampi(capacity, 0, 60)
+	_capacity = clampi(capacity, 0, 84)
 
 
 func set_machine_running(running: bool) -> void:
@@ -326,6 +329,28 @@ func seed_stock(count: int, capacity: int) -> void:
 		_entries.append(entry)
 
 
+func set_machine_profile(machine_id: String, speed: int) -> void:
+	var next_lanes: int = 3 if machine_id == "festival_pro" else (2 if machine_id == "twin_lane" else 1)
+	if next_lanes != _lane_count:
+		_lane_count = next_lanes
+		_lane_serial = 0
+		# Resume queues are restored before the new view-state profile arrives.
+		# Redistribute only waiting entries, preserving IDs and in-progress paths.
+		for entry in _entries:
+			if str(entry.stage) != "conveyor" or float(entry.progress) > 0.0: continue
+			entry.lane = (float(_lane_serial % _lane_count)-float(_lane_count-1)*0.5)*0.312
+			_lane_serial += 1
+			if float(entry.progress) == 0.0:
+				entry.body.position = lane_position(0.0,float(entry.lane))
+				entry.body.reset_physics_interpolation()
+	_feed_multiplier = [0.72,1.0,1.32][clampi(speed,0,2)]
+
+func lane_position(progress: float, lane: float = 0.0) -> Vector3:
+	var point: Vector3 = conveyor_position(progress)
+	# Separate bath lanes converge before the existing discharge incline.
+	point.z += lane * (1.0-smoothstep(0.46,0.64,progress))
+	return point
+
 func enqueue_production(id: int) -> void:
 	for existing in _entries:
 		if int(existing.id) == id:
@@ -333,6 +358,8 @@ func enqueue_production(id: int) -> void:
 	_trim_waste()
 	var entry: Dictionary = _new_body(id, conveyor_position(0.0))
 	entry.stage = "conveyor"
+	entry.lane = (float(_lane_serial % _lane_count)-float(_lane_count-1)*0.5)*0.312
+	_lane_serial += 1
 	# Restored/batched production waits behind the feeder instead of placing
 	# several donuts in the same conveyor slot and releasing them as one lump.
 	var gap: float = (OUTER_RADIUS * 2.0 + 0.13) / _total_path_length
@@ -454,12 +481,12 @@ func _physics_process(delta: float) -> void:
 		var stage: String = entry.stage
 		if stage == "conveyor":
 			if _machine_running:
-				entry.progress = minf(1.0, float(entry.progress) + delta / CONVEYOR_SECONDS)
+				entry.progress = minf(1.0, float(entry.progress) + delta * _feed_multiplier / CONVEYOR_SECONDS)
 				var progress: float = float(entry.progress)
 				entry.visual.visible = progress >= 0.0
 				if progress < 0.0: continue
-				body.position = conveyor_position(progress)
-				var tangent: Vector3 = conveyor_position(minf(1.0, progress + 0.002)) - conveyor_position(maxf(0.0, progress - 0.002))
+				body.position = lane_position(progress, float(entry.get("lane",0.0)))
+				var tangent: Vector3 = lane_position(minf(1.0, progress + 0.002),float(entry.get("lane",0.0))) - lane_position(maxf(0.0, progress - 0.002),float(entry.get("lane",0.0)))
 				var horizontal_squared: float = tangent.x * tangent.x + tangent.z * tangent.z
 				var normal: Vector3 = Vector3(-tangent.x * tangent.y, horizontal_squared, -tangent.z * tangent.y).normalized()
 				# The mid-bath paddle turns each donut once with eased acceleration.
@@ -482,10 +509,21 @@ func _physics_process(delta: float) -> void:
 		var contacts: bool = body.get_contact_count() > 0
 		var counter_contact: bool = _touching_counter(body)
 		if stage == "resident":
+			var previous: Vector3 = entry.get("previous_position",body.global_position)
+			entry.previous_position = body.global_position
+			var air_mail: bool = int(entry.get("launched_burst",-1)) >= 0 and _world.has_method("air_mail_target_open") and _world.air_mail_flight_candidate(body.global_position,body.linear_velocity)
+			if air_mail and _world.try_air_mail(int(entry.id),previous,body.global_position):
+				var visual: Node3D = entry.visual
+				_world.accept_air_mail_visual(visual)
+				_paused_velocities.erase(body.get_instance_id())
+				remove_child(body)
+				body.queue_free()
+				_entries.remove_at(index)
+				continue
 			var launched_out: bool = int(entry.get("launched_burst", -1)) >= 0 and float(entry.get("launch_age", 100.0)) < 2.0 and _fully_left_tray(body.position)
-			if launched_out or (float(entry.age) > 0.20 and not inside and (counter_contact or body.position.y < 1.72)):
+			if (launched_out and not air_mail) or (float(entry.age) > 0.20 and not inside and (counter_contact or body.position.y < 1.72)):
 				_mark_waste(entry, true)
-				if launched_out and _try_gull_catch(entry):
+				if launched_out and not counter_contact and _try_gull_catch(entry):
 					_entries.remove_at(index)
 			continue
 		if not inside and (counter_contact or body.position.y < 1.72):

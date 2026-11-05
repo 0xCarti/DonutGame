@@ -69,8 +69,8 @@ $repoDir = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd([IO.Pa
 Assert-NoReparsePath $repoDir
 Assert-NoReparsePath $ZipPath
 $zipFile = Get-Item -LiteralPath $ZipPath
-if ($zipFile.PSIsContainer -or $zipFile.Name -notmatch '^GoldenHour-(?<version>1\.0\.(?:0|[1-9][0-9]*))-windows-(?<id>[0-9]{8}-[0-9]{6}-[0-9]{3})\.zip$') {
-    throw 'Select a GoldenHour-1.0.x-windows-yyyyMMdd-HHmmss-fff.zip release explicitly.'
+if ($zipFile.PSIsContainer -or $zipFile.Name -notmatch '^GoldenHour-(?<version>1\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-windows-(?<id>[0-9]{8}-[0-9]{6}-[0-9]{3})\.zip$') {
+    throw 'Select a GoldenHour-1.x.x-windows-yyyyMMdd-HHmmss-fff.zip release explicitly.'
 }
 $gameVersion = $Matches.version
 $buildId = $Matches.id

@@ -10,7 +10,7 @@ const PANEL = Color("152f35")
 const CREAM = Color("fff1d2")
 const GOLD = Color("ffc76f")
 const MINT = Color("a4e1c1")
-const ACTIONS = ["bag", "bucket", "scoop", "supply", "package", "cinnamon", "powdered", "serve", "heat_down", "heat_up", "repair", "refill", "trash", "bell", "extinguish"]
+const ACTIONS = ["bag", "bucket", "scoop", "supply", "package", "cinnamon", "powdered", "serve", "heat_down", "heat_up", "speed_down", "speed_up", "repair", "refill", "trash", "bell", "extinguish"]
 var buttons: Dictionary = {}
 var context_button: Button
 var tools_button: Button
@@ -48,8 +48,8 @@ func _ready() -> void:
 func _build_drawer() -> void:
 	drawer = Panel.new()
 	drawer.name = "ToolsDrawer"
-	drawer.position = Vector2(660, 132)
-	drawer.size = Vector2(604, 492)
+	drawer.position = Vector2(660, 56)
+	drawer.size = Vector2(604, 572)
 	drawer.mouse_filter = Control.MOUSE_FILTER_STOP
 	drawer.add_theme_stylebox_override("panel", _style(INK))
 	add_child(drawer)
@@ -73,7 +73,7 @@ func _build_drawer() -> void:
 	order_page = _page()
 	fryer_page = _page()
 	var order_actions = [["bag", "Take bag"], ["bucket", "Take bucket"], ["scoop", "Pick up scoop"], ["supply", "Fresh tray"], ["cinnamon", "Cinnamon sugar"], ["powdered", "Powdered sugar"], ["package", "Pour / lift order"], ["serve", "Serve customer"]]
-	var fryer_actions = [["heat_down", "Heat −"], ["heat_up", "Heat +"], ["repair", "Hold to repair"], ["refill", "Hold to refill"], ["extinguish", "Extinguisher"], ["bell", "Ring bell"], ["trash", "Discard order"]]
+	var fryer_actions = [["heat_down", "Heat −"], ["heat_up", "Heat +"], ["speed_down", "Feed slower"], ["speed_up", "Feed faster"], ["repair", "Hold to repair"], ["refill", "Hold to refill"], ["extinguish", "Extinguisher"], ["bell", "Ring bell"], ["trash", "Discard order"]]
 	for page in [[order_page, order_actions], [fryer_page, fryer_actions]]:
 		for i in range(page[1].size()):
 			var item: Array = page[1][i]
@@ -91,7 +91,7 @@ func _build_drawer() -> void:
 
 func _page() -> Control:
 	var page = Control.new()
-	page.size = Vector2(604, 492)
+	page.size = Vector2(604, 572)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	drawer.add_child(page)
 	return page

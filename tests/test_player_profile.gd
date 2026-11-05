@@ -16,7 +16,7 @@ func _run() -> void:
 	var p = Profile.new()
 	p.test_mode = true
 	check(not p.is_endless_unlocked(), "new career does not bypass endless unlock")
-	check(p.get_cosmetics().size() == 3, "three original booth palettes")
+	check(p.get_cosmetics().size() == 6, "three earned booth palettes plus three shop sets")
 	check(p.select_cosmetic("classic"), "default palette available")
 	check(not p.select_cosmetic("midnight"), "locked palette cannot be selected")
 	var receipt = {"run_id":"first-run", "won": false, "mode":"campaign", "difficulty":"normal", "shift":2,"total_served":15,"total_sales":260.5,"best_streak":7}
@@ -68,23 +68,23 @@ func _run() -> void:
 	check(not copy.from_data(corrupt), "invalid record rejected")
 	before = p.get_summary()
 	check(p.record_run({"run_id":"bad", "total_sales":NAN}).is_empty() and p.get_summary() == before, "invalid result never adds career money")
-	# Actual atomic write/backup recovery uses a unique test-only file.
-	var test_path = "user://profile-test-%d.json" % Time.get_ticks_usec()
-	var disk = Profile.new()
-	disk.storage_path = test_path
-	disk.record_run({"run_id":"disk-one","total_served":4,"total_sales":80.0,"shift":1})
-	check(disk.save_profile(), "first atomic save succeeds")
-	disk.record_run({"run_id":"disk-two","total_served":3,"total_sales":60.0,"shift":1})
-	check(disk.save_profile(), "atomic replacement succeeds")
-	var readback = Profile.new()
-	readback.storage_path = test_path
-	check(readback.load_profile() and readback.total_served == 7, "disk saves load intact")
-	var file = FileAccess.open(test_path, FileAccess.WRITE)
-	file.store_string("{interrupted")
-	file.close()
-	check(readback.load_profile() and readback.total_served == 4 and not readback.load_warning.is_empty(), "corrupt primary recovers previous valid backup")
-	check(FileAccess.get_file_as_string(test_path) == "{interrupted", "loading leaves the invalid original intact")
-	for suffix in ["", ".backup", ".tmp"]:
-		if FileAccess.file_exists(test_path + suffix): DirAccess.remove_absolute(test_path + suffix)
+	# Unit tests remain entirely in memory, including save/load entry points.
+	p.storage_path = "user://a-directory-that-does-not-exist/profile.json"
+	before = p.get_summary()
+	check(p.save_profile() and p.load_profile() and p.get_summary() == before, "test mode performs no profile filesystem IO")
+	var legacy: Dictionary = p.get_summary()
+	legacy.version = 1
+	for key in ["tickets", "owned_items", "loadout", "buff_inventory", "shift_rewards", "buff_transactions"]: legacy.erase(key)
+	var migrated = Profile.new()
+	migrated.test_mode = true
+	check(migrated.from_data(legacy), "version one migrates in memory")
+	check(migrated.selected_cosmetic == "cherry" and migrated.badges == p.badges and migrated.records == p.records, "migration preserves earned selection badges and records")
+	check(migrated.recent_runs == p.recent_runs and migrated.tickets == 0, "migration preserves run receipts without inventing wallet value")
+	check(migrated.cosmetic_loadout().stand == "cherry" and migrated.owned_items.has("celebration_confetti"), "migration initializes new loadout around the old palette")
+	before = migrated.get_summary()
+	check(migrated.record_run(receipt).is_empty() and migrated.get_summary() == before, "migrated completion receipts remain idempotent")
+	legacy["tickets"] = 999999
+	legacy["owned_items"] = "malformed extra field"
+	check(migrated.from_data(legacy) and migrated.tickets == 0, "legacy extension fields cannot inject economy state")
 	print("PROFILE: %d checks, %d failures" % [checks, failures])
 	quit(0 if failures == 0 else 1)

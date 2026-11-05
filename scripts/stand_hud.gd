@@ -144,6 +144,10 @@ func _build_mobile() -> void:
 	mobile.look_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mobile.look_hint.add_theme_color_override("font_outline_color", INK)
 	mobile.look_hint.add_theme_constant_override("outline_size", 4)
+	var reputation = _panel(_mobile_layer, Vector2(16, 138), Vector2(268, 116), PANEL)
+	mobile.appeal = _label(reputation, "", Vector2(14, 10), Vector2(240, 29), 23, MINT)
+	mobile.venue = _label(reputation, "", Vector2(14, 47), Vector2(240, 28), 20, GOLD)
+	mobile.buff = _label(reputation, "", Vector2(14, 81), Vector2(240, 27), 20, MUTED)
 
 	var machine = _panel(_mobile_layer, Vector2(16, 636), Vector2(384, 148), PANEL)
 	mobile.machine = _label(machine, "", Vector2(16, 10), Vector2(352, 32), 25, GOLD)
@@ -202,7 +206,8 @@ func _refresh_mobile(state: Dictionary, context: Dictionary) -> void:
 	mobile.stock.text = "Tray %d / %d · Batter %d" % [int(state.get("supply", 0)), int(state.get("supply_capacity", 36)), int(state.get("batter", 0))]
 	mobile.condition.text = str(context.get("machine_status", "MAKING DONUTS"))
 	mobile.condition.add_theme_color_override("font_color", RED if bool(state.get("jammed", false)) or bool(state.get("fire_active", false)) or bool(state.get("overheated", false)) else MINT)
-	mobile.flow.text = "%d frying · %d wasted" % [int(state.get("in_flight", 0)), int(state.get("waste_count", 0))]
+	mobile.flow.text = "%s feed · %d wasted" % [["Slow", "Normal", "Fast"][clampi(int(state.get("production_speed", 1)),0,2)], int(state.get("waste_count", 0))]
+	_refresh_reputation(mobile, state)
 	var kind = str(state.get("package_type", ""))
 	var tool = str(state.get("held_tool", "none"))
 	var flavor = str(state.get("package_flavor", ""))
@@ -271,6 +276,10 @@ func _build() -> void:
 	controls.mode = _label(self, "", Vector2(1178, 73), Vector2(90, 42), 11, GOLD)
 	controls.mode.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.mode.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var reputation = _panel(self, Vector2(16, 549), Vector2(364, 88), PANEL)
+	controls.appeal = _label(reputation, "", Vector2(14, 8), Vector2(336, 25), 19, MINT)
+	controls.venue = _label(reputation, "", Vector2(14, 38), Vector2(336, 21), 15, GOLD)
+	controls.buff = _label(reputation, "", Vector2(14, 64), Vector2(336, 19), 13, MUTED)
 
 	var machine = _panel(self, Vector2(16, 676), Vector2(364, 108), PANEL)
 	_glyph(machine, "gear", Vector2(10, 8), GOLD).scale = Vector2.ONE * 0.55
@@ -377,7 +386,8 @@ func refresh(state: Dictionary, context: Dictionary) -> void:
 	controls.batter_bar.value = 100.0 * float(state.get("batter", 0)) / maxf(1.0, float(context.get("batter_capacity", 72)))
 	controls.stock.text = str(state.get("supply", 0))
 	controls.stock_bar.value = 100.0 * float(state.get("supply", 0)) / maxf(1.0, float(state.get("supply_capacity", 36)))
-	controls.flow.text = "%d IN THE FRYER   ·   %d WASTED" % [int(state.get("in_flight", 0)), int(state.get("waste_count", 0))]
+	controls.flow.text = "%s FEED [ / ]  ·  %d FRYING  ·  %d WASTED" % [["SLOW", "NORMAL", "FAST"][clampi(int(state.get("production_speed", 1)),0,2)], int(state.get("in_flight", 0)), int(state.get("waste_count", 0))]
+	_refresh_reputation(controls, state)
 	controls.condition.text = str(context.get("machine_status", "RUNNING"))
 	controls.condition.add_theme_color_override("font_color", RED if bool(state.get("jammed", false)) or bool(state.get("overheated", false)) else MINT)
 	var tool = str(state.get("held_tool", "none"))
@@ -531,6 +541,17 @@ func _button(parent: Node, text: String, at: Vector2, dimensions: Vector2, callb
 	node.pressed.connect(callback)
 	parent.add_child(node)
 
+
+func _refresh_reputation(nodes: Dictionary, state: Dictionary) -> void:
+	var appeal = clampf(float(state.get("appeal", 60)), 0, 100)
+	var stars = 1 if appeal <= 25 else 2 if appeal < 45 else 3 if appeal < 65 else 4 if appeal < 85 else 5
+	nodes.appeal.text = "%s  APPEAL %d" % ["★".repeat(stars) + "☆".repeat(5-stars), int(appeal)]
+	nodes.appeal.add_theme_color_override("font_color", RED if appeal < 25 else GOLD if appeal < 60 else MINT)
+	var venues = {"fairground": "Fairground", "concert": "Concert", "stadium": "Stadium"}
+	var machines = {"compact": "Compact", "twin_lane": "Twin-Lane", "festival_pro": "Festival Pro"}
+	nodes.venue.text = "%s · %s" % [venues.get(str(state.get("venue_id", "fairground")), "Fairground"), machines.get(str(state.get("machine_id", "compact")), "Compact")]
+	var active = str(state.get("active_buff", ""))
+	nodes.buff.text = active.replace("_", " ").capitalize() if not active.is_empty() else "Good service earns stars"
 
 func _money(value: float) -> String:
 	return "$%d" % int(value) if is_equal_approx(value, roundf(value)) else "$%.2f" % value

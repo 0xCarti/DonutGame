@@ -5,6 +5,10 @@ signal delivery_settled(delivery_id: int, kept: bool)
 signal stock_spilled(delivery_id: int)
 signal action_finished
 signal gag_sound(id: String)
+signal air_mail_caught(stock_id: int)
+var _expansion: RefCounted
+var _air_mail_offer_id: int = 0
+var _air_mail_accepted: bool = false
 ## First-person Golden Hour stand. Original meshes and material generators reused
 ## from the original art library; all interaction staging is specific to this game.
 var camera: Camera3D
@@ -115,6 +119,7 @@ var _station_labels: Dictionary = {}
 var _context_station: String = ""
 var _paused: bool = false
 var _hands: Array[Node3D] = []
+var _operator_preview_poses: Array[Transform3D] = []
 var _detail_lights: Array[Light3D] = []
 var _bg_walkers: Array[Dictionary] = []
 var _quality: int = 2
@@ -172,6 +177,8 @@ func _ready() -> void:
 	_food.configure(self)
 	_food.delivery_settled.connect(func(delivery_id: int, kept: bool): delivery_settled.emit(delivery_id, kept))
 	_food.stock_spilled.connect(func(delivery_id: int): stock_spilled.emit(delivery_id))
+	_expansion = load("res://scripts/stand_expansion.gd").new()
+	_expansion.configure(self)
 	_loaded = true
 	sync_state({})
 func _material(key: String, color: Color, metallic: float = 0.0, rough: float = 0.7, emission: float = 0.0) -> StandardMaterial3D:
@@ -1173,6 +1180,7 @@ func _make_package(kind: String, parent: Node3D) -> Node3D:
 		if _paper_bag_scene == null: _prewarm_paper_bag()
 		var bag: Node3D = _paper_bag_scene.instantiate() as Node3D
 		parent.add_child(bag)
+		if _expansion != null: _expansion.decorate_package(bag, kind)
 		return bag
 	var package: Node3D = Node3D.new()
 	parent.add_child(package)
@@ -1196,6 +1204,7 @@ func _make_package(kind: String, parent: Node3D) -> Node3D:
 		_cylinder(Vector3(0, 0.025, 0), 0.265, 0.012, "package_inside", package)
 		if not _add_brand_decal(package, Vector3(0, 0.30, 0), Vector2(0.32, 0.32), 0.35):
 			_label("GOLDEN\nHOUR", Vector3(0, 0.29, 0.405), 15, Color("6c4130"), package)
+	if _expansion != null: _expansion.decorate_package(package, kind)
 	return package
 
 func _prewarm_paper_bag() -> void:
@@ -1780,11 +1789,12 @@ func _arm_material(forearm: bool) -> ShaderMaterial:
 render_mode blend_mix, depth_prepass_alpha, cull_back;
 uniform float remote_weight = 0.0;
 uniform bool forearm = false;
+uniform vec4 sleeve_color : source_color = vec4(0.42, 0.105, 0.068, 1.0);
 void fragment() {
  float weave = sin(UV.x * 1131.0) * sin(UV.y * 1382.0);
  float visible_weave = clamp(1.0 - length(fwidth(UV)) * 210.0, 0.0, 1.0);
  float seam = 1.0 - smoothstep(0.004, 0.011, abs(UV.x - 0.16));
- ALBEDO = vec3(0.42, 0.105, 0.068) * (1.0 + weave * visible_weave * 0.045 - seam * 0.12);
+ ALBEDO = sleeve_color.rgb * (1.0 + weave * visible_weave * 0.045 - seam * 0.12);
  ROUGHNESS = 0.86 + weave * visible_weave * 0.035;
  float cuff = forearm ? smoothstep(0.62, 0.94, UV.y) : 0.0;
  ALPHA = mix(1.0, cuff, remote_weight);
@@ -1851,7 +1861,7 @@ func _apply_quality_lighting() -> void:
 		light.shadow_enabled = _quality >= 2 and light.position.x < 0.0
 
 func set_cosmetic(id: String) -> void:
-	_cosmetic = id if id in ["classic", "midnight", "cherry"] else "classic"
+	_cosmetic = id if id in ["classic", "midnight", "cherry", "neon_midway", "grandmas_recipe", "chrome_carnival"] else "classic"
 	if not _mat.has("red"):
 		return
 	var red_color: String = "9b3a39"
@@ -1862,6 +1872,15 @@ func set_cosmetic(id: String) -> void:
 	elif _cosmetic == "cherry":
 		red_color = "773746"
 		dark_color = "462633"
+	elif _cosmetic == "neon_midway":
+		red_color = "7254c7"
+		dark_color = "493681"
+	elif _cosmetic == "grandmas_recipe":
+		red_color = "aa4747"
+		dark_color = "713333"
+	elif _cosmetic == "chrome_carnival":
+		red_color = "bac9d2"
+		dark_color = "63717b"
 	_mat["red"].albedo_color = Color(red_color)
 	_mat["red_dark"].albedo_color = Color(dark_color)
 	for child in get_children():
@@ -1929,6 +1948,7 @@ func sync_state(state: Dictionary) -> void:
 	var previous: Dictionary = _state
 	_state = state.duplicate(true)
 	_paused = bool(state.get("paused", false))
+	if _expansion != null: _expansion.sync_state(state)
 	_sync_food(previous)
 	_sync_package()
 	_sync_people()
@@ -2181,7 +2201,7 @@ func _sync_people() -> void:
 		var target: Vector3 = Vector3(0.4 + float(i) * 1.35, 0.15, -2.15 - float(i) * 0.95)
 		var arriving: bool = not _people.has(id)
 		if arriving:
-			_people[id] = _make_customer(id)
+			_people[id] = _expansion.make_seagull_customer(id) if str(order.get("special", "")) == "seagulls" else _make_customer(id)
 			_people[id].position = target + Vector3(1.7, 0, -1.2)
 		var person: Node3D = _people[id]
 		if int(person.get_meta("queue_index", -1)) != i:
@@ -2661,6 +2681,7 @@ func _customer_batch(parent: Node3D) -> void:
 	parent.set_meta("customer_batch_triangles",Vector2i(source_triangles,final_triangles))
 
 func _animate_customer_detail(person: Node3D,id: int,_delta: float) -> void:
+	if str(person.get_meta("special", "")) == "seagulls": return
 	if not person.has_meta("portrait"): return
 	var portrait: Node3D = person.get_meta("portrait")
 	portrait.rotation.x = 0.0
@@ -2682,6 +2703,9 @@ func is_action_busy() -> bool:
 	return false
 
 func animate_action(id: String) -> void:
+	if id in ["speed_down", "speed_up"]:
+		_expansion.press_speed(id)
+		return
 	# Heat clicks may arrive during a transfer; never cancel a hand movement.
 	if id in ["heat_down", "heat_up"]:
 		_dial_presses[0 if id == "heat_down" else 1] = 0.15
@@ -2852,8 +2876,9 @@ func burst_reward(amount: float, tier: int = 0) -> void:
 	# Exact payout typography belongs to the shared feedback canvas. The booth
 	# contributes a light chase, physical confetti and the brief camera response.
 	for i in range(0 if _reduced_motion else 5 + mini(3, tier) * 4):
-		var confetti: MeshInstance3D = _box(_serve_anchor + Vector3(0, 0.40, 0), Vector3(0.045, 0.07, 0.01), "gold_light")
-		_add_effect(confetti, Vector3(_rng.randf_range(-0.8, 0.8), _rng.randf_range(1.0, 1.8), _rng.randf_range(-0.3, 0.3)), 0.9)
+		var particle: Dictionary = _expansion.celebration_particle(i)
+		var confetti: MeshInstance3D = _box(_serve_anchor + Vector3(0, 0.40, 0), particle.size, particle.key)
+		_add_effect(confetti, particle.velocity, 0.9)
 
 func _add_effect(node: Node3D, velocity: Vector3, lifetime: float) -> void:
 	while _effects.size() >= MAX_EFFECTS:
@@ -2962,6 +2987,22 @@ func _pose_player_fingers(index: int, gripping: bool, delta: float) -> void:
 	thumb.rotation.y = lerpf(thumb.rotation.y, side * (-0.24 if gripping else 0.84), ease)
 	_thumb_chains[index][1].rotation.x = lerpf(_thumb_chains[index][1].rotation.x, -0.50 if gripping else -0.10, ease)
 
+func set_operator_preview(enabled: bool) -> void:
+	# Preview is a paused presentation pose, so it must not advance hand tracks,
+	# held props, finger animations, or the simulation behind the collection.
+	if enabled:
+		if not _operator_preview_poses.is_empty(): return
+		for hand in _hands: _operator_preview_poses.append(hand.transform)
+		for index in range(_hands.size()):
+			var side: float = -1.0 if index == 0 else 1.0
+			_hands[index].transform = Transform3D(Basis.IDENTITY, Vector3(side * 0.32, -0.17, -0.90))
+			_solve_arm(index, _hands[index].global_position)
+	else:
+		for index in range(_operator_preview_poses.size()):
+			_hands[index].transform = _operator_preview_poses[index]
+			_solve_arm(index, _hands[index].global_position)
+		_operator_preview_poses.clear()
+
 func _solve_arm(index: int, wrist: Vector3) -> void:
 	var side: float = -1.0 if index == 0 else 1.0
 	var rig: Dictionary = _arm_rigs[index]
@@ -3031,6 +3072,7 @@ func _process(delta: float) -> void:
 	_error_glow.light_energy = (0.12 + (0.35 if _reduced_motion else pow(sin(_time * 5.0) * 0.5 + 0.5, 3.0) * 0.7)) if not _context_station.is_empty() else 0.0
 	_update_highlights(delta)
 	_update_dials(delta)
+	_expansion.advance(delta)
 	_repair_motion = move_toward(_repair_motion, 1.0 if str(_state.get("hold_station", "")) == "repair" else 0.0, delta * 7.0)
 	_repair_handle.position.y = 2.16 + (sin(_time * 13.0) * 0.018 * _repair_motion if not _reduced_motion else 0.0)
 	_batter_stream.visible = _refilling and not _node_is_moving(_maintenance_prop)
@@ -3055,10 +3097,11 @@ func _process(delta: float) -> void:
 	_update_hands(delta)
 	var running: bool = str(_state.get("phase", "playing")) == "playing" and not bool(_state.get("jammed", false)) and int(_state.get("batter", 1)) > 0 and not bool(_state.get("overheated", false)) and not bool(_state.get("fire_active", false)) and float(_state.get("fire_recovery", 0.0)) <= 0.0 and float(_state.get("temperature", 180.0)) >= 145.0 and str(_state.get("hold_station", "")) != "refill"
 	if running:
-		_production_time += delta
-		_fan.rotation.z += delta * 3.5
-		_flipper.rotation.z += delta * 1.8
-		_hopper_piston.position.y = 4.30 + sin(_time * 3.4) * 0.055
+		var feed_speed: float = _food._feed_multiplier
+		_production_time += delta * feed_speed
+		_fan.rotation.z += delta * 3.5 * feed_speed
+		_flipper.rotation.z += delta * 1.8 * feed_speed
+		_hopper_piston.position.y = 4.30 + sin(_production_time * 3.4) * 0.055
 	_food.set_machine_running(running)
 	for bubble in _bubble_nodes:
 		var phase: float = float(bubble.get_meta("phase"))
@@ -3289,6 +3332,12 @@ func _start_extinguisher() -> void:
 	_push_gag({"kind":"foam_spray","node":spray,"age":0.0,"duration":1.1})
 
 func play_gag(id: String, data: Dictionary={}) -> void:
+	if id == "hat_toss":
+		_toss_customer_hat(int(data.get("order_id", -1)))
+		return
+	if id == "seagulls_reveal":
+		_expansion.reveal_seagulls(int(data.get("order_id", -1)))
+		return
 	if not is_instance_valid(_gag_root):
 		if data.has("donut") and is_instance_valid(data.donut): data.donut.queue_free()
 		return
@@ -3304,8 +3353,13 @@ func play_gag(id: String, data: Dictionary={}) -> void:
 		gag_sound.emit("bell_reply")
 		return
 	var person: Node3D=_front_customer()
+	if data.has("order_id"):
+		person = _people.get(int(data.order_id), null)
+		if not is_instance_valid(person):
+			for leaving in _departing:
+				if str(leaving.name) == "Fairgoer_%d" % int(data.order_id): person = leaving
 	if id=="hat":
-		if not front_customer_has_donut_hat(): return
+		if not is_instance_valid(person) or not person.has_meta("donut_hat"): return
 		_push_gag({"kind":"reaction","age":0.0,"duration":1.0,"person":person,"reaction":"hat"})
 		_gag_bubble("THAT'S MY HAT!",person.to_global(Vector3(0.52,3.34,0.35)))
 		gag_sound.emit("hat")
@@ -3532,3 +3586,77 @@ func _reset_gags() -> void:
 		_fire_visual.reset()
 		_foam_visual.visible=false
 		_fire_light.light_energy=0.0
+
+
+func air_mail_target_open() -> bool:
+	return is_instance_valid(_prep) and _prep_type == "bag" and _prep_flavor.is_empty() and int(_state.get("package_count", 0)) < 6 and _held_type != "package" and not _node_is_moving(_prep) and not _paused
+
+func try_air_mail(stock_id: int, previous: Vector3, current: Vector3) -> bool:
+	if not air_mail_target_open(): return false
+	var a: Vector3 = _prep.to_local(previous)
+	var b: Vector3 = _prep.to_local(current)
+	# Swept centre crossing is evaluated at the actual lip, with crust clearance.
+	var mouth_y: float = 0.61
+	if a.y < mouth_y or b.y >= mouth_y or b.y >= a.y: return false
+	var crossing: Vector3 = a.lerp(b, (a.y-mouth_y)/(a.y-b.y))
+	if absf(crossing.x)>0.15 or absf(crossing.z)>0.10: return false
+	_air_mail_offer_id = stock_id
+	_air_mail_accepted = false
+	air_mail_caught.emit(stock_id)
+	return _air_mail_accepted
+
+func resolve_air_mail(stock_id: int, accepted: bool) -> void:
+	if stock_id == _air_mail_offer_id: _air_mail_accepted = accepted
+
+func accept_air_mail_visual(visual: Node3D) -> void:
+	if not is_instance_valid(_prep):
+		visual.queue_free()
+		return
+	visual.reparent(_prep, true)
+	visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	var index: int = _prep_donuts.size()
+	_prep_donuts.append(visual)
+	var target: Transform3D = _prep.global_transform * Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * FoodGeometry.DONUT_SCALE), _package_donut_position(index,"bag"))
+	_move_node(visual,target,0.20,0.0)
+
+
+func _toss_customer_hat(order_id: int) -> void:
+	var person: Node3D = _people.get(order_id)
+	if not is_instance_valid(person) or _held_scoop_donuts.is_empty(): return
+	var donut: Node3D = _held_scoop_donuts.pop_back()
+	var portrait: Node3D = person.get_meta("portrait")
+	var at: Vector3 = Vector3(0,3.16,0)
+	if str(person.get_meta("special","")) == "seagulls": at = Vector3(0,0.58,0)
+	var target: Transform3D = Transform3D(Basis.from_euler(Vector3(0.24,0,0.12)).scaled(Vector3.ONE * FoodGeometry.DONUT_SCALE),at)
+	donut.reparent(self,true)
+	_action = "hat_toss"
+	_action_duration = 0.58
+	_action_time = 0.58
+	_move_node(donut,portrait.global_transform*target,0.52,0.85,func():
+		if not is_instance_valid(donut): return
+		if not is_instance_valid(person) or not is_instance_valid(portrait):
+			donut.queue_free()
+			return
+		if person.has_meta("donut_hat") and is_instance_valid(person.get_meta("donut_hat")): person.get_meta("donut_hat").queue_free()
+		donut.reparent(portrait,true)
+		donut.transform = target
+		donut.name = "PlayerDonutHat"
+		person.set_meta("donut_hat",donut)
+		play_gag("hat",{"order_id":order_id}))
+	_motions.back()["target_node"] = portrait
+	_motions.back()["target_local"] = target
+
+
+func air_mail_flight_candidate(position: Vector3, velocity: Vector3) -> bool:
+	if not air_mail_target_open(): return false
+	var toward: Vector3 = _prep.global_position-position
+	toward.y = 0.0
+	var horizontal: Vector3 = Vector3(velocity.x,0,velocity.z)
+	return toward.length()<0.65 or horizontal.dot(toward)>0.12
+
+
+func reserve_food_ids(ids: Array) -> void:
+	if not is_instance_valid(_food): return
+	for value in ids:
+		var id: int = int(value)
+		if id < 0: _food._seed_serial = mini(_food._seed_serial,id-1)

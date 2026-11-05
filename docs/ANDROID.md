@@ -1,21 +1,25 @@
-# Golden Hour for Android — 1.0.7
+# Golden Hour for Android — 1.2.0
 
-Godot is the active development project. Android 1.0.7 brings the existing Godot
-campaign to a landscape, touch-first interface. The Unity Windows 1.1.0 edition
+Godot is the active development project. Android 1.2.0 brings the expanded eighteen-shift tour, appeal, feeder control,
+Ticket Booth, five shift supplies and sixteen badges to the touch-first interface. The Unity Windows 1.1.0 edition
 is a separate preserved checkpoint.
 
-The release target is `builds/android/1.0.7/GoldenHour-1.0.7-Android.apk`, with
+The release target is `builds/android/1.2.0/GoldenHour-1.2.0-Android.apk`, with
 package ID `com.goldenhourgame.minidonuts`. One APK includes ARMv7, ARM64, and x86_64
 libraries. The minimum is Android API 24 (Android 7.0); the prebuilt export
 template targets API 36. These settings do not prove that every eligible phone
 can run the game well.
 
-**Current validation:** signing, package contents, and 569 automated checks pass.
-The Android 15 / API 35 emulator runs the native x86_64 build with host GPU
-rendering. Touch interaction, campaign/order and settings persistence, Android
-Back, and background/resume passed. The earlier ARM64 candidate completed a
-touch-only sale under CPU translation, but that translated configuration failed
-a background/resume check. Native emulator checks are not physical-phone tests.
+**1.2.0 validation:** the mobile regression pass completed 2,393 checks across
+17 suites with no failures. Native Android 15 / API 35 emulator checks use the
+x86_64 build and host GPU rendering: updating the earlier demo preserved its
+save, a touch-only order completed, all venues and catalogue categories opened,
+and Android Back plus background/resume returned safely to paused play. Focused
+checks and refreshed-package screenshots cover the final presentation fixes.
+See [the release verification notes](RELEASE_1_2_VALIDATION.md) and package logs.
+The earlier 1.0.7 ARM64 candidate completed a touch-only sale under CPU translation,
+but that translated configuration failed a background/resume check. Native
+emulator checks are not physical-phone tests.
 Installation and gameplay on a physical Android device have not been verified.
 Desktop mobile-preview tests do not establish phone compatibility, frame rate,
 battery use, temperature, or reliable resume behavior on a particular handset.
@@ -45,7 +49,7 @@ configuring its Java/Android SDK paths, imports the project, runs the Android
 regression checks, and exports a signed release APK. Its package checks use
 `apksigner` and `aapt`, including the package identity and all three architectures.
 On success, the output folder also contains `build-manifest.json`,
-`GoldenHour-1.0.7-Android.apk.sha256`, and `INSTALL-ANDROID.md`. The manifest
+`GoldenHour-1.2.0-Android.apk.sha256`, and `INSTALL-ANDROID.md`. The manifest
 records the package checks separately from pending physical-device validation.
 Review the build result and logs under `playtest-reports/android/`; a file at
 the target path alone is not a successful-build report. Keep Godot import/export
@@ -79,7 +83,7 @@ save transfer between Android, Godot desktop, and the Unity edition.
 ## Send it to a friend
 
 After the build's signing/package checks succeed, share the exact
-`GoldenHour-1.0.7-Android.apk` and identify it as a test build until phone QA is
+`GoldenHour-1.2.0-Android.apk` and identify it as a test build until phone QA is
 complete. Include `Read Me - Android.txt` for the player; the `.apk.sha256` checksum and
 `INSTALL-ANDROID.md` provide additional build and installation details. Do not
 rename an archive to `.apk` or send the private signing files.
@@ -167,7 +171,8 @@ integration. They are not a substitute for the following pending phone checks:
    updates the app while retaining local progress.
 
 Record results before calling the Android build device-validated or broadly
-compatible. App-store publication, payments, and iOS builds are separate work.
+compatible. App-store publication and payments remain separate from this demo.
+The matching iPhone package is documented in [IOS_HANDOFF.md](IOS_HANDOFF.md).
 
 ## Emulator troubleshooting
 
