@@ -1,0 +1,72 @@
+GOLDEN HOUR: ON THE CIRCUIT — DEMO 0.1.0 / r3
+Verified November 9, 2026
+
+AUTHORITATIVE BUILD
+builds/circuit/0.1.0/r3/build-manifest.json
+builds/circuit/0.1.0/r3/source-manifest.json
+builds/circuit/0.1.0/r3/SHA256SUMS.txt
+
+This is a separate portrait Godot project at idea4-circuit/project.godot.
+Its Android/iOS package identity is com.goldenhourgame.circuit. The existing
+first-person Godot game, Unity checkpoint, their builds and saves are preserved.
+
+AUTOMATED VALIDATION
+All 10,192 checks passed in the frozen release source:
+- 4,206 content checks: catalogs, 61 events, 184 choices, ten connected stories,
+  story prerequisites, affordable options and disclosed risks.
+- 2,269 simulation checks: complete seasons, every event choice, deterministic
+  save/RNG restoration, staff, equipment, borrowing, recovery, accounting,
+  permanent recipe unlocks and continuation into later seasons.
+- 38 real-filesystem checks: atomic save replacement, settings/history,
+  pending-event restoration, corrupt/invalid primary recovery, and failed writes
+  preserving the previous primary and backup.
+- 3,679 interface checks: screens, decisions, receipts, navigation, touch sizes,
+  multiple viewport shapes, terminal-season review, stable history, bundled
+  font coverage and readable selected toggle states.
+
+BALANCE SAMPLES
+Three natural-capital runs completed eight stops on day 31 with upgraded gear,
+without injected cash. End cash was $6,835 to $7,424. Owner-only opening runs
+completed the first two fairs with $4,430 to $4,514, from $2,800 starting cash.
+These are deterministic regression samples, not a substitute for player feedback.
+
+ANDROID
+Signed APK metadata, v2 signature, portrait declaration, three ABIs, offline
+permissions and bundled notices verified. Minimum Android API 24; target API 36.
+Installed r3 APK SHA256:
+7eebf5bfd1e25db4e7c3c09309badbb25047e2caec6f40b803d12ae2009b48d9
+
+Native QA used GoldenHour_QA_API35, 1080x2400, host GPU. Verified touch navigation,
+booking, travel, trading, the receipt, Android Back, and restoration after Home,
+force-stop and relaunch. Updating r2 to r3 preserved the existing company.
+Changed settings survived restart. Final process log had no script errors or
+fatal exceptions. See playtest-reports/circuit/android/r3-native-verification.json
+and r2-native-verification.json for screenshots and observations.
+
+WINDOWS
+Final exported executable passed its isolated native startup smoke test.
+The complete interface was also rendered and visually inspected with native
+Godot at portrait and landscape sizes. Test screenshots are under
+playtest-reports/circuit/ui-final/. The ZIP includes installation instructions.
+
+WEB
+Final r3 served locally at http://127.0.0.1:8766/. Verified the actual exported
+pack in the Codex browser at desktop and 390x844 phone dimensions. Created a
+company, booked Willowbank, restored the same pending travel decision after
+reload, traded a day, inspected the receipt/explanation and continued. Reloading
+into r3 preserved the existing receipt. Final recipe artwork, milestone labels
+and selected Settings text rendered correctly. No console errors or warnings
+were observed during this playthrough. Browser saves are local to their origin.
+
+iOS LIMIT
+The source handoff, iOS identity/orientation/version and opaque 1024px icon
+validate. The Mac was unreachable during this demo task, so no Circuit IPA was
+built and no iPhone runtime or signing claim is made. The supplied Mac build
+script can create an unsigned ARM64 IPA when the Mac is available; signing is
+still handled by the user's chosen FlareStore/developer workflow.
+
+REMAINING TESTING
+Physical Android and iPhone performance, thermal/lifecycle behaviour, device
+safe areas and actual player enjoyment remain unverified. No store submission,
+real-money purchases, paid service, or Apple developer account was configured.
+This is an extensive playable demo, not a certified commercial-store release.

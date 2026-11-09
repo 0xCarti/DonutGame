@@ -1,5 +1,17 @@
 # Golden Hour
 
+## Idea #4: On the Circuit demo
+
+The separate portrait company simulator is in [idea4-circuit](idea4-circuit/README-mobile.txt).
+Open **idea4-circuit/project.godot** with Godot 4.7.2. It follows a full fairground
+season through venue bookings, staff, recipes, pricing, equipment upkeep and
+choice-driven stories. It has its own app identity and save; the first-person
+game below remains preserved. Android, Windows and Web packaging scripts and an
+iOS source/build handoff are included in that directory. Generated packages live
+under `builds/circuit/0.1.0/rN/`; consult the matching build manifest for validation.
+
+## First-person mini-donut game
+
 **Godot is the active development project again:** open `project.godot` with
 Godot **4.7.2 stable**. The active expansion is **Godot 1.2.0**, with Android and iPhone as the primary targets. The separate **Unity Windows 1.1.0** edition remains
 a preserved checkpoint; its project, packaged release, and saves are retained.

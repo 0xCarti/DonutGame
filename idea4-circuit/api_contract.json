@@ -1,0 +1,32 @@
+{
+  "engine": "Godot 4.7.2, standalone portrait project, UI authored by root",
+  "content": "scripts/circuit_content.gd extends RefCounted. const VENUES, RECIPES, STAFF, EVENTS, FRYERS, TRUCKS, STANDS, BADGES are Arrays of Dictionaries. static find(list:Array,id:String)->Dictionary.",
+  "model": "scripts/circuit_model.gd extends RefCounted. var state:Dictionary. new_run(company:String,seed_value:int=2026). act(action:String,args:Dictionary={})->Dictionary {ok:bool,message:String}. to_save()->Dictionary. from_save(data:Dictionary)->bool. primary_action()->Dictionary {label,hint,enabled,action}. venue_offers()->Array with catalogue fields plus total_cost,can_book,reason. equipment_options()->Array {id,name,level,condition,service_cost,next_name,next_cost,description,maxed}. All actions deterministic via seeded RNG; mutations rejected in the wrong phase, event resolution exactly once.",
+  "state": {
+    "schema": 1, "company": "Golden Hour", "season": 1, "day": 1, "season_length": 36,
+    "phase": "planning", "cash": 2800, "debt": 0, "rep": 48, "fame": 0,
+    "stock": 160, "recipe": "classic", "price": 6, "quality": "standard",
+    "staff": [], "truck": 75, "fryer": 80, "truck_tier": 0, "fryer_tier": 0, "stand_tier": 0,
+    "booked_id": "", "venue_day": 0, "completed": [], "relationships": {},
+    "journal": [], "event": {}, "last_report": {}, "flags": {}, "achievements": [], "stats": {},
+    "policy": {"restock": false, "service": false}, "weather": "Clear", "difficulty": "standard"
+  },
+  "journal_entry": "{day:int,season:int,title:String,text:String,tone:String [good/bad/info/story],amount:float optional}; newest entries append, bounded history 180",
+  "staff_state": "Content STAFF entry plus morale:float (0-100), loyalty:float(0-100), trained:int, rested_day:int. Owner always works; no staff is a viable start.",
+  "event_state": "Full EVENTS dictionary plus context and instance_id. Empty Dictionary when none pending.",
+  "last_report": "{title,venue,weather,sold,revenue,ingredients,wages,fees,profit,rep_change,stock_waste,summary:Array[String],season_end:bool optional}. Cash/profit reconciles, report explains demand/capacity/price effects.",
+  "actions": {
+    "book": {"id": "venue id"}, "advance": {}, "decide": {"choice": 0}, "dismiss_report": {}, "next_season": {},
+    "buy_stock": {"amount": 100}, "set_price": {"value": 6}, "set_recipe": {"id": "recipe id"}, "set_quality": {"id": "budget/standard/premium"},
+    "hire": {"id": "staff id; signing cost=one daily wage"}, "fire": {"id": "staff id"}, "train": {"id": "staff id; price=120"}, "rest": {"id": "staff id; once/day; reduced capacity today"},
+    "service": {"id": "truck/fryer"}, "upgrade": {"id": "truck/fryer/stand"}, "loan": {"amount": 500}, "repay": {"amount": 500},
+    "set_policy": {"id": "restock/service", "enabled": true}, "minigame": {"score": 0.8}, "rename": {"name": "Company"}
+  },
+  "venue_fields": "id,name,town,description,tagline,days,distance,fee,demand,min_rep,flavor,tags:Array[String],color:String; fixed days in a fair, advance day while trading, travel consumes a day, 36 days/season or 8 completed stops. Booking skips impossible final-season stays. Recurring towns remember relationships in later seasons.",
+  "recipe_fields": "id,name,description,cost:float [1-3 per bag],appeal:float [0-20],unlock_rep:int,tags:Array[String],color:String; classic initial recipe. At least 10 recipes.",
+  "staff_fields": "id,name,role,skill:int,reliability:int,kindness:int,wage:int [35-100],trait:String,description:String,color:String. At least 12 applicants.",
+  "equipment_fields": "id,name,cost,capacity,reliability,description. Arrays ordered tiers, basic first at cost0. Fryer capacity bags/day, trucks capacity maxstock, stands capacity staff cap. Min4 tiers each.",
+  "event_fields": "id,title,body,tags:Array[String] [travel/trading plus flavor categories],weight:float,min_day:int,once:bool,requires_flag:String optional,excludes_flag:String optional,max_truck:float optional,max_fryer:float optional,requires_staff:bool optional,choices:Array[{label,detail,result,effects:Dictionary,risk:{chance:float,effects:Dictionary,summary:String} optional}]. Every event has at least one free choice. Effects supported: cash,rep,stock,truck,fryer,morale,loyalty,fame,relationship numeric additive; demand/quality/delay numeric current-day modifier; flag/clear_flag:String. Negative cash costs prevalidated. Delay as fractional production loss. 45+ events, positive and negative, recurring story chains; risky options explicitly disclose risk in detail. No unsupported effect keys.",
+  "ownership": "root owns UI/project/assets; model agent owns circuit_model.gd+model tests; content agent owns circuit_content.gd; platform agent owns export_presets.cfg+tools/build pipelines+Android/iOS integration tests, does not change model/UI.",
+  "limits": "User stop threshold weekly usedPercent>=90. Root monitors; agents also check at major milestones and stop safely, notify root if >=90. No purchases, installs requiring payment, storefront publication or modifications to prior game. Actual billing out of scope. New native package com.goldenhourgame.circuit; separate user save identity. Work until playable tested demo, not just scaffold. Do not spawn additional agents."
+}
