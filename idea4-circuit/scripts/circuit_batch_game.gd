@@ -67,6 +67,7 @@ func _ready() -> void:
 	_hint = _label("BatchInstructions", 13, MUTED)
 	_status = _label("BatchStageResult", 19, GOLD)
 	action_button = Button.new()
+	action_button.mouse_filter = Control.MOUSE_FILTER_PASS
 	action_button.name = "BatchAction"
 	action_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	action_button.add_theme_font_override("font", FONT)

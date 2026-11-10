@@ -245,6 +245,7 @@ func _build_welcome() -> void:
 	name_edit.add_theme_color_override("font_color", INK)
 	card.add_child(name_edit)
 	var relaxed = CheckButton.new()
+	relaxed.mouse_filter = Control.MOUSE_FILTER_PASS
 	relaxed.text = "Relaxed start (+$700)"
 	relaxed.custom_minimum_size.y = 54
 	card.add_child(relaxed)
@@ -731,6 +732,7 @@ func _show_settings() -> void:
 	for entry in [["sound", "Game sound effects"], ["music", "Fairground music"], ["motion", "Scene & menu animation"], ["haptics", "Gentle phone vibrations"], ["guide", "First-season guide"]]:
 		var key: String = entry[0]
 		var toggle = CheckButton.new()
+		toggle.mouse_filter = Control.MOUSE_FILTER_PASS
 		toggle.text = entry[1]
 		toggle.custom_minimum_size.y = 54
 		toggle.button_pressed = bool(settings.get(key, true))
@@ -982,6 +984,8 @@ func _row(parent: Node, separation: int = 8) -> HBoxContainer:
 
 func _box(parent: Node, fill: Color, radius: int = 14, padding: int = 14) -> PanelContainer:
 	var panel = PanelContainer.new()
+	# Let a surrounding ScrollContainer receive finger drags through the card.
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
 	var style = _style(fill, radius, Color("304760") if fill == INK else Color("e6d7bb"))
 	if radius > 10:
 		style.shadow_color = Color(0.10, 0.17, 0.24, 0.17)
@@ -1008,6 +1012,8 @@ func _label(parent: Node, text: String, font_size: int = 17, color: Color = INK,
 
 func _button(parent: Node, text: String, callback: Callable, fill: Color = INK, ink: Color = CREAM, height: int = 56) -> Button:
 	var button = Button.new()
+	# Godot cancels the pending button press when its ScrollContainer begins a drag.
+	button.mouse_filter = Control.MOUSE_FILTER_PASS
 	button.text = text
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	button.custom_minimum_size.y = maxi(54, height)
@@ -1318,6 +1324,7 @@ func _effect_grid(parent: Node, effects: Array, prediction: bool = false) -> voi
 			detail.name = "EffectDetail"
 			detail.visible = false
 			var explain = Button.new()
+			explain.mouse_filter = Control.MOUSE_FILTER_PASS
 			explain.name = "EffectExplain"
 			explain.icon = _art("icons/info")
 			explain.expand_icon = true
@@ -1458,7 +1465,8 @@ func _show_activity_choice(id: String) -> void:
 	var play = _icon_button(col, "Handle it yourself" + (" · " + _money(self_cost) if self_cost else " · free"), "skill", func(): _start_activity(id), GOLD, INK)
 	play.name = "ActivitySelf"
 	play.disabled = not bool(offer.can_self)
-	var delegate = _icon_button(col, "Ask " + str(offer.delegate_name) + (" · " + _money(offer.delegate_cost) if float(offer.delegate_cost) else ""), "crew", func(): _resolve_activity(id, "delegate"), GREEN, CREAM)
+	var delegate_label = "No available crew" if str(offer.delegate_id).is_empty() else "Ask " + str(offer.delegate_name) + (" · " + _money(offer.delegate_cost) if float(offer.delegate_cost) else "")
+	var delegate = _icon_button(col, delegate_label, "crew", func(): _resolve_activity(id, "delegate"), GREEN, CREAM)
 	delegate.name = "ActivityDelegate"
 	delegate.disabled = not bool(offer.can_delegate)
 	_label(col, str(offer.delegate_hint) if not str(offer.delegate_id).is_empty() else "Hire an available crew member to delegate this job.", 14, MUTED)

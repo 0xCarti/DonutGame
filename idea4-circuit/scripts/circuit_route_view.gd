@@ -78,6 +78,7 @@ func _rebuild() -> void:
 		var id: String = String(venue.id)
 		var status: String = venue_status(id)
 		var button := Button.new()
+		button.mouse_filter = Control.MOUSE_FILTER_PASS
 		button.name = "Venue_" + id
 		button.custom_minimum_size = Vector2(44, 64)
 		button.focus_mode = Control.FOCUS_ALL

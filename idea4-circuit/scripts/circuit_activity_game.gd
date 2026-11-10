@@ -135,6 +135,7 @@ func _label(node_name: String, font_size: int, color: Color) -> Label:
 
 func _button(node_name: String, text: String, callback: Callable, primary: bool = false) -> Button:
 	var button = Button.new()
+	button.mouse_filter = Control.MOUSE_FILTER_PASS
 	button.name = node_name
 	button.text = text
 	button.focus_mode = Control.FOCUS_ALL
