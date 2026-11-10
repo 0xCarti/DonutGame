@@ -1,18 +1,38 @@
-GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.2.0
+GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.3.0
 
 A portrait fairground business game. Book stops, choose recipes, look after your
 crew and equipment, and build a reputation across the travelling fair circuit.
 The demo plays offline and contains no purchases or payment integration.
 
-POLISH UPDATE — 0.2.0
-Brighter carnival colours, warm marquee lights and layered cards frame your
-company. Staff profiles use portraits, role emblems and visual skill ratings.
-Events separate immediate changes, trading bonuses and risks. Their effect
-labels explain how long each change lasts; details remain available on tap.
-The optional opening batch now has three stages: heat, coat and pack. Aim for
-the mint zone in each stage, with animated results and original sound cues.
-Reduced motion and sound settings also apply to the new feedback.
-Existing companies and local saves continue from versions 0.1.0 and 0.1.1.
+LIVING CIRCUIT UPDATE — 0.3.0
+Your illustrated stand now reflects your equipment, crew, weather and earned
+decorations. A visual route map and calendar help plan the season. Queue up to
+three future stops, see estimated costs and dates, and change the plan freely.
+Planning does not reserve a venue or spend money; costs are charged only when
+you actually book. Reputation, cash and remaining season dates still matter.
+
+Three season contracts are selected from eight definitions. Their visible
+progress tracks sales, completed stops, activities, profit, reputation, crew
+training, excellent activity results or equipment upgrades. Claim a completed
+contract for cash and a permanent decoration; rewards cannot be claimed twice.
+Final-day rewards can be collected from the season summary before continuing.
+Crew now have mood labels, personal moments, wage conversations, mentoring and
+growing friendships. Raises affect each trading day's wages; spending time
+together can improve morale, loyalty and skills. Daily results include animated
+sales and concise explanations of the biggest influences on the day.
+
+The optional opening batch still has heat, coat and pack timing stages. Three
+new activities add a rotating repair puzzle, illustrated order memory and a
+stand inspection. Handle an available job yourself, delegate to suitable crew,
+or pay for help. Choices show costs and expected benefits. Activity attempts
+have limited moves or mistakes where relevant, but no real-time deadline.
+Closing an unfinished activity gives no reward. Sounds, reduced motion and
+optional phone vibration can be controlled in Settings. Existing local saves
+continue from versions 0.1.0, 0.1.1 and 0.2.0.
+
+Portrait staff cards, visual skill ratings and expandable stories keep routine
+decisions compact. Events separate immediate effects, temporary bonuses and
+risks. Effect cards state duration and let you inspect the actual result.
 
 PLAYING YOUR FIRST SEASON
 Name your company, then choose Willowbank in Circuit for a modest first stop.
@@ -35,8 +55,11 @@ small roadside pop-up. A gentler first season grants extra starting cash.
 INCLUDED
 12 fictional venues; 10 recipes; 14 recruitable staff; four tiers each of truck,
 fryer and stand; 61 events and 184 choices; 10 connected storylines; 12 milestones;
-an optional three-stage opening-batch game; settings for sound, music, motion and
-guidance; local automatic saves with a recovery copy.
+four optional mini-games including the three-stage opening batch; eight season
+contract definitions with three active per season; a three-stop route planner;
+crew moments and friendships; a living stand and animated sales results;
+settings for sound, music, motion, guidance and phone vibration; local automatic
+saves with a recovery copy.
 
 READING THE RECEIPT
 Supplies cost $1 per bag when purchased. Consumed stock and prepaid pitch/travel
@@ -53,11 +76,15 @@ real-time waiting, and browsing never advances a day. Company contains help,
 settings, credits, loans, milestones and new-company controls.
 
 ANDROID
-Install GoldenHourCircuit-0.2.0-Android.apk on Android 7.0 or later. Your Android
+Install GoldenHourCircuit-0.3.0-Android.apk on Android 7.0 or later. Your Android
 device may ask you to allow installation from the app that opened the APK.
 The package is com.goldenhourgame.circuit; it can coexist with the original
 Golden Hour mini-donut game. Saves stay on the device. Backups are not uploaded.
 New APKs signed with the same private release key can update this package.
+The only requested Android permission is VIBRATE, used for short optional
+tactile feedback on supported phones. Turn vibration off in Settings if desired.
+The game does not request Internet access, contacts, location, camera or storage
+permissions, and contains no advertising or real-money purchases.
 
 WINDOWS COMPANION
 Extract the complete Windows ZIP, then open GoldenHourCircuit.exe. It uses a
@@ -80,7 +107,7 @@ and provisioning profile. No Apple account, store upload, or payment is used.
 An unsigned IPA is not evidence of a physical iPhone playtest.
 
 BUILD EVIDENCE
-Versioned outputs live under ../builds/circuit/0.2.0/rN/. Each new build gets a
+Versioned outputs live under ../builds/circuit/0.3.0/rN/. Each new build gets a
 new revision folder. build-manifest.json identifies exact artifacts and hashes;
 logs/ contains export and verification output. Physical-device validation is
 recorded separately from automated checks and emulator testing.

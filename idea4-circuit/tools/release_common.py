@@ -8,15 +8,17 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = "0.2.0"
-BUILD = "200"
+VERSION = "0.3.0"
+BUILD = "300"
 PACKAGE = "com.goldenhourgame.circuit"
 NAME = "GoldenHourCircuit"
 LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt",
             "docs/licenses/ASSET-PROVENANCE.txt", "docs/licenses/ART-VISUAL-UPDATE.txt",
             "docs/licenses/ART-POLISH.txt", "docs/licenses/AUDIO-POLISH.txt", "assets/fonts/OFL.txt")
 RUNTIME_SCRIPTS = ("scripts/circuit_main.gd", "scripts/circuit_model.gd", "scripts/circuit_content.gd",
-                   "scripts/circuit_presenter.gd", "scripts/circuit_batch_game.gd", "scripts/circuit_celebration.gd")
+                   "scripts/circuit_presenter.gd", "scripts/circuit_batch_game.gd", "scripts/circuit_celebration.gd",
+                   "scripts/circuit_company.gd", "scripts/circuit_activity_game.gd", "scripts/circuit_world_view.gd",
+                   "scripts/circuit_route_view.gd", "scripts/circuit_sales_view.gd")
 BATCH_AUDIO = ("assets/audio/batch_good.wav", "assets/audio/batch_perfect.wav", "assets/audio/batch_finish.wav")
 UI_ART_COUNT = 108
 PRIVATE = {".p12", ".p8", ".pfx", ".pem", ".key", ".keystore", ".mobileprovision"}
@@ -96,9 +98,13 @@ def validate_source(root):
                      f'version/code={BUILD}', f'version/name="{VERSION}"',
                      f'application/file_version="{VERSION}.0"', f'application/product_version="{VERSION}.0"',
                      f'application/short_version="{VERSION}"', f'application/version="{BUILD}"',
-                     'application/bundle_identifier="' + PACKAGE + '"']:
+                     'application/bundle_identifier="' + PACKAGE + '"', 'permissions/vibrate=true',
+                     'permissions/custom_permissions=PackedStringArray()']:
         if required not in preset:
             raise RuntimeError("Unexpected platform identity or configuration: " + required)
+    enabled_permissions = re.findall(r"(?m)^permissions/([^=]+)=true\s*$", preset)
+    if enabled_permissions != ["vibrate"]:
+        raise RuntimeError("Circuit enables only optional tactile feedback; other Android permissions are unexpected")
     if "stand_main" in project or "minidonuts" in preset:
         raise RuntimeError("The original game's identity leaked into Circuit")
     for notice in LICENSES:

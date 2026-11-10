@@ -19,6 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parent
 CACHE = Path.home() / ".cache/donutsgame"
 GODOT = CACHE / "godot/Godot_v4.7.2-stable_win64_console.exe"
+ANDROID_PERMISSIONS = ["android.permission.VIBRATE"]
+
+
+def validate_android_permissions(badging):
+    permissions = re.findall(r"(?m)^uses-permission(?:-sdk-\d+)?: name='([^']+)'", badging)
+    permission_lines = re.findall(r"(?m)^uses-permission[^\r\n]*", badging)
+    if sorted(permissions) != ANDROID_PERMISSIONS or len(permission_lines) != len(permissions):
+        raise RuntimeError("Circuit APK must request only android.permission.VIBRATE for optional tactile feedback")
+    return permissions
 
 
 def android_environment():
@@ -53,8 +62,7 @@ def verify_android(apk, logs, env, java, sdk, stage):
                      "sdkVersion:'24'", "targetSdkVersion:'36'", "armeabi-v7a", "arm64-v8a", "x86_64"):
         if expected not in badging:
             raise RuntimeError("Unexpected APK metadata; missing " + expected)
-    if "uses-permission:" in badging:
-        raise RuntimeError("Offline Circuit APK unexpectedly requests an Android permission")
+    permissions = validate_android_permissions(badging)
     manifest = checked([build / "aapt.exe", "dump", "xmltree", apk, "AndroidManifest.xml"],
                        logs / "android-manifest.log", env=env)
     if not re.search(r"android:screenOrientation[^\n]*=\(type 0x10\)0x1(?:\s|$)", manifest):
@@ -89,7 +97,7 @@ def verify_android(apk, logs, env, java, sdk, stage):
                     raise RuntimeError("APK runtime resource target is empty: " + source)
     return dict(artifact(apk), package=PACKAGE, version_code=int(BUILD), signed=True,
                 signature_verified=True, minimum_android_api=24, target_android_api=36,
-                architectures=["armeabi-v7a", "arm64-v8a", "x86_64"], permissions=[], portrait=True,
+                architectures=["armeabi-v7a", "arm64-v8a", "x86_64"], permissions=permissions, portrait=True,
                 interface_textures_verified=UI_ART_COUNT, runtime_scripts_verified=len(RUNTIME_SCRIPTS),
                 batch_audio_verified=len(BATCH_AUDIO), physical_device_validation="pending", emulator_validation="pending")
 

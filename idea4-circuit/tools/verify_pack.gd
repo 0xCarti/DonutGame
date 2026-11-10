@@ -8,7 +8,8 @@ const ICON_ART = ["arrow", "bag", "calendar", "cash", "check", "clock", "close",
 	"proficiency", "punctuality", "hospitality", "mood", "bond", "buff", "debuff", "timer", "permanent",
 	"dice", "counter", "fryer_role", "mechanic", "runner", "creative", "driver"]
 const DECOR_ART = ["marquee", "ticket", "light_strand", "reward_perfect", "reward_great", "reward_good", "donut_burst"]
-const RUNTIME_SCRIPTS = ["circuit_main", "circuit_content", "circuit_model", "circuit_presenter", "circuit_batch_game", "circuit_celebration"]
+const RUNTIME_SCRIPTS = ["circuit_main", "circuit_content", "circuit_model", "circuit_presenter", "circuit_batch_game", "circuit_celebration",
+	"circuit_company", "circuit_activity_game", "circuit_world_view", "circuit_route_view", "circuit_sales_view"]
 
 func _init() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -79,5 +80,5 @@ func _init() -> void:
 			quit(1)
 			return
 		loaded[path] = true
-	print("PASS: %d UI textures, 6 runtime scripts and 3 audio cues loaded from the isolated exported pack, with catalogue and license notices" % loaded.size())
+	print("PASS: %d UI textures, %d runtime scripts and 3 audio cues loaded from the isolated exported pack, with catalogue and license notices" % [loaded.size(), RUNTIME_SCRIPTS.size()])
 	quit(0)

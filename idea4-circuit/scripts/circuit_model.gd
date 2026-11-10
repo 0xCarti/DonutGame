@@ -7,6 +7,7 @@ extends RefCounted
 ## seasons_finished. Money is rounded to cents; RNG integers are saved as strings.
 
 const Content = preload("res://scripts/circuit_content.gd")
+const Company = preload("res://scripts/circuit_company.gd")
 const CREDIT_LIMIT := 2000.0
 const QUALITIES := ["budget", "standard", "premium"]
 const TERMINAL_PHASES := ["season_end", "bankrupt"]
@@ -35,6 +36,7 @@ func new_run(company: String, seed_value: int = 2026) -> void:
 		"day_rep_start": 24.0, "day_cash_start": 2800.0, "carry_travel_modifiers": false,
 		"last_outcome": {}, "active_outcomes": [],
 	}
+	state["circuit"] = Company.fresh(state)
 	_unlock_recipes(false)
 	_sync_rng()
 	_journal("The first light", "Your van, one fryer, 160 prepaid portions and $2,800. The owner can run the first fairs alone. Book a fair, buy ingredients, then open the stand.", "story")
@@ -49,6 +51,8 @@ func act(action: String, args: Dictionary = {}) -> Dictionary:
 		result = _dismiss_report()
 	elif action == "next_season":
 		result = _next_season()
+	elif action == "claim_contract" and str(state.phase) in ["planning", "season_end"]:
+		result = _claim_contract(str(args.get("id", "")))
 	elif str(state.phase) != "planning":
 		return _fail("Finish the current decision or report before managing the company.")
 	else:
@@ -70,6 +74,11 @@ func act(action: String, args: Dictionary = {}) -> Dictionary:
 			"set_policy": result = _set_policy(args)
 			"minigame": result = _minigame(args.get("score", -1))
 			"rename": result = _rename(str(args.get("name", "")))
+			"activity": result = _activity(args)
+			"plan_stop": result = _plan_stop(str(args.get("id", "")))
+			"unplan_stop": result = _unplan_stop(str(args.get("id", "")))
+			"move_stop": result = _move_stop(args)
+			"crew_decide": result = _crew_decide(args)
 			_: result = _fail("That action is not available.")
 	if result.ok:
 		_award_badges()
@@ -199,11 +208,15 @@ func from_save(data: Dictionary) -> bool:
 			if not _is_number(data.last_report.used_modifiers.get(key)) or absf(float(data.last_report.used_modifiers[key])) > 1: return false
 	if data.last_report.has("practice_boost"):
 		if not _is_number(data.last_report.practice_boost) or float(data.last_report.practice_boost) < 0 or float(data.last_report.practice_boost) > 0.2: return false
+	if data.has("circuit") and not Company.valid(data.circuit, data): return false
+	if not _valid_report_presentation(data.last_report): return false
 	var loaded: Dictionary = data.duplicate(true)
 	state = loaded
 	if not state.has("unlocked_recipes"): state.unlocked_recipes = []
 	if not state.has("last_outcome"): state.last_outcome = {}
 	if not state.has("active_outcomes"): state.active_outcomes = []
+	if not state.has("circuit"): state["circuit"] = Company.fresh(state)
+	if not state.circuit.has("crew_counts"): state.circuit["crew_counts"] = {}
 	# Older reports retained already-consumed modifiers until the next opening.
 	if str(state.phase) in ["report", "season_end", "bankrupt"]:
 		state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
@@ -220,6 +233,7 @@ func _book(id: String) -> Dictionary:
 		if not bool(offer.can_book): return _fail(str(offer.reason))
 		state.cash = _money(float(state.cash) - float(offer.total_cost))
 		state.booked_id = id
+		state.circuit.itinerary.erase(id)
 		state.venue_day = 0
 		state.booked_prepaid_total = float(offer.total_cost)
 		state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
@@ -353,6 +367,7 @@ func _apply_effects(effects: Dictionary, source: String = "certain") -> Array:
 			"clear_flag": state.flags.erase(str(value))
 		if value is int or value is float:
 			var after := _effect_value(str(key))
+			if str(key) == "rep": state.circuit.metrics.reputation = float(state.circuit.metrics.reputation) + maxf(0, after - before)
 			for i in range(members.size()):
 				members[i]["after"] = float(state.staff[i][key])
 				members[i]["value"] = snappedf(float(members[i].after) - float(members[i].before), 0.000001)
@@ -437,7 +452,9 @@ func _trade_day(event_result: String) -> void:
 	if active_count > 0: rep_gain += kindness / active_count / 240.0
 	if sold == 0: rep_gain -= 2.0
 	elif starting_stock < mini(demand, capacity): rep_gain -= 0.9
+	var rep_before_trade := float(state.rep)
 	state.rep = clampf(float(state.rep) + rep_gain, 0, 100)
+	state.circuit.metrics.reputation = float(state.circuit.metrics.reputation) + maxf(0, float(state.rep) - rep_before_trade)
 	state.fame = clampf(float(state.fame) + sold / (360.0 if roadside else 180.0) + maxf(0, rep_gain) * 0.2, 0, 10000)
 	if not roadside and sold > 0:
 		state.relationships[town] = clampf(relationship + 0.8 + maxf(0.0, quality_appeal) * 3.0, -50, 100)
@@ -481,6 +498,9 @@ func _trade_day(event_result: String) -> void:
 		"cash_delta": cash_delta, "prepaid_stock": base_ingredients, "prepaid_fees": _money(prepaid_fees),
 		"extra_ingredients": extra_ingredients, "event_cash": event_cash, "interest": interest, "demand": demand, "capacity": capacity,
 		"day": int(state.day), "completed_stop": completed_stop, "season_end": false}
+	state.last_report["starting_stock"] = starting_stock
+	state.last_report["drivers"] = _report_drivers(demand, capacity, starting_stock, price_factor, float(weather_factor[state.weather]), taste_bonus, condition_factor, minigame_bonus, labor, float(fryer.capacity))
+	state.last_report["reactions"] = _report_reactions(sold, demand, capacity, starting_stock, taste_bonus, price_factor, active_count, kindness)
 	# Retain the exact decision evidence and aggregate modifiers used for this report.
 	# Expiring a modifier changes no money or RNG and never reapplies its effect.
 	for outcome in state.active_outcomes:
@@ -544,6 +564,7 @@ func _next_season() -> Dictionary:
 	state.minigame_boost = 0.0
 	state.stats.season_profit = 0.0
 	state.stats.season_sales = 0.0
+	state.circuit = Company.fresh(state, state.circuit)
 	state.end_reason = ""
 	for person in state.staff: person.morale = clampf(float(person.morale) + 15, 0, 100)
 	_journal("Season %d: familiar faces" % int(state.season), "Your equipment, team, recipes, debt and town relationships carry forward. A new circuit is open.", "story")
@@ -595,6 +616,9 @@ func _fire(id: String) -> Dictionary:
 	if index < 0: return _fail("That employee is not on your team.")
 	var name := str(state.staff[index].name)
 	state.staff.remove_at(index)
+	for key in state.circuit.friendships.keys():
+		if id in str(key).split(":"): state.circuit.friendships.erase(key)
+	if id in state.circuit.last_crew.get("staff_ids", []): state.circuit.last_crew = {}
 	_journal("A different road", name + " has left the company. No severance fee was charged.", "info")
 	return _ok(name + " has left the team.")
 
@@ -611,6 +635,7 @@ func _train(id: String) -> Dictionary:
 	person.kindness = mini(100, int(person.kindness) + 3)
 	person.morale = minf(100, float(person.morale) + 8)
 	person.loyalty = minf(100, float(person.loyalty) + 6)
+	state.circuit.metrics.training = float(state.circuit.metrics.training) + 1
 	_journal("Learning the craft", str(person.name) + " gained skill, reliability and confidence.", "good", -120)
 	return _ok(str(person.name) + " completed a training session.")
 
@@ -643,6 +668,7 @@ func _upgrade(id: String) -> Dictionary:
 	if float(state.cash) < float(next.cost): return _fail("The upgrade costs $%.0f." % float(next.cost))
 	state.cash = _money(float(state.cash) - float(next.cost))
 	state[id + "_tier"] = tier + 1
+	state.circuit.metrics.upgrades = float(state.circuit.metrics.upgrades) + 1
 	if id != "stand": state[id] = 100.0
 	_journal(str(next.name), str(next.description), "good", -float(next.cost))
 	return _ok(str(next.name) + " is ready for the road.")
@@ -680,6 +706,7 @@ func _minigame(raw) -> Dictionary:
 	state.minigame_day = int(state.day)
 	state.minigame_boost = float(raw) * 0.2
 	state.stats.best_minigame = maxf(float(state.stats.best_minigame), float(raw))
+	if float(raw) >= 0.9: state.circuit.metrics.perfect = float(state.circuit.metrics.perfect) + 1
 	return _ok("Practice adds %d%% customer appeal today." % int(round(float(raw) * 20)))
 
 func _rename(name: String) -> Dictionary:
@@ -687,6 +714,220 @@ func _rename(name: String) -> Dictionary:
 	if clean.length() < 2 or clean.length() > 30: return _fail("Choose a company name of 2 to 30 characters.")
 	state.company = clean
 	return _ok("The company is now " + clean + ".")
+
+func activity_offers() -> Array:
+	return Company.activity_offers(state)
+
+func contract_offers() -> Array:
+	return Company.contract_offers(state)
+
+func itinerary() -> Array:
+	return Company.itinerary(state)
+
+func crew_moments() -> Array:
+	return Company.crew_moments(state)
+
+func staff_personality(id: String) -> Dictionary:
+	return Company.staff_personality(state, id)
+
+func _activity(args: Dictionary) -> Dictionary:
+	var offer: Dictionary = Content.find(activity_offers(), str(args.get("id", "")))
+	if offer.is_empty(): return _fail("That opportunity has ended or is already completed.")
+	var mode := str(args.get("mode", "self"))
+	if mode not in ["self", "delegate", "help"]: return _fail("Choose yourself, a crew member, or paid help.")
+	var score := 1.0
+	var cost := float(offer.help_cost) if mode == "help" else float(offer.self_cost)
+	var person: Dictionary = {}
+	if mode == "self":
+		if not _is_number(args.get("score")) or float(args.score) < 0 or float(args.score) > 1: return _fail("The activity score must be between zero and one.")
+		score = float(args.score)
+	elif mode == "delegate":
+		var person_id := str(args.get("staff_id", offer.delegate_id))
+		var index := _staff_index(person_id)
+		if index < 0 or int(state.staff[index].rested_day) == int(state.day): return _fail("Choose an available employee who is not resting.")
+		person = state.staff[index]
+		var skill_key := "skill" if offer.kind == "repair" else ("kindness" if offer.kind == "orders" else "reliability")
+		score = clampf(0.3 + float(person[skill_key]) * 0.005 + float(person.morale) * 0.001, 0, 0.92)
+	if cost > maxf(0, float(state.cash)): return _fail("This option needs $%.0f." % cost)
+	var effects: Array = []
+	var cash_before := float(state.cash)
+	state.cash = _money(float(state.cash) - cost)
+	var facts: Array[String] = []
+	if cost > 0: facts.append("$%.0f spent" % cost)
+	match str(offer.kind):
+		"repair":
+			var target := str(offer.target)
+			var before := float(state[target])
+			state[target] = clampf(before + score * 24.0, 0, 100)
+			effects.append(_simple_effect(target, before, float(state[target])))
+			facts.append("%s condition %+.1f" % [target.capitalize(), float(state[target]) - before])
+		"orders":
+			var tips := _money(score * 35)
+			state.cash = _money(float(state.cash) + tips)
+			var before := float(state.day_modifiers.demand)
+			state.day_modifiers.demand = clampf(before + score * 0.08, -0.8, 1)
+			effects.append(_simple_effect("demand", before, float(state.day_modifiers.demand)))
+			state.carry_travel_modifiers = true
+			facts.append("$%.2f tips; %+.1f%% appeal at the next opening" % [tips, (float(state.day_modifiers.demand) - before) * 100])
+		"inspection":
+			for key in ["rep", "fryer"]:
+				var before := float(state[key])
+				state[key] = clampf(before + score * (1.2 if key == "rep" else 8.0), 0, 100)
+				effects.append(_simple_effect(key, before, float(state[key])))
+				if key == "rep": state.circuit.metrics.reputation = float(state.circuit.metrics.reputation) + maxf(0, float(state[key]) - before)
+				facts.append("%s %+.2f" % ["Reputation" if key == "rep" else "Fryer condition", float(state[key]) - before])
+	effects.push_front(_simple_effect("cash", cash_before, float(state.cash)))
+	if not person.is_empty():
+		var before := float(person.morale)
+		person.morale = maxf(0, before - 2)
+		var effect := _simple_effect("morale", before, float(person.morale))
+		effect["staff_id"] = str(person.id)
+		effect["name"] = str(person.name)
+		effects.append(effect)
+		facts.append("%s morale %+.1f" % [str(person.name), float(person.morale) - before])
+	state.circuit.resolved_activities.append(str(offer.id))
+	state.circuit.metrics.activities = float(state.circuit.metrics.activities) + 1
+	if score >= 0.9 and mode != "help": state.circuit.metrics.perfect = float(state.circuit.metrics.perfect) + 1
+	var result := {"id":str(offer.id), "title":str(offer.title), "kind":str(offer.kind), "mode":mode, "score":score,
+		"message":" · ".join(facts) + ".", "effects":effects, "cost":cost, "day":int(state.day), "season":int(state.season)}
+	state.circuit.last_activity = result.duplicate(true)
+	# Record temporary preparation evidence alongside travel; it is consumed only
+	# by the following opening. No activity can resolve an outstanding event.
+	if str(offer.kind) == "orders":
+		var records: Array = []
+		for effect in effects:
+			records.append({"key":str(effect.key), "requested":float(effect.value), "before":float(effect.before), "after":float(effect.after), "value":float(effect.value), "source":"certain", "members":[], "town":""})
+		state.active_outcomes.append({"instance_id":str(offer.id), "event_id":"activity_orders", "title":str(offer.title), "choice_label":"Prepared orders", "result":str(result.message), "context":"travel", "day":int(state.day), "season":int(state.season), "risk_chance":-1.0, "risk_happened":false, "effects":records, "consumed":false, "consumed_day":-1})
+	_journal(str(offer.title), str(result.message), "good", float(state.cash) - cash_before)
+	var answer := _ok(str(result.message))
+	answer["activity"] = result
+	return answer
+
+func _simple_effect(key: String, before: float, after: float) -> Dictionary:
+	return {"key":key, "before":before, "after":after, "value":snappedf(after - before, 0.000001)}
+
+func _claim_contract(id: String) -> Dictionary:
+	var offer: Dictionary = Content.find(contract_offers(), id)
+	if offer.is_empty() or bool(offer.claimed): return _fail("That contract is unavailable or already claimed.")
+	if not bool(offer.complete): return _fail("Complete the contract before collecting its reward.")
+	for saved in state.circuit.contracts:
+		if str(saved.id) == id: saved.claimed = true
+	state.cash = _money(float(state.cash) + float(offer.cash_reward))
+	if str(offer.decoration) not in state.circuit.decorations: state.circuit.decorations.append(str(offer.decoration))
+	var message := "$%.0f earned. %s is displayed at your stand." % [float(offer.cash_reward), str(offer.decoration_name)]
+	_journal("Contract complete: " + str(offer.title), message, "good", float(offer.cash_reward))
+	var answer := _ok(message)
+	answer["contract"] = offer
+	return answer
+
+func _plan_stop(id: String) -> Dictionary:
+	if state.circuit.itinerary.size() >= 3: return _fail("Plan up to three stops. Remove a stop to make room.")
+	if id in state.circuit.itinerary: return _fail("That stop is already on your route.")
+	if id == str(state.booked_id) or id in state.completed or Content.find(Content.VENUES, id).is_empty(): return _fail("Choose an unvisited fair for the route.")
+	state.circuit.itinerary.append(id)
+	return _ok("Added to the route. No money spent; booking still requires cash, reputation and enough days.")
+
+func _unplan_stop(id: String) -> Dictionary:
+	if id not in state.circuit.itinerary: return _fail("That stop is not on your planned route.")
+	state.circuit.itinerary.erase(id)
+	return _ok("Removed from the route. No booking was changed.")
+
+func _move_stop(args: Dictionary) -> Dictionary:
+	var id := str(args.get("id", ""))
+	if not _is_number(args.get("direction")) or float(args.direction) not in [-1.0, 1.0]: return _fail("Move the stop one place earlier or later.")
+	var index: int = state.circuit.itinerary.find(id)
+	var destination := index + int(args.direction)
+	if index < 0 or destination < 0 or destination >= state.circuit.itinerary.size(): return _fail("That stop cannot move further in this direction.")
+	state.circuit.itinerary[index] = state.circuit.itinerary[destination]
+	state.circuit.itinerary[destination] = id
+	return _ok("Route order changed. Dates are estimates until booking.")
+
+func _crew_decide(args: Dictionary) -> Dictionary:
+	var moment: Dictionary = Content.find(crew_moments(), str(args.get("id", "")))
+	if moment.is_empty(): return _fail("That crew moment has ended or is on cooldown.")
+	if not _is_number(args.get("choice")) or float(args.choice) != floorf(float(args.choice)): return _fail("Choose a response.")
+	var choice_index := int(args.choice)
+	if choice_index < 0 or choice_index >= moment.choices.size(): return _fail("Choose an available response.")
+	var choice: Dictionary = moment.choices[choice_index]
+	if float(choice.cost) > maxf(0, float(state.cash)): return _fail("That response costs $%.0f." % float(choice.cost))
+	var before_cash := float(state.cash)
+	state.cash = _money(before_cash - float(choice.cost))
+	var effects: Array = [_simple_effect("cash", before_cash, float(state.cash))]
+	var recipients: Array = moment.staff_ids.duplicate() if float(choice.bond) > 0 else [moment.staff_ids[0]]
+	var facts: Array[String] = []
+	if float(choice.cost) > 0: facts.append("$%.0f spent" % float(choice.cost))
+	for id in recipients:
+		var person: Dictionary = state.staff[_staff_index(str(id))]
+		var personal_keys: Array = ["morale", "loyalty"]
+		for extra in ["skill", "wage"]:
+			if float(choice.get(extra, 0)) > 0: personal_keys.append(extra)
+		for key in personal_keys:
+			var before := float(person[key])
+			person[key] = clampf(before + float(choice[key]), 0, 500 if key == "wage" else 100)
+			var effect := _simple_effect(key, before, float(person[key]))
+			effect["staff_id"] = str(person.id)
+			effect["name"] = str(person.name)
+			effects.append(effect)
+			if not is_zero_approx(float(effect.value)):
+				facts.append("%s wage +$%.0f every trading day" % [str(person.name), float(effect.value)] if key == "wage" else "%s %s %+.0f" % [str(person.name), key, float(effect.value)])
+		state.circuit.crew_cooldowns[str(person.id)] = Company.absolute_day(state)
+	var lead_id := str(moment.staff_ids[0])
+	state.circuit.crew_counts[lead_id] = int(state.circuit.crew_counts.get(lead_id, 0)) + 1
+	if float(choice.bond) > 0:
+		var key := Company.friendship_key(str(recipients[0]), str(recipients[1]))
+		var before := float(state.circuit.friendships.get(key, 0))
+		state.circuit.friendships[key] = clampf(before + float(choice.bond), 0, 100)
+		effects.append(_simple_effect("friendship", before, float(state.circuit.friendships[key])))
+		facts.append("Friendship %+.0f" % (float(state.circuit.friendships[key]) - before))
+	var result := {"id":str(moment.id), "title":str(moment.title), "staff_ids":recipients, "effects":effects, "message":" · ".join(facts) + "."}
+	state.circuit.last_crew = result.duplicate(true)
+	_journal(str(moment.title), str(result.message), "good", -float(choice.cost))
+	var answer := _ok(str(result.message))
+	answer["crew"] = result
+	return answer
+
+func _report_drivers(demand: int, capacity: int, stock: int, price_factor: float, weather_factor: float, taste: float, condition: float, practice: float, labor: float, machine_capacity: float) -> Array:
+	var rows: Array = []
+	var sold := mini(demand, mini(capacity, stock))
+	if stock < mini(demand, capacity):
+		rows.append({"id":"stock", "label":"Stock ran out", "detail":"%d more bags could have sold with enough stock." % (mini(demand, capacity) - stock), "tone":"bad", "value":stock})
+	elif capacity < demand:
+		rows.append({"id":"capacity", "label":"The queue outgrew production", "detail":"%d bags of capacity; %d potential customers." % [capacity, demand], "tone":"bad", "value":capacity})
+	else:
+		rows.append({"id":"demand", "label":"Served the available crowd", "detail":"All %d potential customers could be served." % demand, "tone":"good", "value":demand})
+	rows.append({"id":"weather", "label":str(state.weather) + " weather", "detail":"%+.0f%% to potential demand before sales limits." % ((weather_factor - 1) * 100), "tone":"good" if weather_factor >= 1 else "bad", "value":weather_factor - 1})
+	if not is_equal_approx(price_factor, 1): rows.append({"id":"price", "label":"Your $%.2f price" % float(state.price), "detail":"%+.0f%% potential demand from price." % ((price_factor - 1) * 100), "tone":"good" if price_factor > 1 else "bad", "value":price_factor - 1})
+	if taste > 0: rows.append({"id":"recipe", "label":"A local favourite", "detail":"This recipe matched local tastes: +10% appeal.", "tone":"good", "value":taste})
+	if practice > 0: rows.append({"id":"practice", "label":"A well-prepared batch", "detail":"%+.0f%% appeal from your opening batch." % (practice * 100), "tone":"good", "value":practice})
+	if float(state.day_modifiers.demand) != 0: rows.append({"id":"events", "label":"Today's decisions", "detail":"%+.0f%% appeal from events and preparation." % (float(state.day_modifiers.demand) * 100), "tone":"good" if float(state.day_modifiers.demand) > 0 else "bad", "value":float(state.day_modifiers.demand)})
+	if condition < 0.8: rows.append({"id":"condition", "label":"A tired fryer", "detail":"Condition limited the line to %.0f%% of its otherwise available output." % (condition * 100), "tone":"bad", "value":condition})
+	if float(state.day_modifiers.delay) > 0: rows.append({"id":"delay", "label":"Time lost before opening", "detail":"%.0f%% production capacity lost to today's delays." % (float(state.day_modifiers.delay) * 100), "tone":"bad", "value":float(state.day_modifiers.delay)})
+	if labor < machine_capacity and sold >= capacity: rows.append({"id":"staffing", "label":"More hands could help", "detail":"Available labour was below the fryer's rated output.", "tone":"neutral", "value":labor})
+	return rows
+
+func _report_reactions(sold: int, demand: int, capacity: int, stock: int, taste: float, price_factor: float, active: int, kindness: float) -> Array:
+	var rows: Array = []
+	if sold == 0: rows.append({"icon":"bag", "text":"No bags reached customers today.", "tone":"bad"})
+	else:
+		if taste > 0: rows.append({"icon":"recipe", "text":"\"That's the flavour we came for!\"", "tone":"good"})
+		if active > 0 and kindness / active >= 80: rows.append({"icon":"crew", "text":"\"They made us feel like regulars.\"", "tone":"good"})
+		if stock < mini(demand, capacity): rows.append({"icon":"stock", "text":"\"Sold out already? We'll try another day.\"", "tone":"bad"})
+		elif capacity < demand: rows.append({"icon":"timer", "text":"\"Lovely smell. We couldn't wait for the next batch.\"", "tone":"neutral"})
+		if price_factor < 0.8: rows.append({"icon":"cash", "text":"\"A little expensive for an everyday treat.\"", "tone":"bad"})
+		if rows.is_empty(): rows.append({"icon":"bag", "text":"\"A warm bag for the walk around the fair.\"", "tone":"good"})
+	return rows
+
+func _valid_report_presentation(report: Dictionary) -> bool:
+	if report.has("starting_stock") and (not _is_number(report.starting_stock) or float(report.starting_stock) < 0 or float(report.starting_stock) > 10000): return false
+	for key in ["drivers", "reactions"]:
+		if not report.has(key): continue
+		if not report[key] is Array or report[key].size() > 20: return false
+		for row in report[key]:
+			if not row is Dictionary or str(row.get("tone", "")) not in ["good", "bad", "neutral"]: return false
+			for field in (["id", "label", "detail"] if key == "drivers" else ["icon", "text"]):
+				if not row.get(field) is String or str(row[field]).length() > 1000: return false
+			if key == "drivers" and not _is_number(row.get("value")): return false
+	return true
 
 func _apply_policies() -> void:
 	if bool(state.policy.service):
