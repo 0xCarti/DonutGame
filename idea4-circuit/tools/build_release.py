@@ -11,7 +11,7 @@ import re
 import shutil
 import sys
 import zipfile
-from release_common import (VERSION, BUILD, PACKAGE, NAME, LICENSES, artifact,
+from release_common import (VERSION, BUILD, PACKAGE, NAME, LICENSES, RUNTIME_SCRIPTS, BATCH_AUDIO, UI_ART_COUNT, artifact,
                             checked, new_revision, snapshot, stage_source,
                             validate_source, write_json)
 
@@ -42,7 +42,7 @@ def android_environment():
     return env, java, sdk
 
 
-def verify_android(apk, logs, env, java, sdk):
+def verify_android(apk, logs, env, java, sdk, stage):
     build = sdk / "build-tools/35.0.1"
     signature = checked([java / "bin/java.exe", "-jar", build / "lib/apksigner.jar", "verify",
                          "--verbose", "--print-certs", apk], logs / "android-signature.log", env=env)
@@ -70,10 +70,28 @@ def verify_android(apk, logs, env, java, sdk):
             raise RuntimeError("APK contains development files")
         if any("stand_main" in name for name in names):
             raise RuntimeError("APK contains the original game's entry point")
+        textures = sorted("assets/" + path.relative_to(stage).as_posix()
+                          for path in (stage / "assets/ui").rglob("*.svg"))
+        if len(textures) != UI_ART_COUNT:
+            raise RuntimeError("Frozen release texture inventory is incomplete")
+        resource_paths = textures + ["assets/" + path for path in RUNTIME_SCRIPTS + BATCH_AUDIO]
+        for source in resource_paths:
+            candidates = [source, source + ".import", source + ".remap"]
+            resource = next((path for path in candidates if path in names), None)
+            if resource is None or not archive.getinfo(resource).file_size:
+                raise RuntimeError("APK runtime resource is absent: " + source)
+            if resource.endswith((".import", ".remap")):
+                remap = archive.read(resource).decode("utf-8", errors="replace")
+                target = re.search(r'(?m)^path="res://([^"\r\n]+)"', remap)
+                if not target or "assets/" + target[1] not in names:
+                    raise RuntimeError("APK runtime resource target is absent: " + source)
+                if not archive.getinfo("assets/" + target[1]).file_size:
+                    raise RuntimeError("APK runtime resource target is empty: " + source)
     return dict(artifact(apk), package=PACKAGE, version_code=int(BUILD), signed=True,
                 signature_verified=True, minimum_android_api=24, target_android_api=36,
                 architectures=["armeabi-v7a", "arm64-v8a", "x86_64"], permissions=[], portrait=True,
-                physical_device_validation="pending", emulator_validation="pending")
+                interface_textures_verified=UI_ART_COUNT, runtime_scripts_verified=len(RUNTIME_SCRIPTS),
+                batch_audio_verified=len(BATCH_AUDIO), physical_device_validation="pending", emulator_validation="pending")
 
 
 def zip_folder(folder, destination):
@@ -116,7 +134,7 @@ def main():
         folder.mkdir()
         apk = folder / (NAME + "-" + VERSION + "-Android.apk")
         checked([GODOT, "--headless", "--path", stage, "--export-release", "Android", apk], logs / "android-export.log", env=env)
-        report["artifacts"]["android"] = verify_android(apk, logs, env, java, sdk)
+        report["artifacts"]["android"] = verify_android(apk, logs, env, java, sdk, stage)
         write_json(output / "build-manifest.json", report)
     if "windows" in platforms:
         folder = output / "windows"

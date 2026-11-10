@@ -21,6 +21,8 @@ func _run() -> void:
 	_test_progression_and_price_tradeoffs()
 	_test_stock_costs_and_permanent_recipes()
 	_test_fee_rounding_and_risk_affordability()
+	_test_recorded_outcomes_and_duration()
+	_test_outcome_migration_and_validation()
 	if failures.is_empty():
 		print("PASS: %d circuit model checks; 36-day seasons, eight stops, every event choice, deterministic reloads and money reconciliation." % checks)
 		quit(0)
@@ -94,6 +96,103 @@ func _test_new_company_and_rejections() -> void:
 	_check(bool(model.act("minigame", {"score": 0.95}).ok), "Practice can be completed before opening")
 	_check(not bool(model.act("minigame", {"score": 1}).ok), "Practice rewards cannot be repeated today")
 	_check("steady_hand" in model.state.achievements, "Practice awards its badge")
+
+func _record(outcome: Dictionary, key: String, source: String = "certain") -> Dictionary:
+	for effect in outcome.get("effects", []):
+		if str(effect.key) == key and str(effect.source) == source: return effect
+	return {}
+
+func _test_recorded_outcomes_and_duration() -> void:
+	var model = _new(88)
+	model.act("hire", {"id": "bea"})
+	model.act("hire", {"id": "nell"})
+	model.state.staff[0].morale = 98.0
+	model.state.staff[1].morale = 40.0
+	model.state.rep = 99.0
+	model.state.truck = 99.0
+	model.act("book", {"id": "willowbank"})
+	_quiet_event(model, "travel", {"rep": 5, "truck": 8, "morale": 8, "quality": 0.1, "demand": 0.12, "delay": 0.1, "stock": 500})
+	model.state.event.choices[0]["risk"] = {"chance": 1.0, "effects": {"cash": -20, "rep": -2}, "summary": "The extra cost happened."}
+	var before := float(model.state.cash)
+	_check(model.act("decide", {"choice": 0}).ok, "Outcome fixture resolves travel")
+	var outcome: Dictionary = model.state.last_outcome
+	_check(outcome.choice_label == "Continue" and outcome.context == "travel", "Choice identity and context are recorded")
+	_check(outcome.risk_happened and outcome.risk_chance == 1.0, "A realised risk is explicitly recorded")
+	_check(_record(outcome, "rep").value == 1 and _record(outcome, "rep", "risk").value == -2, "Guaranteed and risk reputation record separately after caps")
+	_check(_record(outcome, "truck").value == 1 and _record(outcome, "truck").after == 100, "Decision repair delta excludes subsequent travel wear")
+	_check(_record(outcome, "stock").value == 100, "Stock reward records only storage space actually filled")
+	var morale: Dictionary = _record(outcome, "morale")
+	_check(morale.value == 5 and morale.members[0].value == 2 and morale.members[1].value == 8, "Crew records retain each employee's clamped change")
+	_check(is_equal_approx(float(model.state.cash), before - 20), "Outcome recording never applies cash twice")
+	_check(not outcome.consumed and model.state.active_outcomes.size() == 1, "Travel modifiers remain pending until trading")
+	var resumed = Model.new()
+	_check(resumed.from_save(JSON.parse_string(JSON.stringify(model.to_save()))), "Travel outcome and pending buffs survive reload")
+	_check(_snapshot(model) == _snapshot(resumed), "Recorded outcome reload changes no gameplay or evidence")
+	model.act("advance")
+	_quiet_event(model, "trading", {"quality": 0.1})
+	model.state.event.choices[0]["risk"] = {"chance": 0.0, "effects": {"cash": -100}, "summary": "This cannot happen."}
+	model.act("decide", {"choice": 0})
+	_check(not model.state.last_outcome.risk_happened and _record(model.state.last_outcome, "cash", "risk").is_empty(), "Avoided risk records no fictional penalty")
+	_check(model.state.last_report.event_outcomes.size() == 2, "Report includes travel and trading decisions consumed by the day")
+	_check(is_equal_approx(float(model.state.last_report.used_modifiers.quality), 0.2), "Report preserves the aggregate quality actually used")
+	_check(model.state.active_outcomes.is_empty() and model.state.last_outcome.consumed, "Resolved buffs leave no active pending effects")
+	for key in ["demand", "quality", "delay"]:
+		_check(is_zero_approx(float(model.state.day_modifiers[key])), "Used modifier expires immediately: " + key)
+	for recorded in model.state.last_report.event_outcomes:
+		_check(recorded.consumed and recorded.consumed_day == model.state.last_report.day, "Report records when each modifier was consumed")
+	var report_save := _snapshot(model)
+	_check(not model.act("decide", {"choice": 0}).ok and report_save == _snapshot(model), "Re-clicking cannot reapply recorded effects")
+	_check(resumed.from_save(JSON.parse_string(JSON.stringify(model.to_save()))) and report_save == _snapshot(resumed), "Consumed evidence and reports survive reload exactly")
+	model.act("dismiss_report")
+	model.act("advance")
+	_quiet_event(model, "trading")
+	model.act("decide", {"choice": 0})
+	_check(model.state.last_report.event_outcomes.size() == 1 and is_zero_approx(float(model.state.last_report.used_modifiers.quality)), "Next trading day does not reuse travel effects")
+	var alone = _new()
+	alone.act("book", {"id": "willowbank"})
+	_quiet_event(alone, "travel", {"morale": 8, "loyalty": 4})
+	alone.act("decide", {"choice": 0})
+	_check(_record(alone.state.last_outcome, "morale").value == 0 and _record(alone.state.last_outcome, "morale").members.is_empty(), "Owner-only morale reward records no effect")
+	_check(_record(alone.state.last_outcome, "loyalty").value == 0, "Owner-only loyalty reward records no effect")
+
+func _test_outcome_migration_and_validation() -> void:
+	var original = _new(2026)
+	original.act("book", {"id": "willowbank"})
+	_quiet_event(original, "travel", {"demand": 0.2})
+	original.act("decide", {"choice": 0})
+	var old: Dictionary = original.to_save()
+	old.erase("last_outcome")
+	old.erase("active_outcomes")
+	var loaded = Model.new()
+	_check(loaded.from_save(old), "A v0.1 save without outcome fields remains accepted")
+	_check(loaded.state.last_outcome.is_empty() and loaded.state.active_outcomes.is_empty(), "Old saves receive safe empty evidence defaults")
+	_check(is_equal_approx(float(loaded.state.day_modifiers.demand), 0.2), "Migration keeps genuine pending travel effects")
+	loaded.act("advance")
+	_quiet_event(loaded, "trading")
+	loaded.act("decide", {"choice": 0})
+	_check(is_equal_approx(float(loaded.state.last_report.used_modifiers.demand), 0.2), "Migrated travel bonus still applies once")
+	var old_report: Dictionary = loaded.to_save()
+	old_report.erase("last_outcome")
+	old_report.erase("active_outcomes")
+	old_report.last_report.erase("event_outcomes")
+	old_report.day_modifiers.demand = 0.2
+	var migrated = Model.new()
+	_check(migrated.from_save(old_report) and migrated.state.day_modifiers.demand == 0, "Older reports clear already-consumed stale modifiers")
+	for corruption in ["container", "risk", "number", "members", "source"]:
+		var bad: Dictionary = original.to_save()
+		match corruption:
+			"container": bad.last_outcome = "wrong"
+			"risk": bad.last_outcome.risk_chance = 7
+			"number": bad.last_outcome.effects[0].value = NAN
+			"members": bad.last_outcome.effects[0].members = ["wrong"]
+			"source": bad.last_outcome.effects[0].source = "reapply"
+		var before := _snapshot(loaded)
+		_check(not loaded.from_save(bad), "Malformed outcome is rejected: " + corruption)
+		_check(before == _snapshot(loaded), "Malformed evidence never replaces the running company")
+	for corruption in ["used_modifiers", "practice_boost"]:
+		var bad: Dictionary = loaded.to_save()
+		bad.last_report[corruption] = "invalid"
+		_check(not loaded.from_save(bad), "Malformed consumed modifier evidence is rejected: " + corruption)
 
 func _test_accounting_and_event_once() -> void:
 	var model = _new(10)

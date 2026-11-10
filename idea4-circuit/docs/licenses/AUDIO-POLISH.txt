@@ -1,0 +1,17 @@
+GOLDEN HOUR CIRCUIT - ORIGINAL MINI-GAME AUDIO
+
+Created for this project on 2026-11-09.
+
+Files:
+- assets/audio/batch_good.wav (0.36 seconds)
+- assets/audio/batch_perfect.wav (0.52 seconds)
+- assets/audio/batch_finish.wav (0.95 seconds)
+
+These quiet marimba-like feedback cues were newly synthesized from sine
+harmonics and decay envelopes by tools/generate_batch_audio.py. They contain
+no external samples, recordings, or licensed music. The deterministic source
+generator is included with the project. Format: 44,100Hz mono16-bit PCM WAV.
+
+These project-generated audio assets are dedicated to the public domain under
+CC0 1.0 Universal. They may be used, modified, and distributed commercially
+without attribution. CC0 reference: https://creativecommons.org/publicdomain/zero/1.0/

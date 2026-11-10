@@ -8,11 +8,17 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = "0.1.1"
-BUILD = "101"
+VERSION = "0.2.0"
+BUILD = "200"
 PACKAGE = "com.goldenhourgame.circuit"
 NAME = "GoldenHourCircuit"
-LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt", "docs/licenses/ASSET-PROVENANCE.txt", "docs/licenses/ART-VISUAL-UPDATE.txt", "assets/fonts/OFL.txt")
+LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt",
+            "docs/licenses/ASSET-PROVENANCE.txt", "docs/licenses/ART-VISUAL-UPDATE.txt",
+            "docs/licenses/ART-POLISH.txt", "docs/licenses/AUDIO-POLISH.txt", "assets/fonts/OFL.txt")
+RUNTIME_SCRIPTS = ("scripts/circuit_main.gd", "scripts/circuit_model.gd", "scripts/circuit_content.gd",
+                   "scripts/circuit_presenter.gd", "scripts/circuit_batch_game.gd", "scripts/circuit_celebration.gd")
+BATCH_AUDIO = ("assets/audio/batch_good.wav", "assets/audio/batch_perfect.wav", "assets/audio/batch_finish.wav")
+UI_ART_COUNT = 108
 PRIVATE = {".p12", ".p8", ".pfx", ".pem", ".key", ".keystore", ".mobileprovision"}
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -80,6 +86,11 @@ def validate_source(root):
     for path in LICENSES:
         if not (root / path).is_file():
             raise RuntimeError("Missing license notice: " + path)
+    for path in RUNTIME_SCRIPTS + BATCH_AUDIO:
+        if not (root / path).is_file() or not (root / path).stat().st_size:
+            raise RuntimeError("Missing required runtime resource: " + path)
+    if len(list((root / "assets/ui").rglob("*.svg"))) != UI_ART_COUNT:
+        raise RuntimeError(f"Expected {UI_ART_COUNT} original interface textures")
     preset = (root / "export_presets.cfg").read_text(encoding="utf-8")
     for required in ['variant/thread_support=false', 'package/unique_name="' + PACKAGE + '"',
                      f'version/code={BUILD}', f'version/name="{VERSION}"',
@@ -90,6 +101,9 @@ def validate_source(root):
             raise RuntimeError("Unexpected platform identity or configuration: " + required)
     if "stand_main" in project or "minidonuts" in preset:
         raise RuntimeError("The original game's identity leaked into Circuit")
+    for notice in LICENSES:
+        if preset.count(notice) != 4:
+            raise RuntimeError("License notice must be included in all four platform presets: " + notice)
 
 
 def stage_source(root, stage):

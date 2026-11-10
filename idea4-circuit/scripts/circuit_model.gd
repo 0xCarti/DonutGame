@@ -33,6 +33,7 @@ func new_run(company: String, seed_value: int = 2026) -> void:
 		"day_modifiers": {"demand": 0.0, "quality": 0.0, "delay": 0.0},
 		"minigame_day": -1, "minigame_boost": 0.0, "season_summary": {}, "end_reason": "", "unlocked_recipes": [],
 		"day_rep_start": 24.0, "day_cash_start": 2800.0, "carry_travel_modifiers": false,
+		"last_outcome": {}, "active_outcomes": [],
 	}
 	_unlock_recipes(false)
 	_sync_rng()
@@ -188,9 +189,26 @@ func from_save(data: Dictionary) -> bool:
 				if float(choice.risk.chance) < 0 or float(choice.risk.chance) > 1 or not _valid_effects(choice.risk.get("effects", {})): return false
 	elif not data.event.is_empty(): return false
 	if str(data.phase) == "report" and data.last_report.is_empty(): return false
+	# Outcome history is optional for v0.1 saves. It is display evidence, never replayed.
+	if not _valid_outcome(data.get("last_outcome", {})): return false
+	if not _valid_outcomes(data.get("active_outcomes", [])): return false
+	if not _valid_outcomes(data.last_report.get("event_outcomes", [])): return false
+	if data.last_report.has("used_modifiers"):
+		if not data.last_report.used_modifiers is Dictionary: return false
+		for key in ["demand", "quality", "delay"]:
+			if not _is_number(data.last_report.used_modifiers.get(key)) or absf(float(data.last_report.used_modifiers[key])) > 1: return false
+	if data.last_report.has("practice_boost"):
+		if not _is_number(data.last_report.practice_boost) or float(data.last_report.practice_boost) < 0 or float(data.last_report.practice_boost) > 0.2: return false
 	var loaded: Dictionary = data.duplicate(true)
 	state = loaded
 	if not state.has("unlocked_recipes"): state.unlocked_recipes = []
+	if not state.has("last_outcome"): state.last_outcome = {}
+	if not state.has("active_outcomes"): state.active_outcomes = []
+	# Older reports retained already-consumed modifiers until the next opening.
+	if str(state.phase) in ["report", "season_end", "bankrupt"]:
+		state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
+		state.carry_travel_modifiers = false
+		state.active_outcomes = []
 	_unlock_recipes(false)
 	_rng.seed = int(state.rng_seed)
 	_rng.state = int(state.rng_state)
@@ -205,6 +223,7 @@ func _book(id: String) -> Dictionary:
 		state.venue_day = 0
 		state.booked_prepaid_total = float(offer.total_cost)
 		state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
+		state.active_outcomes = []
 		_journal("Next stop: " + str(offer.name), "$%.0f prepaid: %d days of pitch fees and $%.0f travel. These costs are allocated in your daily profit reports." % [float(offer.total_cost), int(offer.days), float(offer.travel_cost)], "info", -float(offer.total_cost))
 		_queue_event("travel")
 		return _ok("Packed up for " + str(offer.town) + ". Make your travel decision.")
@@ -217,6 +236,7 @@ func _advance() -> Dictionary:
 	_apply_policies()
 	if not bool(state.get("carry_travel_modifiers", false)):
 		state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
+		state.active_outcomes = []
 	state.carry_travel_modifiers = false
 	state.day_rep_start = float(state.rep)
 	state.day_cash_start = float(state.cash)
@@ -277,11 +297,19 @@ func _decide(args: Dictionary) -> Dictionary:
 	if stock_cost > int(state.stock):
 		return _fail("That response needs %d stocked portions, including its disclosed risk." % stock_cost)
 	var event_cash_before := float(state.cash)
-	_apply_effects(effects)
+	var recorded: Array = _apply_effects(effects)
 	var result_text := str(choice.get("result", "The company moves forward."))
+	var risk_happened := false
 	if choice.has("risk") and _rng.randf() < clampf(float(choice.risk.get("chance", 0)), 0, 1):
-		_apply_effects(choice.risk.get("effects", {}))
+		risk_happened = true
+		recorded.append_array(_apply_effects(choice.risk.get("effects", {}), "risk"))
 		result_text += " " + str(choice.risk.get("summary", "The risk did not go your way."))
+	state.last_outcome = {"instance_id": str(event.instance_id), "event_id": str(event.id),
+		"title": str(event.title), "choice_label": str(choice.label), "result": result_text,
+		"context": str(event.context), "day": int(state.day), "season": int(state.season),
+		"risk_chance": float(choice.get("risk", {}).get("chance", -1)), "risk_happened": risk_happened,
+		"effects": recorded, "consumed": false, "consumed_day": -1}
+	state.active_outcomes.append(state.last_outcome.duplicate(true))
 	if bool(event.get("once", false)) and str(event.id) not in state.seen_events:
 		state.seen_events.append(str(event.id))
 	_journal(str(event.title), result_text, "story")
@@ -299,9 +327,15 @@ func _decide(args: Dictionary) -> Dictionary:
 		_trade_day(result_text)
 	return _ok(result_text)
 
-func _apply_effects(effects: Dictionary) -> void:
+func _apply_effects(effects: Dictionary, source: String = "certain") -> Array:
+	var recorded: Array = []
 	for key in effects:
 		var value = effects[key]
+		var before := _effect_value(str(key))
+		var members: Array = []
+		if str(key) in ["morale", "loyalty"]:
+			for person in state.staff:
+				members.append({"id": str(person.id), "name": str(person.name), "before": float(person[key])})
 		match str(key):
 			"cash": state.cash = _money(float(state.cash) + float(value))
 			"rep": state.rep = clampf(float(state.rep) + float(value), 0, 100)
@@ -317,6 +351,26 @@ func _apply_effects(effects: Dictionary) -> void:
 			"delay": state.day_modifiers.delay = clampf(float(state.day_modifiers.get("delay", 0)) + float(value), 0, 0.85)
 			"flag": state.flags[str(value)] = true
 			"clear_flag": state.flags.erase(str(value))
+		if value is int or value is float:
+			var after := _effect_value(str(key))
+			for i in range(members.size()):
+				members[i]["after"] = float(state.staff[i][key])
+				members[i]["value"] = snappedf(float(members[i].after) - float(members[i].before), 0.000001)
+			recorded.append({"key": str(key), "requested": float(value), "before": before, "after": after,
+				"value": snappedf(after - before, 0.000001), "source": source, "members": members,
+				"town": str(_venue().get("town", "The roadside")) if str(key) == "relationship" else ""})
+	# JSON saves sort dictionary keys. Keep evidence ordering stable across reloads.
+	recorded.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return str(a.key) < str(b.key))
+	return recorded
+
+func _effect_value(key: String) -> float:
+	if key in ["morale", "loyalty"]:
+		var total := 0.0
+		for person in state.staff: total += float(person[key])
+		return total / state.staff.size() if not state.staff.is_empty() else 0.0
+	if key == "relationship": return float(state.relationships.get(str(_venue().get("town", "The roadside")), 0))
+	if key in ["demand", "quality", "delay"]: return float(state.day_modifiers.get(key, 0))
+	return float(state.get(key, 0))
 
 func _trade_day(event_result: String) -> void:
 	var venue := _venue()
@@ -427,6 +481,20 @@ func _trade_day(event_result: String) -> void:
 		"cash_delta": cash_delta, "prepaid_stock": base_ingredients, "prepaid_fees": _money(prepaid_fees),
 		"extra_ingredients": extra_ingredients, "event_cash": event_cash, "interest": interest, "demand": demand, "capacity": capacity,
 		"day": int(state.day), "completed_stop": completed_stop, "season_end": false}
+	# Retain the exact decision evidence and aggregate modifiers used for this report.
+	# Expiring a modifier changes no money or RNG and never reapplies its effect.
+	for outcome in state.active_outcomes:
+		outcome.consumed = true
+		outcome.consumed_day = int(state.day)
+	if not state.last_outcome.is_empty():
+		state.last_outcome.consumed = true
+		state.last_outcome.consumed_day = int(state.day)
+	state.last_report["event_outcomes"] = state.active_outcomes.duplicate(true)
+	state.last_report["used_modifiers"] = state.day_modifiers.duplicate(true)
+	state.last_report["practice_boost"] = minigame_bonus
+	state.active_outcomes = []
+	state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
+	state.carry_travel_modifiers = false
 	_journal("%s: %d sold" % [str(venue.get("name", "Roadside")), sold], "$%.0f revenue, $%.0f operating profit. %s" % [revenue, profit, "Fair complete." if completed_stop else "The circuit continues."], "good" if profit >= 0 else "bad", profit)
 	state.day = int(state.day) + 1
 	state.phase = "report"
@@ -468,6 +536,10 @@ func _next_season() -> Dictionary:
 	state.booked_prepaid_total = 0.0
 	state.event = {}
 	state.last_report = {}
+	state.last_outcome = {}
+	state.active_outcomes = []
+	state.day_modifiers = {"demand": 0.0, "quality": 0.0, "delay": 0.0}
+	state.carry_travel_modifiers = false
 	state.minigame_day = -1
 	state.minigame_boost = 0.0
 	state.stats.season_profit = 0.0
@@ -647,6 +719,35 @@ func _unlock_recipes(announce: bool) -> void:
 		if float(state.rep) >= float(recipe.unlock_rep) and str(recipe.id) not in state.unlocked_recipes:
 			state.unlocked_recipes.append(str(recipe.id))
 			if announce: _journal("Recipe learned: " + str(recipe.name), "Your reputation opened a new page in the recipe notebook. This recipe remains yours through future seasons.", "good")
+
+func _valid_outcomes(outcomes) -> bool:
+	if not outcomes is Array or outcomes.size() > 8: return false
+	for outcome in outcomes:
+		if not _valid_outcome(outcome): return false
+	return true
+
+func _valid_outcome(outcome) -> bool:
+	if not outcome is Dictionary: return false
+	if outcome.is_empty(): return true
+	for key in ["instance_id", "event_id", "title", "choice_label", "result", "context"]:
+		if not outcome.get(key) is String: return false
+	if outcome.context not in ["travel", "trading"]: return false
+	for key in ["day", "season", "consumed_day", "risk_chance"]:
+		if not _is_number(outcome.get(key)): return false
+	if float(outcome.risk_chance) < -1 or float(outcome.risk_chance) > 1: return false
+	if not outcome.get("risk_happened") is bool or not outcome.get("consumed") is bool: return false
+	if not outcome.get("effects") is Array or outcome.effects.size() > 26: return false
+	for effect in outcome.effects:
+		if not effect is Dictionary or str(effect.get("key", "")) not in ["cash", "rep", "stock", "truck", "fryer", "morale", "loyalty", "fame", "relationship", "demand", "quality", "delay"]: return false
+		if str(effect.get("source", "")) not in ["certain", "risk"] or not effect.get("town") is String: return false
+		for key in ["requested", "before", "after", "value"]:
+			if not _is_number(effect.get(key)) or absf(float(effect[key])) > 1000000000: return false
+		if not effect.get("members") is Array or effect.members.size() > 8: return false
+		for member in effect.members:
+			if not member is Dictionary or not member.get("id") is String or not member.get("name") is String: return false
+			for key in ["before", "after", "value"]:
+				if not _is_number(member.get(key)) or absf(float(member[key])) > 100: return false
+	return true
 
 func _valid_effects(effects) -> bool:
 	if not effects is Dictionary: return false

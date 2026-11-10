@@ -1,0 +1,22 @@
+GOLDEN HOUR CIRCUIT - ORIGINAL INTERFACE POLISH ARTWORK
+
+Created for this project on 2026-11-09.
+
+Scope:
+- assets/ui/decor/*.svg (7 decorative pictures)
+- New interface emblems in assets/ui/icons/: proficiency, punctuality,
+  hospitality, mood, bond, buff, debuff, timer, permanent, dice, counter,
+  fryer_role, mechanic, runner, creative, driver (16 SVG files)
+
+All illustrations and emblem geometry were authored specifically for Golden
+Hour Circuit in tools/generate_polish_art.py. No third-party artwork, fonts,
+stock photographs, brand marks, or copied game assets are included. Existing
+portraits, equipment, recipes and venue artwork remain unchanged.
+
+Source SVGs use vector geometry and gradients. Decorative artwork is exported
+at twice its logical design dimensions; white tintable emblems at three times
+their logical dimensions for high-density display. Source generator uses only
+the Python standard library and can reproduce every file in this collection.
+
+The project owner may use, modify and distribute this artwork with the game
+and its promotional material without a separate attribution requirement.

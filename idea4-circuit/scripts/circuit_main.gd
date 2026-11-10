@@ -4,16 +4,20 @@ extends Control
 const Model = preload("res://scripts/circuit_model.gd")
 const Content = preload("res://scripts/circuit_content.gd")
 const Presenter = preload("res://scripts/circuit_presenter.gd")
+const BatchGame = preload("res://scripts/circuit_batch_game.gd")
+const Celebration = preload("res://scripts/circuit_celebration.gd")
 const FONT = preload("res://assets/fonts/Fredoka-Medium.ttf")
 const LANDSCAPE = preload("res://assets/circuit_landscape.svg")
-const PAPER = Color("f5f0e5")
-const CREAM = Color("fffbf2")
-const INK = Color("173c3f")
-const MUTED = Color("647774")
-const LINE = Color("dddccc")
-const GOLD = Color("e8b85e")
-const RED = Color("c35d43")
-const GREEN = Color("36725f")
+const PAPER = Color("f2e6ce")
+const CREAM = Color("fffcf3")
+const INK = Color("172c45")
+const MUTED = Color("586777")
+const LINE = Color("d9c9ab")
+const GOLD = Color("ffc857")
+const RED = Color("de503c")
+const GREEN = Color("147a67")
+const VIOLET = Color("7553a6")
+const MINT = Color("27b393")
 const SAVE = "user://circuit_save.json"
 const NAV = [["Journal", "journal"], ["Circuit", "circuit"], ["Crew", "crew"], ["Menu", "menu"], ["Garage", "garage"]]
 
@@ -39,8 +43,7 @@ var _resize_queued = false
 var _day_claim = -1
 var _minigame_playing = false
 var _minigame_phase = 0.0
-var _minigame_gauge: ProgressBar
-var _minigame_marker: Label
+var _batch_game: Control
 var _modal_close_allowed = true
 var _rng_seed = 2026
 var _focus_return: Control
@@ -74,18 +77,14 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_queue_resize)
 	_render()
 	_sync_music()
-	print("CIRCUIT_READY version=0.1.1")
+	print("CIRCUIT_READY version=0.2.0")
 	if "--smoke" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(2.0).timeout
 		print("CIRCUIT_SMOKE_PASS")
 		get_tree().quit()
 
-func _process(delta: float) -> void:
-	if _minigame_playing and is_instance_valid(_minigame_gauge):
-		_minigame_phase += delta * 1.25
-		var value = (sin(_minigame_phase) + 1.0) * 50.0
-		_minigame_gauge.value = value
-		_minigame_marker.text = "%d°C · aim for 185–195°C" % int(160 + value * 0.6)
+func _process(_delta: float) -> void:
+	pass
 
 func _notification(what: int) -> void:
 	if not _ready_done: return
@@ -177,7 +176,8 @@ func _render() -> void:
 			"season_end", "bankrupt": call_deferred("_show_ending")
 
 func _build_header() -> void:
-	var col = _column(_box(screen, INK, 0, 14), 8)
+	var col = _column(_box(screen, INK, 0, 14), 5)
+	_picture(col, "decor/light_strand", Vector2(0, 20))
 	var row = _row(col)
 	var names = _column(row, 1)
 	_label(names, "ON THE CIRCUIT", 10, GOLD)
@@ -300,7 +300,8 @@ func _primary() -> void:
 
 func _build_journal() -> void:
 	var venue = _venue()
-	var cover = _column(_box(content, INK, 17, 12), 9)
+	_build_active_effects()
+	var cover = _column(_box(content, INK, 20, 12), 9)
 	if venue.is_empty(): _hero(cover, 155)
 	else: _picture(cover, "venues/" + str(venue.id), Vector2(0, 155), true)
 	_label(cover, "Where to next?" if venue.is_empty() else str(venue.name), 26, CREAM)
@@ -311,8 +312,8 @@ func _build_journal() -> void:
 		_chip(details, "calendar", "%d / %d days" % [int(model.state.venue_day) + 1, venue.days], INK, GOLD)
 		_chip(details, "weather", str(model.state.weather), INK, CREAM)
 		var batch_done: bool = int(model.state.minigame_day) == int(model.state.day)
-		var batch_button = _icon_button(cover, "Batch ready" if batch_done else "Perfect batch", "recipe", _show_minigame, GOLD, INK)
-		batch_button.disabled = batch_done or str(model.state.phase) != "planning"
+		var batch_button = _icon_button(cover, "Batch ready · view" if batch_done else "Make the opening batch", "recipe", _show_minigame, GOLD, INK)
+		batch_button.disabled = str(model.state.phase) != "planning"
 	var ready = _row(content, 9)
 	for item in [["truck", "Truck", int(model.state.truck), "garage"], ["fryer", "Fryer", int(model.state.fryer), "garage"], ["stock", "Supplies", int(model.state.stock), "menu"]]:
 		var destination: String = item[3]
@@ -408,7 +409,7 @@ func _build_crew() -> void:
 		_chip(chips, "heart", "%d morale" % employee.morale)
 		_chip(chips, "shield", "%d loyalty" % employee.loyalty)
 		_icon_button(col, "Manage", "crew", func(): _show_staff(str(employee.id)), GREEN, CREAM)
-	_section("HELP WANTED")
+	_section("MEET YOUR NEXT HIRE")
 	var board = GridContainer.new()
 	board.columns = 2
 	board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -424,7 +425,8 @@ func _build_crew() -> void:
 		col.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_picture(col, "crew/" + str(applicant.id), Vector2(0, 120))
 		_label(col, str(applicant.name), 22, INK, HORIZONTAL_ALIGNMENT_CENTER)
-		_label(col, str(applicant.role), 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		_label(col, str(applicant.role), 14, VIOLET, HORIZONTAL_ALIGNMENT_CENTER)
+		_staff_mini_stats(col, applicant)
 		var id: String = applicant.id
 		_chip(_flow(col), "cash", _money(applicant.wage) + " / day")
 		_icon_button(col, "Hire · " + _money(applicant.wage), "crew", func(): _act("hire", {"id": id}), GREEN, CREAM)
@@ -558,26 +560,27 @@ func _act(action: String, args: Dictionary = {}) -> void:
 	_reviewing_season = false
 	_save_game()
 	_render()
-	if str(model.state.phase) == "planning" and not str(result.get("message", "")).is_empty(): _notify(str(result.message), GREEN)
+	if action == "decide" and str(model.state.phase) == "planning":
+		call_deferred("_show_outcome")
+	elif str(model.state.phase) == "planning" and not str(result.get("message", "")).is_empty(): _notify(str(result.message), GREEN)
 
 func _show_event() -> void:
 	if not has_run or str(model.state.phase) != "event": return
 	var event: Dictionary = model.state.get("event", {})
 	if event.is_empty(): return
-	var col = _modal_page("YOUR CALL", str(event.title), false)
-	_picture(col, "events/" + Presenter.event_art_key(event), Vector2(0, 105), true)
-	_label(col, Presenter.event_teaser(event), 20, INK)
+	var col = _modal_page("A MOMENT ON THE CIRCUIT", str(event.title), false)
+	_picture(col, "events/" + Presenter.event_art_key(event), Vector2(0, 86), true)
+	_label(col, Presenter.event_teaser(event), 19, INK)
+	var context = str(event.get("context", "trading"))
+	_chip(_flow(col), "timer", "Temporary effects: next opening" if context == "travel" else "Temporary effects: today's trade", INK, GOLD)
 	var choices: Array = event.get("choices", [])
 	for index in range(choices.size()):
 		var choice: Dictionary = choices[index]
-		var box = _column(_box(col, PAPER, 13, 10), 5)
+		var box = _column(_box(col, PAPER, 15, 11), 8)
 		var pick = index
-		var button = _button(box, str(choice.label), func(): _act("decide", {"choice": pick}), INK if index == 0 else CREAM, CREAM if index == 0 else INK)
+		var button = _button(box, str(choice.label), func(): _act("decide", {"choice": pick}), INK, CREAM)
 		button.name = "EventChoice_" + str(index)
-		var chips = _flow(box)
-		for item in Presenter.choice_chips(choice):
-			var color: Color = RED if str(item.tone) == "bad" or str(item.tone) == "risk" else GREEN if str(item.tone) == "good" else MUTED
-			_chip(chips, str(item.icon), str(item.label), PAPER, color)
+		_effect_grid(box, Presenter.choice_effects(choice, context, model.state), true)
 		var effects: Dictionary = choice.get("effects", {})
 		var risk: Dictionary = choice.get("risk", {}).get("effects", {})
 		var cost = maxf(0, -float(effects.get("cash", 0))) + maxf(0, -float(risk.get("cash", 0)))
@@ -597,15 +600,26 @@ func _show_report() -> void:
 	_picture(result, "recipes/" + str(model.state.recipe), Vector2(108, 108))
 	var hero = _column(result, 2)
 	var profit: float = report.get("profit", 0)
-	_label(hero, _money(profit), 44, GREEN if profit >= 0 else RED)
+	var profit_label = _label(hero, _money(profit), 44, GREEN if profit >= 0 else RED)
+	if settings.motion:
+		create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT).tween_method(func(value):
+			if is_instance_valid(profit_label): profit_label.text = _money(value), 0.0, profit, 0.65)
+		if profit >= 350:
+			var celebration = Celebration.new()
+			modal.add_child(celebration)
+			celebration.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_label(hero, "PROFIT" if profit >= 0 else "LOSS", 12, MUTED)
 	var chips = _flow(col)
 	_chip(chips, "bag", "%d sold" % int(report.get("sold", 0)))
-	_chip(chips, "rep", "%+d rep" % int(report.get("rep_change", 0)))
+	_chip(chips, "rep", "%+.2f rep" % float(report.get("rep_change", 0)))
 	var totals = _column(_box(col, PAPER, 14, 16), 9)
 	_receipt(totals, "Sales", _money(report.get("revenue", 0)))
 	_receipt(totals, "Cash change", _money(report.get("cash_delta", 0)))
 	_icon_button(col, "CONTINUE", "arrow", func(): _act("dismiss_report"), RED, CREAM).name = "DismissReport"
+	var outcome_cards = Presenter.outcome_effects(model.state)
+	if not outcome_cards.is_empty():
+		_label(col, "YOUR DECISION · WHAT CHANGED", 12, GREEN)
+		_outcome_groups(col, outcome_cards)
 	var details = _column(col, 10)
 	_receipt(details, "Ingredients", "−" + _money(report.get("ingredients", 0)))
 	_receipt(details, "Wages", "−" + _money(report.get("wages", 0)))
@@ -654,33 +668,22 @@ func _record_season() -> void:
 
 func _show_minigame() -> void:
 	if int(model.state.minigame_day) == int(model.state.day):
-		_notify("Today's opening batch is already complete.", GREEN)
+		_show_batch_result(float(model.state.minigame_boost) / 0.2)
 		return
 	if str(model.state.phase) != "planning" or str(model.state.booked_id).is_empty():
-		_notify("Book a fair first. Then you can perfect the opening batch.", RED)
+		_notify("Book a fair first. Then make your opening batch.", RED)
 		return
-	var col = _modal_page("OPENING BATCH", "A golden start")
-	_picture(col, "equipment/fryer_" + str(model.state.fryer_tier), Vector2(0, 180))
-	_label(col, "Stop near 190°C for a sales boost.", 21, INK, HORIZONTAL_ALIGNMENT_CENTER)
-	_chip(_flow(col), "star", "Optional · once a day")
-	_minigame_marker = _label(col, "190°C · aim for 185–195°C", 22, INK, HORIZONTAL_ALIGNMENT_CENTER)
-	_minigame_gauge = ProgressBar.new()
-	_minigame_gauge.custom_minimum_size.y = 42
-	_minigame_gauge.show_percentage = false
-	_minigame_gauge.add_theme_stylebox_override("background", _style(Color("e8dfc9"), 18))
-	_minigame_gauge.add_theme_stylebox_override("fill", _style(GOLD, 18))
-	col.add_child(_minigame_gauge)
-	_label(col, "160°                 190°                 220°", 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	_icon_button(col, "STOP!", "check", _stop_minigame, RED, CREAM)
+	var col = _modal_page("HEAT · COAT · PACK", "Make it golden")
+	_batch_game = BatchGame.new()
+	col.add_child(_batch_game)
+	_batch_game.configure(str(model.state.recipe), int(model.state.fryer_tier), not bool(settings.motion))
+	_batch_game.feedback.connect(func(kind): _chime(str(kind)))
+	_batch_game.completed.connect(func(score): _finish_batch.call_deferred(float(score)))
 	_button(col, "Skip · no penalty", _close_modal, PAPER, INK)
-	_minigame_phase = -1.57
 	_minigame_playing = true
 
 func _stop_minigame() -> void:
-	if not _minigame_playing or not is_instance_valid(_minigame_gauge): return
-	_minigame_playing = false
-	var score = clampf(1.0 - absf(_minigame_gauge.value - 50) / 50, 0, 1)
-	_act("minigame", {"score": score})
+	if _minigame_playing and is_instance_valid(_batch_game): _batch_game.press_action()
 
 func _show_settings() -> void:
 	var col = _modal_page("MAKE YOURSELF AT HOME", "Settings")
@@ -715,7 +718,7 @@ func _show_help() -> void:
 
 func _show_credits() -> void:
 	var col = _modal_page("MADE FOR THE LONG WAY ROUND", "Credits & licenses")
-	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.1.1", 22, INK)
+	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.2.0", 22, INK)
 	_label(col, "Original game design, company stories, illustrations and interface. An independent choice-driven concessions simulator; no affiliation with BitLife or Candywriter.", 16, MUTED)
 	_label(col, "Built with Godot 4.7.2. Fredoka typeface under the SIL Open Font License. Original Golden Hour audio reused from the companion game.", 16, MUTED)
 	for entry in [["Godot engine license", "res://docs/licenses/Godot-LICENSE.txt"], ["Engine third-party notices", "res://docs/licenses/Godot-COPYRIGHT.txt"], ["Fredoka font license", "res://assets/fonts/OFL.txt"]]:
@@ -764,7 +767,7 @@ func _modal_page(kicker: String, title: String, close_allowed: bool = true) -> V
 	margin.add_theme_constant_override("margin_right", side)
 	margin.add_theme_constant_override("margin_top", maxi(24, safe.get_theme_constant("margin_top") + 12))
 	margin.add_theme_constant_override("margin_bottom", maxi(24, safe.get_theme_constant("margin_bottom") + 12))
-	var panel = _box(margin, CREAM, 20, 20)
+	var panel = _box(margin, CREAM, 23, 18)
 	var list = ScrollContainer.new()
 	list.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	list.follow_focus = true
@@ -773,11 +776,11 @@ func _modal_page(kicker: String, title: String, close_allowed: bool = true) -> V
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if close_allowed:
 		var row = _row(col)
-		var label = _label(row, kicker, 11, RED)
+		var label = _label(row, kicker, 11, VIOLET)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_button(row, "Close", _close_modal, PAPER, INK, 44).custom_minimum_size.x = 72
-	else: _label(col, kicker, 11, RED)
-	_label(col, title, 32, INK)
+	else: _label(col, kicker, 11, VIOLET)
+	_label(col, title, 30, INK)
 	if settings.motion:
 		panel.modulate.a = 0
 		create_tween().tween_property(panel, "modulate:a", 1.0, 0.16)
@@ -785,6 +788,7 @@ func _modal_page(kicker: String, title: String, close_allowed: bool = true) -> V
 
 func _close_modal() -> void:
 	_minigame_playing = false
+	_batch_game = null
 	if is_instance_valid(modal):
 		remove_child(modal)
 		modal.queue_free()
@@ -932,7 +936,11 @@ func _row(parent: Node, separation: int = 8) -> HBoxContainer:
 
 func _box(parent: Node, fill: Color, radius: int = 14, padding: int = 14) -> PanelContainer:
 	var panel = PanelContainer.new()
-	var style = _style(fill, radius)
+	var style = _style(fill, radius, Color("304760") if fill == INK else Color("e6d7bb"))
+	if radius > 10:
+		style.shadow_color = Color(0.10, 0.17, 0.24, 0.17)
+		style.shadow_size = 5
+		style.shadow_offset = Vector2(0, 3)
 	style.content_margin_left = padding
 	style.content_margin_right = padding
 	style.content_margin_top = padding
@@ -964,9 +972,15 @@ func _button(parent: Node, text: String, callback: Callable, fill: Color = INK, 
 	button.add_theme_color_override("font_hover_color", ink)
 	button.add_theme_color_override("font_pressed_color", ink)
 	button.add_theme_color_override("font_disabled_color", MUTED)
-	button.add_theme_stylebox_override("normal", _style(fill, 11))
+	var raised = _style(fill, 13, fill.lightened(0.18))
+	raised.shadow_color = fill.darkened(0.32)
+	raised.shadow_size = 0
+	raised.shadow_offset = Vector2(0, 3)
+	raised.border_width_bottom = 4
+	raised.border_color = fill.darkened(0.19)
+	button.add_theme_stylebox_override("normal", raised)
 	button.add_theme_stylebox_override("hover", _style(fill.lightened(0.06), 11))
-	button.add_theme_stylebox_override("pressed", _style(fill.darkened(0.06), 11))
+	button.add_theme_stylebox_override("pressed", _style(fill.darkened(0.12), 13, fill.darkened(0.25), 2))
 	button.add_theme_stylebox_override("disabled", _style(Color("e8e6da"), 11))
 	button.add_theme_stylebox_override("focus", _style(Color(0,0,0,0), 11, GOLD, 2))
 	button.pressed.connect(callback)
@@ -1086,12 +1100,13 @@ func _show_venue(id: String) -> void:
 	var venue = Content.find(Content.VENUES, id)
 	var col = _modal_page(str(venue.town), str(venue.name))
 	_picture(col, "venues/" + id, Vector2(0, 155), true)
-	_label(col, str(venue.description), 18, INK)
+	_label(col, Presenter.venue_tagline(venue), 21, VIOLET)
 	var chips = _flow(col)
 	_chip(chips, "recipe", "Favorite: " + str(venue.flavor).capitalize())
 	_chip(chips, "rep", "%d reputation" % venue.min_rep)
 	_chip(chips, "cash", _money(venue.fee) + " / day")
 	_chip(chips, "heart", "%+d town goodwill" % int(model.state.relationships.get(str(venue.town), 0)))
+	_disclosure(col, "About this fair", str(venue.description))
 
 func _show_staff(id: String) -> void:
 	var person: Dictionary = Content.find(Content.STAFF, id)
@@ -1100,49 +1115,219 @@ func _show_staff(id: String) -> void:
 		if str(employee.id) == id:
 			person = employee
 			employed = true
-	var col = _modal_page(str(person.role), str(person.name))
-	_picture(col, "crew/" + id, Vector2(0, 165))
-	_label(col, str(person.description), 17, INK)
-	var stats = _flow(col)
-	_chip(stats, "skill", "%d skill" % person.skill)
-	_chip(stats, "shield", "%d reliability" % person.reliability)
-	_chip(stats, "heart", "%d kindness" % person.kindness)
-	_chip(stats, "cash", _money(person.wage) + " / trading day")
+	var col = _modal_page("YOUR CREW" if employed else "STAFF CARD", str(person.name))
+	var banner = _column(_box(col, INK, 18, 10), 3)
+	_picture(banner, "decor/light_strand", Vector2(0, 18))
+	var portrait = _row(banner, 12)
+	_picture(portrait, "crew/" + id, Vector2(126, 134))
+	var identity = _column(portrait, 7)
+	_icon(identity, _role_icon(str(person.role)), 38, GOLD)
+	_label(identity, str(person.role), 21, CREAM)
+	_label(identity, Presenter.staff_note(person), 13, GOLD)
+	var skills = _row(col, 8)
+	_stat_card(skills, "proficiency", "Skill", float(person.skill), VIOLET)
+	_stat_card(skills, "punctuality", "Reliable", float(person.reliability), GREEN)
+	_stat_card(skills, "hospitality", "Kindness", float(person.kindness), RED)
 	if employed:
-		_meter(col, "Morale", float(person.morale), GREEN)
-		_meter(col, "Loyalty", float(person.loyalty), GOLD)
-		_icon_button(col, "Train · $120", "train", func(): _act("train", {"id": id}), INK, CREAM).disabled = int(person.trained) >= 3
-		_icon_button(col, "Paid day off", "rest", func(): _act("rest", {"id": id}), PAPER, INK).disabled = int(person.rested_day) == int(model.state.day)
-		_label(col, "Rest restores morale; they earn wages but do not work that day.", 14, MUTED)
-		_button(col, "Let them go", func(): _confirm_action("Let " + str(person.name) + " go?", "They leave your roster.", "fire", {"id": id}), PAPER, RED)
+		var mood = _row(col, 8)
+		_stat_card(mood, "mood", "Morale", float(person.morale), GREEN, true)
+		_stat_card(mood, "bond", "Loyalty", float(person.loyalty), VIOLET, true)
+		_chip(_flow(col), "cash", _money(person.wage) + " / trading day", INK, GOLD)
+		var actions = _row(col)
+		_icon_button(actions, "Train · $120", "train", func(): _act("train", {"id": id}), VIOLET, CREAM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		actions.get_child(0).disabled = int(person.trained) >= 3
+		_icon_button(actions, "Paid day off", "rest", func(): _act("rest", {"id": id}), GREEN, CREAM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		actions.get_child(1).disabled = int(person.rested_day) == int(model.state.day)
+		_disclosure(col, "Care & training", "Training improves skill, reliability and morale (up to three sessions). A day off restores morale; wages are still paid, and they do not work that day.")
 	else:
-		_icon_button(col, "Hire · " + _money(person.wage), "crew", func(): _act("hire", {"id": id}), GREEN, CREAM)
-		_label(col, "Hiring costs one day's wage. Daily wages are paid while trading.", 14, MUTED)
+		_chip(_flow(col), "cash", _money(person.wage) + " / trading day", INK, GOLD)
+		_icon_button(col, "Hire · " + _money(person.wage) + " now", "crew", func(): _act("hire", {"id": id}), GREEN, CREAM)
+	_disclosure(col, "Their story", str(person.description))
+	_disclosure(col, "What do these stats do?", "Skill helps your crew serve more bags. Reliability reduces missed shifts. Kindness improves reviews. Morale affects productivity. Hiring costs one day's wage; daily wages are paid on trading days.")
+	if employed: _button(col, "Let them go", func(): _confirm_action("Let " + str(person.name) + " go?", "They leave your roster.", "fire", {"id": id}), PAPER, RED)
 
 func _show_recipe(id: String) -> void:
 	var recipe = Content.find(Content.RECIPES, id)
 	var col = _modal_page("RECIPE CARD", str(recipe.name))
 	_picture(col, "recipes/" + id, Vector2(0, 185))
-	_label(col, str(recipe.description), 18, INK)
 	var chips = _flow(col)
 	_chip(chips, "cash", _money(recipe.cost) + " / bag base")
 	_chip(chips, "heart", "+%d recipe appeal" % recipe.appeal)
 	var locked: bool = id not in model.state.get("unlocked_recipes", [])
 	if locked: _chip(chips, "rep", "%d rep to unlock" % recipe.unlock_rep)
 	else: _icon_button(col, "Serve this recipe", "recipe", func(): _act("set_recipe", {"id": id}), GREEN, CREAM)
+	_disclosure(col, "The recipe story", str(recipe.description))
 
 func _show_gear(id: String) -> void:
 	for gear in model.equipment_options():
 		if str(gear.id) != id: continue
 		var col = _modal_page("EQUIPMENT", str(gear.name))
 		_picture(col, "equipment/" + id + "_" + str(gear.level), Vector2(0, 140))
-		_label(col, str(gear.description), 17, INK)
+		_chip(_flow(col), id, "YOUR CURRENT EQUIPMENT", INK, GOLD)
 		if not bool(gear.maxed):
 			_label(col, "NEXT: " + str(gear.next_name), 22, GREEN)
 			_picture(col, "equipment/" + id + "_" + str(int(gear.level) + 1), Vector2(0, 140))
 			var catalog: Array = Content.TRUCKS if id == "truck" else Content.FRYERS if id == "fryer" else Content.STANDS
 			var units: String = "stored bags" if id == "truck" else "crew places" if id == "stand" else "bags / day"
 			_chip(_flow(col), "upgrade", "%d to %d %s" % [int(gear.capacity), int(catalog[int(gear.level) + 1].capacity), units], PAPER, GREEN)
-			_label(col, str(catalog[int(gear.level) + 1].description), 17, INK)
+			_disclosure(col, "Upgrade details", str(gear.description) + "\n\n" + str(catalog[int(gear.level) + 1].description))
 			_icon_button(col, "Buy upgrade · " + _money(gear.next_cost), "upgrade", func(): _confirm_action("Upgrade " + id + "?", str(gear.next_name) + " · " + _money(gear.next_cost), "upgrade", {"id": id}), RED, CREAM)
-		else: _chip(_flow(col), "check", "Fully upgraded")
+		else:
+			_chip(_flow(col), "check", "Fully upgraded")
+			_disclosure(col, "Equipment story", str(gear.description))
+
+func _role_icon(role: String) -> String:
+	var value = role.to_lower()
+	if "fryer" in value or "cook" in value: return "fryer_role"
+	if "mechanic" in value: return "mechanic"
+	if "driver" in value: return "driver"
+	if "runner" in value or "stock" in value: return "runner"
+	if "decorator" in value or "barker" in value: return "creative"
+	return "counter"
+
+func _staff_mini_stats(parent: Node, person: Dictionary) -> void:
+	var row = _row(parent, 6)
+	for stat in [["proficiency", "skill", VIOLET], ["punctuality", "reliability", GREEN], ["hospitality", "kindness", RED]]:
+		var cell = _column(row, 2)
+		_icon(cell, stat[0], 19, stat[2])
+		_label(cell, str(int(person[stat[1]])), 15, INK, HORIZONTAL_ALIGNMENT_CENTER)
+
+func _stat_card(parent: Node, icon: String, label: String, value: float, tint: Color, compact: bool = false) -> void:
+	var panel = _box(parent, tint.lightened(0.90), 13, 8)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col = _column(panel, 3)
+	_icon(col, icon, 22 if compact else 29, tint)
+	_label(col, "%d" % int(value), 24 if compact else 31, tint, HORIZONTAL_ALIGNMENT_CENTER)
+	_label(col, label, 12, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	var pips = _row(col, 3)
+	for i in range(5):
+		var pip = ColorRect.new()
+		pip.color = tint if value >= (i + 1) * 20 else tint.lightened(0.75)
+		pip.custom_minimum_size = Vector2(2, 5)
+		pip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pips.add_child(pip)
+
+func _effect_grid(parent: Node, effects: Array, prediction: bool = false) -> void:
+	var certain: Array = []
+	var risks: Array = []
+	for effect in effects:
+		if prediction and str(effect.get("source", "")) == "risk": risks.append(effect)
+		else: certain.append(effect)
+	for group in [certain, risks]:
+		if group.is_empty(): continue
+		var target = parent
+		if group == risks:
+			target = _column(_box(parent, Color("fff0c9"), 12, 8), 6)
+			_chip(_flow(target), "dice", "%d%% CHANCE" % roundi(float(group[0].get("chance", 0)) * 100), GOLD, INK)
+		var grid = GridContainer.new()
+		grid.columns = 2 if group.size() > 1 else 1
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_theme_constant_override("h_separation", 7)
+		grid.add_theme_constant_override("v_separation", 7)
+		target.add_child(grid)
+		for effect in group:
+			var tone = str(effect.get("tone", "neutral"))
+			if str(effect.get("duration", "")) == "No effect":
+				tone = "neutral"
+			elif tone == "risk":
+				var amount = float(effect.get("amount", 0))
+				var beneficial = amount < 0 if str(effect.get("key", "")) == "delay" else amount > 0
+				tone = "good" if beneficial else "bad" if amount != 0 else "neutral"
+			var tint = RED if tone == "bad" else GREEN if tone == "good" else MUTED
+			var tile = _box(grid, tint.lightened(0.93), 10, 7)
+			tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			tile.tooltip_text = str(effect.get("detail", ""))
+			var col = _column(tile, 2)
+			var top = _row(col, 5)
+			_icon(top, str(effect.get("icon", "info")), 19, tint)
+			var value = _label(top, str(effect.get("value", "")), 19, tint)
+			value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_label(col, str(effect.get("title", "Effect")), 13, INK)
+			if str(effect.get("key", "")) == "quality":
+				_label(col, "%+.2f review points" % (float(effect.get("amount", 0)) * 2.5), 12, tint)
+			var footer = _row(col, 2)
+			var duration = _label(footer, str(effect.get("duration", "")), 11, MUTED)
+			duration.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			duration.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			var detail = _label(col, str(effect.get("detail", "")), 13, INK)
+			detail.name = "EffectDetail"
+			detail.visible = false
+			var explain = Button.new()
+			explain.name = "EffectExplain"
+			explain.icon = _art("icons/info")
+			explain.expand_icon = true
+			explain.add_theme_constant_override("icon_max_width", 18)
+			explain.add_theme_color_override("icon_normal_color", tint)
+			explain.add_theme_color_override("icon_hover_color", tint)
+			explain.custom_minimum_size = Vector2(36, 44)
+			explain.add_theme_stylebox_override("normal", _style(Color.TRANSPARENT, 8))
+			explain.add_theme_stylebox_override("hover", _style(tint.lightened(0.85), 8))
+			explain.add_theme_stylebox_override("focus", _style(Color.TRANSPARENT, 8, GOLD, 2))
+			explain.tooltip_text = "Explain this effect"
+			explain.pressed.connect(func(): detail.visible = not detail.visible)
+			footer.add_child(explain)
+
+func _build_active_effects() -> void:
+	var effects: Array = Presenter.active_effects(model.state)
+	if effects.is_empty():
+		if not model.state.get("last_outcome", {}).is_empty():
+			_icon_button(content, "Last decision · what changed", "info", _show_outcome, CREAM, INK)
+		return
+	var col = _column(_box(content, Color("e4f3e9"), 17, 11), 7)
+	var row = _row(col)
+	_icon(row, "timer", 24, GREEN)
+	_label(row, "FOR YOUR NEXT OPENING", 12, GREEN)
+	_effect_grid(col, effects)
+	if not model.state.get("last_outcome", {}).is_empty():
+		_icon_button(col, "Last decision", "info", _show_outcome, CREAM, INK)
+
+func _show_outcome() -> void:
+	var outcome: Dictionary = model.state.get("last_outcome", {})
+	if outcome.is_empty(): return
+	var col = _modal_page("DECISION RESOLVED", str(outcome.get("choice_label", "Here's what changed")))
+	var risk = bool(outcome.get("risk_happened", false))
+	_chip(_flow(col), "dice" if risk else "check", "The risk happened" if risk else "Applied to your company", GOLD if risk else GREEN, INK if risk else CREAM)
+	_outcome_groups(col, Presenter.outcome_effects(model.state))
+	_disclosure(col, "The full story", str(outcome.get("result", "")))
+	_icon_button(col, "CONTINUE", "arrow", _close_modal, RED, CREAM)
+
+func _finish_batch(score: float) -> void:
+	if not _minigame_playing: return
+	_minigame_playing = false
+	var result: Dictionary = model.act("minigame", {"score": score})
+	if not bool(result.get("ok", false)):
+		_notify(str(result.get("message", "Batch already finished.")), RED)
+		return
+	_save_game()
+	_render()
+	_show_batch_result(score)
+
+func _outcome_groups(parent: Node, cards: Array) -> void:
+	var groups: Dictionary = {}
+	for card in cards:
+		var key = str(card.get("event_title", "Decision")) + "\n" + str(card.get("choice_label", ""))
+		if not groups.has(key): groups[key] = []
+		groups[key].append(card)
+	for key in groups:
+		var first: Dictionary = groups[key][0]
+		_label(parent, str(first.get("event_title", "Decision")), 19, VIOLET)
+		_label(parent, str(first.get("choice_label", "")), 14, MUTED)
+		_effect_grid(parent, groups[key])
+
+func _show_batch_result(score: float) -> void:
+	var grade = "perfect" if score >= 0.9 else "great" if score >= 0.65 else "good"
+	var col = _modal_page("YOUR OPENING BATCH", "Golden touch!" if grade == "perfect" else "Fresh from the fryer")
+	_picture(col, "decor/reward_" + grade, Vector2(0, 155))
+	_label(col, "%d%%" % roundi(score * 100), 52, GREEN, HORIZONTAL_ALIGNMENT_CENTER)
+	_label(col, ("RUSTIC" if score < 0.35 else grade.to_upper()) + " BATCH", 17, VIOLET, HORIZONTAL_ALIGNMENT_CENTER)
+	var earned = Presenter.active_effects(model.state).filter(func(effect): return str(effect.get("key", "")) == "practice")
+	_effect_grid(col, earned)
+	if earned.is_empty(): _label(col, "No bonus this time. Your next batch is a fresh chance.", 17, MUTED)
+	_icon_button(col, "BACK TO YOUR STAND", "arrow", _close_modal, RED, CREAM)
+	_chime("batch_finish")
+	if settings.motion:
+		var sparkles = Celebration.new()
+		modal.add_child(sparkles)
+		sparkles.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

@@ -145,6 +145,195 @@ static func choice_chips(choice: Dictionary) -> Array[Dictionary]:
 		chips.append({"icon": "shield", "label": "No cost", "tone": "neutral"})
 	return chips
 
+## Expanded consequence cards. `value` is formatted display text; `amount` is the
+## underlying model delta. A chance of -1 means certain. Risk effects are additional
+## to the certain effects, not an alternative reward table.
+static func choice_effects(choice: Dictionary, context: String = "trading", state: Dictionary = {}) -> Array[Dictionary]:
+	var cards: Array[Dictionary] = []
+	for source in ["certain", "risk"]:
+		var effects: Dictionary = choice.get("effects", {}) if source == "certain" else choice.get("risk", {}).get("effects", {})
+		for key in _ordered_numeric_keys(effects):
+			var card := _effect_card(key, float(effects[key]), context, state)
+			card.source = source
+			if source == "risk":
+				card.chance = clampf(float(choice.get("risk", {}).get("chance", 0)), 0, 1)
+				card.detail = "If the risk happens, additionally: " + str(card.detail)
+				card.tone = "risk"
+			cards.append(card)
+	if cards.is_empty():
+		cards.append(_plain_card("shield", "No stat changes", "Story only", "This choice continues the story without changing company stats.", "Immediate"))
+	return cards
+
+## Only modifiers that still affect an upcoming sale. Permanent stats are already
+## reflected in the company dashboard and are not presented as temporary buffs.
+static func active_effects(state: Dictionary) -> Array[Dictionary]:
+	var phase := str(state.get("phase", "planning"))
+	if phase in ["report", "season_end", "bankrupt"]: return []
+	var trading := phase == "event" and str(state.get("event", {}).get("context", "")) == "trading"
+	var context := "trading" if trading else "travel"
+	var modifiers: Dictionary = state.get("day_modifiers", {})
+	var cards: Array[Dictionary] = []
+	if trading or bool(state.get("carry_travel_modifiers", false)):
+		for key in ["demand", "quality", "delay"]:
+			var amount := float(modifiers.get(key, 0))
+			if is_zero_approx(amount): continue
+			var card := _effect_card(key, amount, context, state)
+			card.source = "active"
+			cards.append(card)
+	if int(state.get("minigame_day", -1)) == int(state.get("day", 0)) and float(state.get("minigame_boost", 0)) > 0:
+		cards.append(_practice_card(float(state.minigame_boost), context))
+	return cards
+
+## Historical cards show recorded deltas, never the original uncapped promise.
+## Reports include the travel effects consumed by that day as well as its decision.
+static func outcome_effects(state: Dictionary) -> Array[Dictionary]:
+	var outcomes: Array = []
+	if str(state.get("phase", "")) == "report":
+		outcomes = state.get("last_report", {}).get("event_outcomes", [])
+	elif not state.get("last_outcome", {}).is_empty():
+		outcomes = [state.last_outcome]
+	var cards: Array[Dictionary] = []
+	for outcome: Dictionary in outcomes:
+		if float(outcome.get("risk_chance", -1)) >= 0:
+			var happened := bool(outcome.get("risk_happened", false))
+			var risk_card := _plain_card("shield", "Risk happened" if happened else "Risk avoided", "%.0f%% chance" % (float(outcome.risk_chance) * 100), "The extra consequence happened." if happened else "No extra risk penalties were applied.", "Resolved")
+			risk_card.key = "risk"
+			risk_card.tone = "bad" if happened else "good"
+			risk_card.source = "result"
+			risk_card["event_title"] = str(outcome.get("title", "Decision"))
+			risk_card["choice_label"] = str(outcome.get("choice_label", ""))
+			cards.append(risk_card)
+		for record: Dictionary in outcome.get("effects", []):
+			var key := str(record.key)
+			var card := _effect_card(key, float(record.value), str(outcome.context), {})
+			card.source = str(record.source)
+			card["event_title"] = str(outcome.get("title", "Decision"))
+			card["choice_label"] = str(outcome.get("choice_label", ""))
+			card["before"] = float(record.before)
+			card["after"] = float(record.after)
+			card["requested"] = float(record.requested)
+			card["consumed"] = bool(outcome.get("consumed", false))
+			if key in ["demand", "quality", "delay"] and bool(outcome.get("consumed", false)):
+				card.duration = "Used on day %d" % int(outcome.get("consumed_day", outcome.day))
+			if key in ["morale", "loyalty"]:
+				var members: Array = record.get("members", [])
+				card["members"] = members.duplicate(true)
+				if members.is_empty():
+					card.value = "0 · No hired crew"
+					card.detail = "You had no hired employees, so this did not change any stats."
+					card.duration = "No effect"
+					card.tone = "neutral"
+				else:
+					var changes: Array[String] = []
+					for member in members:
+						changes.append("%s %s" % [str(member.name), _signed(float(member.value))])
+					card.value = "%s average" % _signed(float(record.value)) if members.size() > 1 else _signed(float(record.value))
+					card.detail = ", ".join(changes) + ". " + str(card.detail)
+			elif not is_equal_approx(float(record.value), float(record.requested)):
+				card.detail = "Actual change after the stat limit. " + str(card.detail)
+			if key == "relationship" and not str(record.get("town", "")).is_empty():
+				card.detail = str(record.town) + ": " + str(card.detail)
+			cards.append(card)
+	return cards
+
+## Totals actually used by a trading report, independent of the now-cleared buffs.
+static func used_effects(state: Dictionary) -> Array[Dictionary]:
+	var report: Dictionary = state.get("last_report", {})
+	var cards: Array[Dictionary] = []
+	for key in ["demand", "quality", "delay"]:
+		var amount := float(report.get("used_modifiers", {}).get(key, 0))
+		if is_zero_approx(amount): continue
+		var card := _effect_card(key, amount, "trading", {})
+		card.duration = "Used on day %d" % int(report.get("day", 0))
+		card.source = "used"
+		cards.append(card)
+	if float(report.get("practice_boost", 0)) > 0:
+		var card := _practice_card(float(report.practice_boost), "trading")
+		card.duration = "Used on day %d" % int(report.get("day", 0))
+		cards.append(card)
+	return cards
+
+static func _effect_card(key: String, amount: float, context: String, state: Dictionary) -> Dictionary:
+	var duration := "Next trading day" if context == "travel" else "This trading day"
+	var card := _plain_card(str(EFFECT_ICONS.get(key, "shield")), key.capitalize(), _signed(amount), "A one-time change to this company stat.", "Permanent")
+	card.key = key
+	card.amount = amount
+	card.tone = "good" if (amount > 0 if key != "delay" else amount < 0) else ("neutral" if is_zero_approx(amount) else "bad")
+	match key:
+		"cash":
+			card.title = "Cash"
+			card.value = effect_label("cash", amount)
+			card.duration = "Immediate"
+			card.detail = "One-off cash change; not a recurring cost or reward."
+		"stock":
+			card.title = "Stock"
+			card.value = _signed(amount) + " portions"
+			card.duration = "Immediate"
+			card.detail = "Changes stocked portions now, within the van's storage limit."
+		"rep":
+			card.title = "Reputation"
+			card.value = _signed(amount) + " points"
+			card.detail = "Stays in your reputation score; other events and reviews can change it. Capped at 0–100."
+		"demand":
+			card.title = "Customer appeal"
+			card.value = _signed(amount * 100) + "%"
+			card.duration = duration
+			card.detail = "Adds to the customer-appeal multiplier for one trading day. Sales also depend on weather, price, capacity and stock."
+		"delay":
+			card.title = "Production capacity"
+			card.value = _signed(-amount * 100) + "%"
+			card.duration = duration
+			card.detail = "Reduces the number of portions you can make that day; it does not remove a calendar day. Total loss is capped at 85%."
+		"quality":
+			card.title = "Batch quality"
+			card.value = _signed(amount * 40) + "% appeal"
+			card.duration = duration
+			card.detail = "%s review reputation; %s%% added customer appeal for that day. Final reputation is capped at 0–100." % [_signed(amount * 2.5), _signed(amount * 40)]
+		"truck", "fryer":
+			card.title = "Truck condition" if key == "truck" else "Fryer condition"
+			card.value = _signed(amount) + " points"
+			card.detail = "Condition changes now and stays changed until wear, another event or servicing. Capped at 0–100."
+		"morale", "loyalty":
+			card.title = "Crew morale" if key == "morale" else "Crew loyalty"
+			card.value = _signed(amount) + " per employee"
+			card.detail = "Every hired employee, capped at 0–100. Low morale below 40 increases absence risk." if key == "morale" else "Every hired employee, capped at 0–100. Tracks your team bond; there is no direct sales bonus."
+			if state.has("staff") and state.staff.is_empty():
+				card.value = "0 · No hired crew"
+				card.detail = "This normally gives %s to each hired employee. You have none, so it has no effect." % _signed(amount)
+				card.duration = "No effect"
+				card.tone = "neutral"
+		"fame":
+			card.title = "Fame"
+			card.value = _signed(amount) + " points"
+			card.detail = "Adds to your lasting fame; each point contributes 35 to the season score."
+		"relationship":
+			card.title = "Local goodwill"
+			card.value = _signed(amount) + " points"
+			card.detail = "Remembers you in this town across seasons. Each point adds 0.4% customer appeal here; capped at -50–100."
+	return card
+
+static func _practice_card(amount: float, context: String) -> Dictionary:
+	var card := _plain_card("star", "Practice batch", _signed(amount * 100) + "% appeal", "%s review reputation; %s morale for each employee who works. Expires after one trading day." % [_signed(amount * 3), _signed(amount * 5)], "Next trading day" if context == "travel" else "This trading day")
+	card.key = "practice"
+	card.amount = amount
+	card.tone = "good"
+	card.source = "active"
+	return card
+
+static func _plain_card(icon: String, title: String, value: String, detail: String, duration: String) -> Dictionary:
+	return {"icon": icon, "title": title, "value": value, "detail": detail, "duration": duration,
+		"tone": "neutral", "chance": -1.0, "key": "story", "amount": 0.0, "source": "certain"}
+
+static func _ordered_numeric_keys(effects: Dictionary) -> Array[String]:
+	var keys: Array[String] = EFFECT_ORDER.duplicate()
+	for key in effects:
+		if str(key) not in keys: keys.append(str(key))
+	var valid: Array[String] = []
+	for key in keys:
+		if effects.has(key) and (effects[key] is float or effects[key] is int) and is_finite(float(effects[key])):
+			valid.append(key)
+	return valid
+
 static func _append_effects(chips: Array[Dictionary], effects: Dictionary, risk_chance: float = -1) -> void:
 	var ordered_keys: Array[String] = EFFECT_ORDER.duplicate()
 	# Future numerical effects remain visible even before receiving bespoke display copy.

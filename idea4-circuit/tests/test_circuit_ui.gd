@@ -34,6 +34,7 @@ func _run() -> void:
 	_test_visual_asset_catalog()
 	await _test_visual_detail_views()
 	await _test_compact_event_views()
+	await _test_effect_feedback_flow()
 	_check(app.has_run and app.model.state.phase == "planning", "Company starts in planning")
 	_check(app.find_child("PrimaryAction", true, false) != null, "Primary action is available")
 	await _capture("02-journal")
@@ -59,10 +60,18 @@ func _run() -> void:
 	await _settle()
 	_check(app._minigame_playing, "Optional batch game starts")
 	await _capture("06-minigame")
-	app._minigame_gauge.value = 50
-	app._stop_minigame()
+	var batch = app._batch_game
+	batch.set_process(false)
+	for stage in range(3):
+		batch._phase = PI / 2 if stage == 1 else 0.0
+		app._stop_minigame()
+		batch._process(batch.RESOLVE_SECONDS + 0.01)
+	batch._process(batch.FINISH_SECONDS + 0.01)
 	await _settle()
 	_check(app.model.state.minigame_day == app.model.state.day, "Batch bonus committed once")
+	_check(is_equal_approx(float(app.model.state.minigame_boost), 0.2), "Three perfect stages award the exact 20 percent appeal bonus")
+	await _capture("06b-batch-reward")
+	app._close_modal()
 	app._primary()
 	await _settle()
 	if app.model.state.phase == "event":
@@ -142,13 +151,19 @@ func _test_visual_detail_views() -> void:
 		app.model.state.relationships[str(venue.town)] = 17
 		app._show_venue(str(venue.id))
 		await _settle()
-		_check(_label_is_visible(app.modal, str(venue.description)), "Venue details retain full story: " + str(venue.id))
+		await _test_disclosure("About this fair", str(venue.description), "venue " + str(venue.id))
 		_check(_label_is_visible(app.modal, "+17 town goodwill"), "Venue details read the correct town relationship: " + str(venue.id))
 		_check_widths(app.modal, "venue details " + str(venue.id))
 	for person: Dictionary in Content.STAFF:
 		app._show_staff(str(person.id))
 		await _settle()
-		_check(_label_is_visible(app.modal, str(person.description)), "Staff details retain personality: " + str(person.id))
+		var story = _find_label(app.modal, str(person.description))
+		_check(story != null and not story.is_visible_in_tree(), "Staff story is tucked behind a tap: " + str(person.id))
+		_check(_label_is_visible(app.modal, "Skill") and _label_is_visible(app.modal, "Kindness"), "Staff uses labeled visual stat cards")
+		if person.id == "bea":
+			await _click_button(_find_button_prefix(app.modal, "Their story"))
+			_check(story.is_visible_in_tree(), "Tapping Their story reveals the full biography")
+			await _click_button(_find_button_prefix(app.modal, "Their story"))
 		_check(_find_button_prefix(app.modal, "Hire") != null, "Candidate details include hiring action: " + str(person.id))
 		_check_widths(app.modal, "staff details " + str(person.id))
 		if person.id == "bea": await _capture("12-staff-details")
@@ -163,7 +178,7 @@ func _test_visual_detail_views() -> void:
 	for recipe: Dictionary in Content.RECIPES:
 		app._show_recipe(str(recipe.id))
 		await _settle()
-		_check(_label_is_visible(app.modal, str(recipe.description)), "Recipe details retain full description: " + str(recipe.id))
+		await _test_disclosure("The recipe story", str(recipe.description), "recipe " + str(recipe.id))
 		var unlocked: bool = str(recipe.id) in app.model.state.unlocked_recipes
 		_check((_find_button_prefix(app.modal, "Serve this recipe") != null) == unlocked, "Recipe details respect unlock: " + str(recipe.id))
 		_check_widths(app.modal, "recipe details " + str(recipe.id))
@@ -174,13 +189,13 @@ func _test_visual_detail_views() -> void:
 			app.model.state[id + "_tier"] = tier
 			app._show_gear(id)
 			await _settle()
-			_check(_label_is_visible(app.modal, str(catalog[tier].description)), "Equipment details retain description: " + id + str(tier))
 			if tier + 1 < catalog.size():
-				_check(_label_is_visible(app.modal, str(catalog[tier + 1].description)), "Next equipment description is visible")
+				await _test_disclosure("Upgrade details", str(catalog[tier].description) + "\n\n" + str(catalog[tier + 1].description), "upgrade " + id + str(tier))
 				var units: String = "stored bags" if id == "truck" else "crew places" if id == "stand" else "bags / day"
 				_check(_label_is_visible(app.modal, "%d to %d %s" % [catalog[tier].capacity, catalog[tier + 1].capacity, units]), "Upgrade shows both current and next capacity")
 				_check(_find_button_prefix(app.modal, "Buy upgrade") != null, "Next equipment can be purchased")
 			else:
+				await _test_disclosure("Equipment story", str(catalog[tier].description), "maxed " + id)
 				_check(_label_is_visible(app.modal, "Fully upgraded") and _find_button_prefix(app.modal, "Buy upgrade") == null, "Maximum tier cannot buy another upgrade")
 			_check_widths(app.modal, "equipment details " + id + str(tier))
 			if id == "truck" and tier == 0: await _capture("15-equipment-details")
@@ -230,10 +245,14 @@ func _test_compact_event_views() -> void:
 			var button: Button = app.modal.find_child("EventChoice_" + str(index), true, false)
 			_check(button != null, "Event choice remains actionable: " + str(event.id))
 			if button == null: continue
-			var expected: Array[Dictionary] = Presenter.choice_chips(choice)
+			var expected: Array[Dictionary] = Presenter.choice_effects(choice, str(app.model.state.event.context), app.model.state)
 			chip_count += expected.size()
 			for chip in expected:
-				_check(_label_is_visible(button.get_parent(), str(chip.label)), "Visible outcome including risk: %s / %s" % [str(event.id), str(chip.label)])
+				_check(_label_is_visible(button.get_parent(), str(chip.value)), "Visible effect value: %s / %s" % [str(event.id), str(chip.value)])
+				_check(_label_is_visible(button.get_parent(), str(chip.title)), "Visible effect meaning: " + str(event.id))
+				_check(_label_is_visible(button.get_parent(), str(chip.duration)), "Visible effect duration: " + str(event.id))
+				if str(chip.source) == "risk":
+					_check(_label_is_visible(button.get_parent(), "%d%% CHANCE" % roundi(float(chip.chance) * 100)), "Visible risk probability: " + str(event.id))
 		var detail: Label = _find_label(app.modal, full_text)
 		_check(detail != null and not detail.is_visible_in_tree(), "Full story is initially collapsed: " + str(event.id))
 		_check(_find_button_prefix(app.modal, "Story & details") != null, "Every event offers full story on demand")
@@ -243,6 +262,31 @@ func _test_compact_event_views() -> void:
 			longest_score = score
 			longest = event.duplicate(true)
 		if event.id == "roadworks":
+			var risk_choice: Button = app.modal.find_child("EventChoice_2", true, false)
+			var risk_panel: Node = risk_choice.get_parent()
+			var effect_button: Button = risk_panel.find_child("EffectExplain", true, false)
+			_check(effect_button != null, "Every effect can explain itself by tap, without hover")
+			if effect_button != null:
+				var saved_modal = app.modal
+				var instance: Dictionary = app.model.state.event.duplicate(true)
+				var effect_detail: Label = _find_first_hidden_label(effect_button.get_parent().get_parent())
+				_check(effect_detail != null and not effect_detail.is_visible_in_tree(), "Effect explanation is initially tucked away")
+				await _click_button(effect_button)
+				_check(app.modal == saved_modal and app.model.state.event == instance, "Explaining a consequence preserves the pending event and its choices")
+				_check(effect_detail != null and effect_detail.is_visible_in_tree(), "Tap reveals effect meaning and limits on mobile")
+				_check(_label_is_visible(risk_panel, "35% CHANCE") and _label_is_visible(risk_panel, "-20%") and _label_is_visible(risk_panel, "-3 points"), "Expanding a risk explanation retains its probability and both consequences")
+				var penalty_label: Label = _find_label(risk_panel, "-20%")
+				_check(penalty_label != null and penalty_label.get_theme_color("font_color") == app.RED, "Risk penalty remains visibly negative")
+				_check_widths(app.modal, "negative risk explanation")
+				if effect_detail != null:
+					var scroll_parent: Node = effect_detail.get_parent()
+					while scroll_parent != null:
+						if scroll_parent is ScrollContainer: scroll_parent.ensure_control_visible(effect_detail)
+						scroll_parent = scroll_parent.get_parent()
+					await _settle()
+				await _capture("16b-negative-risk-help")
+				await _click_button(effect_button)
+				_check(effect_detail != null and not effect_detail.is_visible_in_tree(), "Second tap hides effect explanation")
 			var disclosure: Button = _find_button_prefix(app.modal, "Story & details")
 			await _click_button(disclosure)
 			_check(detail.is_visible_in_tree(), "Touch reveals complete event story and all choice details")
@@ -274,6 +318,72 @@ func _test_report_disclosure() -> void:
 	await _capture("18-report-expanded")
 	await _click_button(disclosure)
 	_check(not ingredients.is_visible_in_tree(), "Second touch hides detailed receipt")
+
+func _test_disclosure(prefix: String, text: String, context: String) -> void:
+	var story: Label = _find_label(app.modal, text)
+	var button := _find_button_prefix(app.modal, prefix)
+	_check(story != null and not story.is_visible_in_tree(), context + ": longer description starts collapsed")
+	_check(button != null, context + ": detail remains accessible by tap")
+	if story == null or button == null: return
+	await _click_button(button)
+	_check(story.is_visible_in_tree(), context + ": tapping reveals complete description")
+	_check_widths(app.modal, context + ": expanded details")
+	await _click_button(button)
+	_check(not story.is_visible_in_tree(), context + ": description can collapse again")
+
+func _test_effect_feedback_flow() -> void:
+	var original: Dictionary = app.model.to_save()
+	root.size = Vector2i(390, 844)
+	app.model.act("book", {"id": "willowbank"})
+	app.model.state.event = {"id": "ui_travel", "title": "A helpful mechanic", "body": "Take time for a careful repair.", "context": "travel", "instance_id": "ui:travel", "choices": [{"label": "Repair before the fair", "detail": "A careful repair.", "result": "Ready to trade tomorrow.", "effects": {"truck": 4, "delay": 0.1, "quality": 0.1}}]}
+	app._show_event()
+	await _settle()
+	await _click_button(app.modal.find_child("EventChoice_0", true, false))
+	_check(app.model.state.phase == "planning", "Travel effect fixture returns to planning")
+	_check(_label_is_visible(app.modal, "Repair before the fair"), "Travel decision immediately shows its actual outcome")
+	_check(_label_is_visible(app.modal, "Next trading day"), "Travel outcome labels the pending effect duration")
+	app._close_modal()
+	app._navigate("journal")
+	await _settle()
+	_check(_label_is_visible(app.content, "Production capacity") and _label_is_visible(app.content, "-10%"), "Pending travel debuff remains visible in preparation")
+	_check(_label_is_visible(app.content, "Batch quality") and _label_is_visible(app.content, "+4% appeal"), "Pending quality bonus shows its actual appeal contribution")
+	await _click_button(_find_button_prefix(app.content, "Last decision"))
+	_check(_label_is_visible(app.modal, "Repair before the fair") and _label_is_visible(app.modal, "Truck condition"), "Last decision reopens the complete actual outcome")
+	app._close_modal()
+	app.model.act("minigame", {"score": 0.75})
+	app._show_batch_result(0.75)
+	await _settle()
+	_check(_label_is_visible(app.modal, "Practice batch") and _label_is_visible(app.modal, "+15% appeal"), "Practice reward shows its exact earned bonus")
+	_check(not _label_is_visible(app.modal, "Production capacity") and not _label_is_visible(app.modal, "Batch quality"), "Practice result does not claim unrelated travel effects as rewards")
+	_check(_label_is_visible(app.modal, "75%"), "Practice reward displays the saved score")
+	await _capture("19-practice-effect-isolation")
+	app._close_modal()
+	app.model.act("advance")
+	app.model.state.event = {"id": "ui_trade", "title": "A patient queue", "body": "A small kindness makes an impression.", "context": "trading", "instance_id": "ui:trading", "choices": [{"label": "Thank the waiting customers", "detail": "Customers appreciate it.", "result": "A cheerful closing time.", "effects": {"rep": 0.25}}]}
+	app._show_event()
+	await _settle()
+	await _click_button(app.modal.find_child("EventChoice_0", true, false))
+	_check(app.model.state.phase == "report", "Trading fixture reaches the report")
+	for title in ["A helpful mechanic", "Repair before the fair", "A patient queue", "Thank the waiting customers"]:
+		_check(_label_is_visible(app.modal, title), "Report identifies the source of its changes: " + title)
+	_check(_label_is_visible(app.modal, "Used on day 2"), "Consumed temporary effects are clearly marked in the report")
+	var rep_delta := float(app.model.state.last_report.rep_change)
+	_check(not is_equal_approx(rep_delta, roundf(rep_delta)), "Reputation fixture exercises a fractional change")
+	_check(_label_is_visible(app.modal, "%+.2f rep" % rep_delta), "Report preserves the exact signed fractional reputation change")
+	_check(Presenter.active_effects(app.model.state).is_empty(), "Reported bonuses are no longer active")
+	await _capture("20-grouped-outcomes")
+	app._close_modal()
+	_check(app.model.from_save(original), "Feedback regression restores the original company")
+	root.size = Vector2i(480, 960)
+	app._render()
+	await _settle()
+
+func _find_first_hidden_label(node: Node) -> Label:
+	if node is Label and not node.is_visible_in_tree(): return node
+	for child in node.get_children():
+		var found: Label = _find_first_hidden_label(child)
+		if found != null: return found
+	return null
 
 func _click_button(button: Button) -> void:
 	_check(button != null, "Disclosure button exists for pointer input")

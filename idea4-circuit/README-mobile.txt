@@ -1,16 +1,18 @@
-GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.1.1
+GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.2.0
 
 A portrait fairground business game. Book stops, choose recipes, look after your
 crew and equipment, and build a reputation across the travelling fair circuit.
 The demo plays offline and contains no purchases or payment integration.
 
-VISUAL UPDATE — 0.1.1
-Browse illustrated fair cards, crew portraits, recipe pictures and equipment.
-Most screens use icons and compact stats. Events show a short situation and
-the cost, benefit and risk of every choice; tap Story & details for the longer
-version. Profiles and Details open the full staff, recipe and equipment cards.
-Recent moments keeps the latest four entries; Full journal holds your history.
-Existing companies and local saves continue unchanged from version 0.1.0.
+POLISH UPDATE — 0.2.0
+Brighter carnival colours, warm marquee lights and layered cards frame your
+company. Staff profiles use portraits, role emblems and visual skill ratings.
+Events separate immediate changes, trading bonuses and risks. Their effect
+labels explain how long each change lasts; details remain available on tap.
+The optional opening batch now has three stages: heat, coat and pack. Aim for
+the mint zone in each stage, with animated results and original sound cues.
+Reduced motion and sound settings also apply to the new feedback.
+Existing companies and local saves continue from versions 0.1.0 and 0.1.1.
 
 PLAYING YOUR FIRST SEASON
 Name your company, then choose Willowbank in Circuit for a modest first stop.
@@ -33,7 +35,7 @@ small roadside pop-up. A gentler first season grants extra starting cash.
 INCLUDED
 12 fictional venues; 10 recipes; 14 recruitable staff; four tiers each of truck,
 fryer and stand; 61 events and 184 choices; 10 connected storylines; 12 milestones;
-an optional opening-batch timing game; settings for sound, music, motion and
+an optional three-stage opening-batch game; settings for sound, music, motion and
 guidance; local automatic saves with a recovery copy.
 
 READING THE RECEIPT
@@ -46,12 +48,12 @@ inspect demand, capacity, weather and the effects of your decisions.
 CONTROLS
 Tap/click buttons and scroll the journal or long pages. Android Back or Esc
 closes ordinary sheets. Decisions and trading receipts must be resolved before
-time can move. Space also stops the optional thermometer game. There is no
+time can move. Space also plays each opening-batch stage. There is no
 real-time waiting, and browsing never advances a day. Company contains help,
 settings, credits, loans, milestones and new-company controls.
 
 ANDROID
-Install GoldenHourCircuit-0.1.1-Android.apk on Android 7.0 or later. Your Android
+Install GoldenHourCircuit-0.2.0-Android.apk on Android 7.0 or later. Your Android
 device may ask you to allow installation from the app that opened the APK.
 The package is com.goldenhourgame.circuit; it can coexist with the original
 Golden Hour mini-donut game. Saves stay on the device. Backups are not uploaded.
@@ -78,7 +80,7 @@ and provisioning profile. No Apple account, store upload, or payment is used.
 An unsigned IPA is not evidence of a physical iPhone playtest.
 
 BUILD EVIDENCE
-Versioned outputs live under ../builds/circuit/0.1.1/rN/. Each new build gets a
+Versioned outputs live under ../builds/circuit/0.2.0/rN/. Each new build gets a
 new revision folder. build-manifest.json identifies exact artifacts and hashes;
 logs/ contains export and verification output. Physical-device validation is
 recorded separately from automated checks and emulator testing.
