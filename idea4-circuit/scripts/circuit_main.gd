@@ -56,6 +56,8 @@ var venue_filter = "ready"
 var _art_cache: Dictionary = {}
 var _activity_game: Control
 var _activity_offer_id = ""
+var _batch_result: Dictionary = {}
+var _activity_result: Dictionary = {}
 var _activity_busy = false
 
 func _ready() -> void:
@@ -84,7 +86,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_queue_resize)
 	_render()
 	_sync_music()
-	print("CIRCUIT_READY version=0.3.0")
+	print("CIRCUIT_READY version=0.3.1")
 	if "--smoke" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(2.0).timeout
 		print("CIRCUIT_SMOKE_PASS")
@@ -244,9 +246,11 @@ func _build_welcome() -> void:
 	name_edit.add_theme_stylebox_override("focus", _style(PAPER, 10, GREEN))
 	name_edit.add_theme_color_override("font_color", INK)
 	card.add_child(name_edit)
+	_label(card, "Standard · tight margins, real upkeep", 14, MUTED).name = "StandardStartHint"
 	var relaxed = CheckButton.new()
 	relaxed.mouse_filter = Control.MOUSE_FILTER_PASS
-	relaxed.text = "Relaxed start (+$700)"
+	relaxed.text = "Relaxed · +$700, gentler upkeep"
+	relaxed.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	relaxed.custom_minimum_size.y = 54
 	card.add_child(relaxed)
 	_icon_button(card, "START YOUR SEASON", "arrow", func(): _start_company(name_edit.text, relaxed.button_pressed), RED, CREAM)
@@ -427,6 +431,7 @@ func _build_crew() -> void:
 	var summary = _flow(content)
 	_chip(summary, "crew", "%d crew + you" % model.state.staff.size(), INK, CREAM)
 	_chip(summary, "cash", _money(wages) + " / day", INK, GOLD)
+	_label(content, "Paid rest restores morale. Wages continue on missed shifts.", 14, MUTED).name = "CrewCostHint"
 	for employee in model.state.staff:
 		var col = _column(_box(content, CREAM, 16, 13), 9)
 		_staff_heading(col, employee)
@@ -481,10 +486,24 @@ func _build_menu() -> void:
 	var price = _label(prices, _money(model.state.price) + " / bag", 30, CREAM, HORIZONTAL_ALIGNMENT_CENTER)
 	price.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button(prices, "+", func(): _act("set_price", {"value": float(model.state.price) + 0.5}), GOLD, INK).custom_minimum_size.x = 62
+	var pricing: Dictionary = model.pricing_info()
+	var facts = _flow(card)
+	var demand_change = (float(pricing.price_factor) - 1.0) * 100.0
+	_chip(facts, "crew", "Price: %+.0f%% demand" % demand_change, PAPER, RED if demand_change < 0 else GREEN, "Price only; weather, recipe, reputation, capacity and stock also affect sales.")
+	facts.get_child(-1).name = "PricingDemand"
+	_chip(facts, "recipe", _money(pricing.unit_cost) + " ingredients", PAPER, INK)
+	facts.get_child(-1).name = "PricingIngredients"
+	_chip(facts, "cash", _money(pricing.unit_margin) + " margin", PAPER, RED if float(pricing.unit_margin) < 0 else GREEN)
+	facts.get_child(-1).name = "PricingMargin"
+	_label(card, "Per bag, before wages & fees.", 12, Color("b9cec4")).name = "PricingScope"
 	var capacity: int = Content.TRUCKS[int(model.state.truck_tier)].capacity
 	var room: int = maxi(0, capacity - int(model.state.stock))
 	var stock = _column(_box(content, CREAM, 14, 13), 9)
-	_chip(_flow(stock), "stock", "%d / %d bags" % [model.state.stock, capacity])
+	var stock_facts = _flow(stock)
+	_chip(stock_facts, "stock", "%d / %d bags" % [model.state.stock, capacity])
+	var spoilage = "1.5%" if str(model.state.get("difficulty", "standard")) == "relaxed" else "6%"
+	_chip(stock_facts, "timer", spoilage + " leftovers spoil", PAPER, MUTED, "After each trading day; rounded down to whole bags.")
+	stock_facts.get_child(-1).name = "StockSpoilage"
 	var stock_row = _row(stock)
 	for amount in [50, 100, 200]:
 		var order: int = room if amount == 200 else mini(amount, room)
@@ -496,7 +515,7 @@ func _build_menu() -> void:
 	for quality in ["budget", "standard", "premium"]:
 		var selected: bool = str(model.state.quality) == quality
 		_button(quality_row, quality.capitalize(), func(): _act("set_quality", {"id": quality}), GOLD if selected else CREAM, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_disclosure(content, "Pricing & ingredients", "Higher prices reduce demand. Base supplies cost $1 per bag; recipe and quality extras are charged when sold. Budget lowers costs; premium improves reviews.")
+	_disclosure(content, "Pricing & ingredients", "Higher prices reduce demand. Pay $1 per bag for stock now; remaining recipe and quality costs are charged when sold. After each trading day, " + spoilage + " of leftover stock spoils, rounded down. Margin is before wages, fees and wasted stock.")
 	_section("RECIPE BOOK")
 	var board = GridContainer.new()
 	board.columns = 2
@@ -521,6 +540,7 @@ func _build_menu() -> void:
 
 func _build_garage() -> void:
 	_section("YOUR EQUIPMENT")
+	_label(content, "A worn fryer serves fewer bags. Plan for repairs.", 14, MUTED).name = "MaintenanceHint"
 	for gear in model.equipment_options():
 		var col = _column(_box(content, CREAM, 16, 13), 9)
 		var id: String = gear.id
@@ -720,8 +740,9 @@ func _show_minigame() -> void:
 	col.add_child(_batch_game)
 	_batch_game.configure(str(model.state.recipe), int(model.state.fryer_tier), not bool(settings.motion))
 	_batch_game.feedback.connect(_game_feedback)
+	_batch_game.result_ready.connect(_commit_batch)
 	_batch_game.completed.connect(func(score): _finish_batch.call_deferred(float(score)))
-	_button(col, "Skip · no penalty", _close_modal, PAPER, INK)
+	_button(col, "Skip · no penalty", _close_modal, PAPER, INK).name = "BatchLeave"
 	_minigame_playing = true
 
 func _stop_minigame() -> void:
@@ -755,6 +776,7 @@ func _show_help() -> void:
 		["04  Learn the crowd", "Match recipes to local tastes. Higher prices can lose customers. Reviews, service and reliability shape reputation."],
 		["05  Leave a story", "Get to know your crew, support friendships and discuss wages. People and towns remember earlier decisions. Your company carries on next season."],
 		["A little hands-on help", "Activities offer repairs, order memory and spot-the-hazard jobs. Play yourself, delegate to available crew, or pay a specialist. They're optional; costs and rewards appear before you choose."],
+		["Choose your pace", "Standard has tight margins and equipment upkeep. Relaxed adds $700 and gentler wear, production limits and reviews. You choose when starting a new company."],
 		["Make the stand your own", "Complete three contracts each season, then collect cash and permanent decorations. Upgrades, crew, weather and keepsakes appear on your stand."],
 		["Need a second chance?", "Borrow working capital in Company, or run a $25 roadside pop-up. Staff and bigger machines are optional at the start."]]:
 		_label(col, entry[0], 20, GREEN)
@@ -763,7 +785,7 @@ func _show_help() -> void:
 
 func _show_credits() -> void:
 	var col = _modal_page("MADE FOR THE LONG WAY ROUND", "Credits & licenses")
-	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.3.0", 22, INK)
+	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.3.1", 22, INK)
 	_label(col, "Original game design, company stories, illustrations and interface. An independent choice-driven concessions simulator; no affiliation with BitLife or Candywriter.", 16, MUTED)
 	_label(col, "Built with Godot 4.7.2. Fredoka typeface under the SIL Open Font License. Original Golden Hour audio reused from the companion game.", 16, MUTED)
 	for entry in [["Godot engine license", "res://docs/licenses/Godot-LICENSE.txt"], ["Engine third-party notices", "res://docs/licenses/Godot-COPYRIGHT.txt"], ["Fredoka font license", "res://assets/fonts/OFL.txt"]]:
@@ -832,6 +854,9 @@ func _modal_page(kicker: String, title: String, close_allowed: bool = true) -> V
 	return col
 
 func _close_modal() -> void:
+	var settled_game = not _batch_result.is_empty() or not _activity_result.is_empty()
+	_batch_result = {}
+	_activity_result = {}
 	_minigame_playing = false
 	_batch_game = null
 	_activity_busy = false
@@ -841,6 +866,7 @@ func _close_modal() -> void:
 		remove_child(modal)
 		modal.queue_free()
 	modal = null
+	if settled_game and has_run and not _building: _render()
 
 func _back() -> void:
 	if is_instance_valid(modal):
@@ -1220,7 +1246,7 @@ func _show_recipe(id: String) -> void:
 	var col = _modal_page("RECIPE CARD", str(recipe.name))
 	_picture(col, "recipes/" + id, Vector2(0, 185))
 	var chips = _flow(col)
-	_chip(chips, "cash", _money(recipe.cost) + " / bag base")
+	_chip(chips, "cash", _money(recipe.cost) + " / bag · standard")
 	_chip(chips, "heart", "+%d recipe appeal" % recipe.appeal)
 	var locked: bool = id not in model.state.get("unlocked_recipes", [])
 	if locked: _chip(chips, "rep", "%d rep to unlock" % recipe.unlock_rep)
@@ -1363,16 +1389,26 @@ func _show_outcome() -> void:
 	_disclosure(col, "The full story", str(outcome.get("result", "")))
 	_icon_button(col, "CONTINUE", "arrow", _close_modal, RED, CREAM)
 
-func _finish_batch(score: float) -> void:
-	if not _minigame_playing: return
-	_minigame_playing = false
+func _commit_batch(score: float) -> void:
+	if not _minigame_playing or not _batch_result.is_empty(): return
 	var result: Dictionary = model.act("minigame", {"score": score})
 	if not bool(result.get("ok", false)):
 		_notify(str(result.get("message", "Batch already finished.")), RED)
 		return
+	_batch_result = {"score":score}
 	_save_game()
+	var leave = modal.find_child("BatchLeave", true, false) if is_instance_valid(modal) else null
+	if is_instance_valid(leave): leave.text = "Back to your stand"
+
+func _finish_batch(score: float) -> void:
+	if not _minigame_playing: return
+	_commit_batch(score)
+	if _batch_result.is_empty(): return
+	var settled_score = float(_batch_result.score)
+	_batch_result = {}
+	_minigame_playing = false
 	_render()
-	_show_batch_result(score)
+	_show_batch_result(settled_score)
 
 func _outcome_groups(parent: Node, cards: Array) -> void:
 	var groups: Dictionary = {}
@@ -1485,16 +1521,33 @@ func _start_activity(id: String) -> void:
 	col.add_child(_activity_game)
 	_activity_game.configure(str(offer.kind), int(offer.seed), not bool(settings.motion), int(offer.difficulty))
 	_activity_game.feedback.connect(_game_feedback)
+	_activity_game.result_ready.connect(func(score): _commit_activity(id, float(score)))
 	_activity_game.completed.connect(func(score): _finish_activity.call_deferred(id, float(score)))
 	_activity_offer_id = id
 	_activity_busy = true
 	if float(offer.self_cost) > 0: _label(col, "Parts: " + _money(offer.self_cost) + " when you finish, even if the repair is unsuccessful.", 13, MUTED)
-	_button(col, "Leave for later", _close_modal, PAPER, INK)
+	_button(col, "Leave for later", _close_modal, PAPER, INK).name = "ActivityLeave"
+
+func _commit_activity(id: String, score: float) -> void:
+	if not _activity_busy or id != _activity_offer_id or not _activity_result.is_empty(): return
+	var result: Dictionary = model.act("activity", {"id":id, "mode":"self", "score":score})
+	if not bool(result.get("ok", false)):
+		_notify(str(result.get("message", "This job is no longer available.")), RED)
+		return
+	_activity_result = result.get("activity", {}).duplicate(true)
+	_save_game()
+	var leave = modal.find_child("ActivityLeave", true, false) if is_instance_valid(modal) else null
+	if is_instance_valid(leave): leave.text = "Back to your stand"
 
 func _finish_activity(id: String, score: float) -> void:
 	if not _activity_busy or id != _activity_offer_id: return
+	_commit_activity(id, score)
+	if _activity_result.is_empty(): return
+	var record = _activity_result.duplicate(true)
+	_activity_result = {}
 	_activity_busy = false
-	_resolve_activity(id, "self", score)
+	_render()
+	_present_activity_result(record)
 
 func _resolve_activity(id: String, mode: String, score: float = 0) -> void:
 	var result: Dictionary = model.act("activity", {"id": id, "mode": mode, "score": score})
@@ -1504,9 +1557,12 @@ func _resolve_activity(id: String, mode: String, score: float = 0) -> void:
 		return
 	_save_game()
 	_render()
+	_present_activity_result(result.get("activity", {}))
+
+func _present_activity_result(record: Dictionary) -> void:
 	_chime("batch_finish")
-	if float(result.get("activity", {}).get("score", 0)) >= 0.85: _pulse(50)
-	_show_company_result(result.get("activity", {}), "JOB COMPLETE")
+	if float(record.get("score", 0)) >= 0.85: _pulse(50)
+	_show_company_result(record, "JOB COMPLETE")
 
 func _show_company_result(record: Dictionary, heading: String) -> void:
 	var col = _modal_page(heading, str(record.get("title", "A little progress")))

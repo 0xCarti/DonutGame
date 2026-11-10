@@ -1,8 +1,26 @@
-GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.3.0
+GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.3.1
 
 A portrait fairground business game. Book stops, choose recipes, look after your
 crew and equipment, and build a reputation across the travelling fair circuit.
 The demo plays offline and contains no purchases or payment integration.
+
+MANAGEMENT BALANCE UPDATE — 0.3.1
+Standard play asks for a working reserve and more deliberate preparation.
+Ingredients, equipment condition, staff workload and pricing matter more to
+the day's margin. The Menu shows ingredient cost per bag, the amount left
+before wages and fees, and the price's effect on potential demand. These are
+decision aids, not a guaranteed sales forecast. A busy fair still needs enough
+staff, a maintained fryer and supplies; an expensive pitch can lose money.
+In standard play, 6% of leftover stock spoils at closing, rounded down. Buy
+for likely sales instead of always filling the truck. A fryer at zero
+condition cannot produce. Relaxed play retains gentler wear, staff fatigue,
+price sensitivity and 1.5% leftover spoilage, plus its $700 starting cushion.
+
+Existing companies keep their money, stock, people, equipment and history.
+The revised balance applies to future trading and purchases. Previously
+booked pitch fees and completed reports are not charged or calculated again.
+Finished mini-game scores count once even if the result screen is closed;
+leaving an unfinished activity still gives no reward and consumes no attempt.
 
 LIVING CIRCUIT UPDATE — 0.3.0
 Your illustrated stand now reflects your equipment, crew, weather and earned
@@ -50,7 +68,7 @@ Your season closes at 36 days or 8 completed stops. A company score and journal
 record the result. Begin another season with your equipment, crew, recipes and
 town relationships. Stories can continue at later stops and in later seasons.
 If money is tight, Company offers working-capital loans and Circuit offers a
-small roadside pop-up. A gentler first season grants extra starting cash.
+small roadside pop-up. A relaxed start grants extra cash and gentler upkeep.
 
 INCLUDED
 12 fictional venues; 10 recipes; 14 recruitable staff; four tiers each of truck,
@@ -76,7 +94,7 @@ real-time waiting, and browsing never advances a day. Company contains help,
 settings, credits, loans, milestones and new-company controls.
 
 ANDROID
-Install GoldenHourCircuit-0.3.0-Android.apk on Android 7.0 or later. Your Android
+Install GoldenHourCircuit-0.3.1-Android.apk on Android 7.0 or later. Your Android
 device may ask you to allow installation from the app that opened the APK.
 The package is com.goldenhourgame.circuit; it can coexist with the original
 Golden Hour mini-donut game. Saves stay on the device. Backups are not uploaded.
@@ -107,7 +125,7 @@ and provisioning profile. No Apple account, store upload, or payment is used.
 An unsigned IPA is not evidence of a physical iPhone playtest.
 
 BUILD EVIDENCE
-Versioned outputs live under ../builds/circuit/0.3.0/rN/. Each new build gets a
+Versioned outputs live under ../builds/circuit/0.3.1/rN/. Each new build gets a
 new revision folder. build-manifest.json identifies exact artifacts and hashes;
 logs/ contains export and verification output. Physical-device validation is
 recorded separately from automated checks and emulator testing.

@@ -212,8 +212,8 @@ func _test_accounting_and_event_once() -> void:
 	var report: Dictionary = model.state.last_report
 	_check(model.state.phase == "report", "Trading produces a report")
 	_check(report.sold > 0 and report.wages == 0, "Owner sells without staff wages")
-	_check(is_equal_approx(float(report.ingredients), float(report.sold) + float(report.stock_waste)), "Classic standard recipe costs only prepaid $1 base")
-	_check(is_zero_approx(float(report.extra_ingredients)), "Classic base is never billed a second time")
+	_check(is_equal_approx(float(report.prepaid_stock), float(report.sold) + float(report.stock_waste)), "Classic base stock remains exactly $1 per sold or wasted portion")
+	_check(is_equal_approx(float(report.extra_ingredients), float(report.sold) * 0.85), "Classic preparation extras are charged once, only on sales")
 	_check(is_equal_approx(float(model.state.cash) - day_cash, float(report.cash_delta)), "Report cash delta equals actual cash movement including decision cost")
 	_check(is_equal_approx(float(report.profit), float(report.revenue) + float(report.event_cash) - float(report.ingredients) - float(report.wages) - float(report.fees)), "Every report profit component reconciles")
 	_check(absf(float(report.cash_delta) - float(report.profit) - float(report.prepaid_stock) - float(report.prepaid_fees)) < 0.02, "Cash/profit difference equals earlier inventory and fee prepayments")
@@ -229,7 +229,7 @@ func _test_accounting_and_event_once() -> void:
 	_quiet_event(model, "trading")
 	model.act("decide", {"choice": 0})
 	report = model.state.last_report
-	_check(absf(float(report.extra_ingredients) - int(report.sold) * (0.3 + 0.85)) < 0.02, "Only recipe and premium extras are charged on selling")
+	_check(absf(float(report.extra_ingredients) - int(report.sold) * (1.25 + 0.85)) < 0.02, "Only lemon recipe and premium extras are charged on selling")
 	_check(model.state.completed.size() == 1 and model.state.booked_id == "", "The final sales day completes and clears the stop")
 
 func _test_save_and_pending_determinism() -> void:
@@ -468,7 +468,8 @@ func _test_progression_and_price_tradeoffs() -> void:
 		_quiet_event(model, "trading")
 		model.act("decide", {"choice": 0})
 		profits[price] = float(model.state.last_report.profit)
-		_check(float(profits[price]) > 0, "Opening fair can earn an operating profit at price $%.0f" % price)
+		_check(is_finite(float(profits[price])), "Opening price $%.0f produces a finite reconciled result" % price)
+	_check(float(profits[3.0]) < 0 and float(profits[6.0]) > 0, "Selling too cheaply can lose money while the standard price remains viable")
 	_check(float(profits[14.0]) < float(profits[6.0]) and float(profits[14.0]) < float(profits[8.0]), "Maximum price is not a dominant strategy; demand falls")
 	for seed_value in [42, 2026, 9911]:
 		var model = _new(seed_value)

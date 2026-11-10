@@ -54,7 +54,7 @@ func _run() -> void:
 		game.press_action()
 		game.press_action()
 		_check(game.stage_scores.size() == stage + 1, "Repeated taps cannot skip stages")
-		_check(emissions.is_empty(), "No economic result before all three stages finish")
+		_check(emissions.is_empty(), "No animation-complete signal before all three stages finish")
 		game._process(Batch.RESOLVE_SECONDS * 0.45)
 		await _capture(game, "%02d-%s-success" % [stage + 1, Batch.STAGES[stage].to_lower()])
 		game._process(Batch.RESOLVE_SECONDS)
@@ -93,12 +93,58 @@ func _run() -> void:
 		for child in game.get_children():
 			if child is Control:
 				_check(child.position.x >= 0 and child.position.x + child.size.x <= width + 1, "Controls stay within phone card")
+	await _result_boundaries()
 	if failures.is_empty():
 		print("CIRCUIT_BATCH_GAME_PASS checks=", checks)
 		quit(0)
 	else:
 		for failure in failures: push_error(failure)
 		quit(1)
+
+func _result_boundaries() -> void:
+	for perfect in [false, true]:
+		for exit_on_result in [false, true]:
+			var game = Batch.new()
+			game.configure("classic", 0, true)
+			var ready: Array[float] = []
+			var finished: Array[float] = []
+			game.result_ready.connect(func(score): ready.append(score))
+			game.completed.connect(func(score): finished.append(score))
+			root.add_child(game)
+			game.set_process(false)
+			for stage in 3:
+				game._phase = (PI / 2 if stage == 1 else 0.0) if perfect else -PI / 2
+				game.press_action()
+				if stage < 2:
+					_check(ready.is_empty() and not game.has_result(), "Unfinished batch has no committed score")
+					game._process(Batch.RESOLVE_SECONDS + 0.01)
+			_check(ready.size() == 1 and ready[0] == (1.0 if perfect else 0.0), "Final timing action settles the exact high or low score immediately")
+			_check(game.has_result() and game._state == "resolving" and finished.is_empty(), "Batch settlement precedes final drop and medal animation")
+			for repeat in 4: game.press_action()
+			_check(ready.size() == 1, "Extra final taps cannot resettle a batch")
+			if not exit_on_result:
+				game._process(Batch.RESOLVE_SECONDS + 0.01)
+				game._process(Batch.FINISH_SECONDS + 0.01)
+				game._process(10)
+				_check(ready.size() == 1 and finished == ready, "Normal batch animation completes once with the already settled score")
+			root.remove_child(game)
+			game.queue_free()
+			await process_frame
+			_check(ready.size() == 1 and finished.size() == (0 if exit_on_result else 1), "Closing after the final action cannot discard or duplicate the settled result")
+	for actions in 3:
+		var game = Batch.new()
+		game.configure("classic", 0, true)
+		var ready: Array[float] = []
+		game.result_ready.connect(func(score): ready.append(score))
+		root.add_child(game)
+		game.set_process(false)
+		for action in actions:
+			game.press_action()
+			game._process(Batch.RESOLVE_SECONDS + 0.01)
+		root.remove_child(game)
+		game.queue_free()
+		await process_frame
+		_check(ready.is_empty(), "Leaving an unfinished batch never commits a score")
 
 func _capture(game: Control, filename: String) -> void:
 	game.queue_redraw()

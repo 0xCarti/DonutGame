@@ -54,7 +54,7 @@ func _run() -> void:
 		while game.pipe_masks[cell] != game.solution_masks[cell] and game._state == "playing": game.rotate_pipe(cell)
 	game._process(0.35)
 	await _capture(game, "02-repair-medal")
-	_check(emissions.is_empty(), "No result until the completion celebration")
+	_check(emissions.is_empty(), "Animation-complete signal waits for the celebration")
 	game._process(Activity.FINISH_SECONDS)
 	_check(emissions.size() == 1 and emissions[0] == 1, "Solved repair emits exactly one full score")
 	for index in 12:
@@ -188,12 +188,80 @@ func _run() -> void:
 	game.configure("unknown", -42, true, 99)
 	_check(game.kind == "repair" and game.difficulty == 2, "Unknown mode and difficulty have safe defaults")
 	_check(not game._emitted and game.hazards_found.is_empty() and game.order_answers.is_empty(), "Reconfigure clears every previous attempt")
+	_check(not game.has_result(), "Reconfigure clears the previous result settlement")
+	await _result_boundaries()
 	if failures.is_empty():
 		print("CIRCUIT_ACTIVITY_GAME_PASS checks=", checks)
 		quit(0)
 	else:
 		for failure in failures: push_error(failure)
 		quit(1)
+
+func _result_boundaries() -> void:
+	for activity_kind in ["repair", "orders", "inspection"]:
+		for perfect in [false, true]:
+			for exit_on_result in [false, true]:
+				var game = Activity.new()
+				game.configure(activity_kind, 42, true)
+				var ready: Array[float] = []
+				var finished: Array[float] = []
+				game.result_ready.connect(func(score): ready.append(score))
+				game.completed.connect(func(score): finished.append(score))
+				root.add_child(game)
+				game.set_process(false)
+				if activity_kind == "repair":
+					if perfect:
+						for cell in game.solution_route:
+							while game.pipe_masks[cell] != game.solution_masks[cell] and game._state == "playing": game.rotate_pipe(cell)
+					else:
+						var distractor = 0
+						while distractor in game.solution_route: distractor += 1
+						for turn in game.move_limit: game.rotate_pipe(distractor)
+				elif activity_kind == "orders":
+					game.press_action()
+					for index in game.order_sequence.size():
+						game.choose_order((game.order_sequence[index] + (0 if perfect else 1)) % 4)
+						if index < game.order_sequence.size() - 1:
+							_check(ready.is_empty() and not game.has_result(), "Partial order sequence has no committed result")
+							game._process(Activity.ORDER_PAUSE + 0.01)
+					_check(game._state == "order_feedback", "Order result settles before final-answer feedback ends")
+				else:
+					if perfect:
+						for index in 4: game.inspect_hazard(index)
+					else:
+						for mistake in 3: game.inspect_empty()
+				_check(ready.size() == 1 and ready[0] == (1.0 if perfect else 0.0), "Final action settles the exact high or low " + activity_kind + " score")
+				_check(game.has_result() and finished.is_empty(), "Settlement is immediate while the activity celebration remains visible")
+				for repeat in 4:
+					game.press_action()
+					game.rotate_pipe(0)
+					game.choose_order(0)
+					game.inspect_empty()
+					game.inspect_hazard(0)
+				_check(ready.size() == 1, "Extra final inputs cannot resettle " + activity_kind)
+				if not exit_on_result:
+					if activity_kind == "orders": game._process(Activity.ORDER_PAUSE + 0.01)
+					game._process(Activity.FINISH_SECONDS + 0.01)
+					game._process(10)
+					_check(ready.size() == 1 and finished == ready, "Normal activity animation completes exactly once with the settled result")
+				root.remove_child(game)
+				game.queue_free()
+				await process_frame
+				_check(ready.size() == 1 and finished.size() == (0 if exit_on_result else 1), "Closing after the final action cannot discard or duplicate " + activity_kind + " settlement")
+		var unfinished = Activity.new()
+		unfinished.configure(activity_kind, 42, true)
+		var pending: Array[float] = []
+		unfinished.result_ready.connect(func(score): pending.append(score))
+		root.add_child(unfinished)
+		unfinished.set_process(false)
+		if activity_kind == "orders":
+			unfinished.press_action()
+			unfinished.choose_order(unfinished.order_sequence[0])
+		elif activity_kind == "inspection": unfinished.inspect_hazard(0)
+		root.remove_child(unfinished)
+		unfinished.queue_free()
+		await process_frame
+		_check(pending.is_empty(), "Unfinished " + activity_kind + " cancellation never commits a score")
 
 func _capture(game: Control, filename: String) -> void:
 	game.queue_redraw()

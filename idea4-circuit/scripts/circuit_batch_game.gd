@@ -2,6 +2,8 @@ extends Control
 ## A self-contained three-tap opening batch. Economic effects belong to the parent.
 ## configure() can be called before or after adding this control to a scene.
 signal completed(score: float)
+## Commit this result immediately; completed only marks the end of its animation.
+signal result_ready(score: float)
 signal feedback(kind: String)
 
 const FONT = preload("res://assets/fonts/Fredoka-Medium.ttf")
@@ -35,6 +37,7 @@ var _state = "playing"
 var _pause = 0.0
 var _locked_position = 0.0
 var _emitted = false
+var _result_emitted = false
 var _particles: Array[Dictionary] = []
 
 func configure(new_recipe_id: String, new_fryer_tier: int, use_reduced_motion: bool) -> void:
@@ -51,6 +54,7 @@ func configure(new_recipe_id: String, new_fryer_tier: int, use_reduced_motion: b
 	_pause = 0.0
 	_state = "playing"
 	_emitted = false
+	_result_emitted = false
 	_particles.clear()
 	if is_instance_valid(action_button): _update_labels()
 	queue_redraw()
@@ -158,6 +162,9 @@ func total_score() -> float:
 	for score in stage_scores: total += score
 	return total / stage_scores.size()
 
+func has_result() -> bool:
+	return _result_emitted
+
 func press_action() -> void:
 	if _state != "playing" or _emitted: return
 	_locked_position = indicator_position()
@@ -169,6 +176,11 @@ func press_action() -> void:
 	feedback.emit("batch_perfect" if score >= 0.999 else "batch_good")
 	_update_labels()
 	queue_redraw()
+	# The third timing action fixes all three scores. Leaving during the
+	# drop/medal animation must not turn a completed batch into a free retry.
+	if stage_scores.size() == 3 and not _result_emitted:
+		_result_emitted = true
+		result_ready.emit(total_score())
 
 func _advance_stage() -> void:
 	_pause = 0.0

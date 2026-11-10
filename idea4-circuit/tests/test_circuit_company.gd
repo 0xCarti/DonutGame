@@ -296,7 +296,8 @@ func _reports() -> void:
 		var report: Dictionary = m.state.last_report
 		_check(report.drivers[0].id == mode, "Report correctly identifies limiting factor: " + mode)
 		_check(report.starting_stock == (1 if mode == "stock" else 260), "Report retains stock before sales/waste")
-		_check(report.drivers[1].id == "weather" and is_equal_approx(float(report.drivers[1].value), -0.24), "Weather driver reflects actual simulated showers multiplier")
+		var weather_driver: Dictionary = Content.find(report.drivers, "weather")
+		_check(not weather_driver.is_empty() and is_equal_approx(float(weather_driver.get("value", 0)), -0.24), "Weather driver reflects actual simulated showers multiplier regardless of warning priority")
 		_check(report.sold == mini(int(report.demand), mini(int(report.capacity), int(report.starting_stock))), "Report caps reconcile to actual sales")
 		_check(not report.reactions.is_empty(), "Daily report includes contextual customer reaction")
 		_roundtrip(m)

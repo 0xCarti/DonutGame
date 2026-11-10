@@ -37,7 +37,7 @@ func _initialize() -> void:
 		check(float(venue.fee) < float(venue.demand) * 3.0, String(venue.id) + ": plausible fee at target demand")
 	for recipe: Dictionary in Content.RECIPES:
 		require_fields(recipe, ["id", "name", "description", "cost", "appeal", "unlock_rep", "tags", "color"])
-		check(float(recipe.cost) >= 1.0 and float(recipe.cost) <= 3.0, String(recipe.id) + ": recipe cost bounds")
+		check(float(recipe.cost) >= 1.0 and float(recipe.cost) <= 4.0, String(recipe.id) + ": recipe cost bounds")
 		check(float(recipe.appeal) >= 0.0 and float(recipe.appeal) <= 20.0, String(recipe.id) + ": appeal bounds")
 	check(int(Content.find(Content.RECIPES, "classic").unlock_rep) == 0, "classic starts unlocked")
 	for employee: Dictionary in Content.STAFF:

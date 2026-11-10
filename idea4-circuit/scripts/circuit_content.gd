@@ -18,16 +18,16 @@ const VENUES: Array = [
 ]
 
 const RECIPES: Array = [
-	{"id":"classic", "name":"Golden Original", "description":"A warm paper bag, fine sugar, and a recipe worth learning properly. The river fairs' favourite.", "cost":1.0, "appeal":3.0, "unlock_rep":0, "tags":["traditional","family"], "color":"#D8AD68"},
-	{"id":"cinnamon", "name":"Carousel Cinnamon", "description":"A fragrant cinnamon tumble that tastes like one last ride. Beloved after dark at Brass Bell.", "cost":1.15, "appeal":5.0, "unlock_rep":12, "tags":["traditional","carnival","night"], "color":"#B98258"},
-	{"id":"lemon", "name":"Lantern Lemon", "description":"Bright lemon sugar cuts through a cool harbour evening. Lantern Quay regulars ask for extra zest.", "cost":1.3, "appeal":7.0, "unlock_rep":24, "tags":["fruit","coastal"], "color":"#D9C66F"},
-	{"id":"apple", "name":"Orchard Apple Crumble", "description":"Apple spice and a crisp crumb coat. Juniper judges and Pippin growers both claim they inspired it.", "cost":1.45, "appeal":8.0, "unlock_rep":32, "tags":["fruit","agricultural","rural"], "color":"#ADAE70"},
-	{"id":"maple", "name":"Copper Kettle Maple", "description":"A glossy maple drizzle with a tiny pinch of salt. Steam-engine crews call it workshop fuel.", "cost":1.55, "appeal":10.0, "unlock_rep":40, "tags":["heritage","traditional"], "color":"#C48A55"},
-	{"id":"rainbow", "name":"Big Wheel Confetti", "description":"Vanilla glaze and a joyful scatter of colour. Marlow families eat these before taking the photo.", "cost":1.65, "appeal":11.0, "unlock_rep":48, "tags":["family","carnival","colourful"], "color":"#CD8EB3"},
-	{"id":"coffee", "name":"Encore Coffee Crunch", "description":"Coffee sugar and little caramel crunches. Cedar Reach's sound crew approves, between load-ins.", "cost":1.75, "appeal":12.0, "unlock_rep":56, "tags":["concert","night","bold"], "color":"#A78874"},
-	{"id":"caramel", "name":"Saltwind Caramel", "description":"Soft caramel, sea-salt sparkle, and sticky fingers. A coastal crowd-pleaser on blustery days.", "cost":1.9, "appeal":14.0, "unlock_rep":64, "tags":["coastal","bold"], "color":"#C99768"},
-	{"id":"berry", "name":"Meadow Berry Cloud", "description":"A berry glaze with a light vanilla finish. Exhibition visitors insist it counts as part of lunch.", "cost":2.15, "appeal":16.0, "unlock_rep":72, "tags":["fruit","family","agricultural"], "color":"#B984AA"},
-	{"id":"cocoa", "name":"Solstice Chilli Cocoa", "description":"Deep cocoa followed by a small, friendly warmth. A brave festival special with a loyal following.", "cost":2.4, "appeal":18.0, "unlock_rep":82, "tags":["concert","night","bold"], "color":"#A77577"}
+	{"id":"classic", "name":"Golden Original", "description":"A warm paper bag, fine sugar, and a recipe worth learning properly. The river fairs' favourite.", "cost":1.85, "appeal":3.0, "unlock_rep":0, "tags":["traditional","family"], "color":"#D8AD68"},
+	{"id":"cinnamon", "name":"Carousel Cinnamon", "description":"A fragrant cinnamon tumble that tastes like one last ride. Beloved after dark at Brass Bell.", "cost":2.05, "appeal":5.0, "unlock_rep":12, "tags":["traditional","carnival","night"], "color":"#B98258"},
+	{"id":"lemon", "name":"Lantern Lemon", "description":"Bright lemon sugar cuts through a cool harbour evening. Lantern Quay regulars ask for extra zest.", "cost":2.25, "appeal":7.0, "unlock_rep":24, "tags":["fruit","coastal"], "color":"#D9C66F"},
+	{"id":"apple", "name":"Orchard Apple Crumble", "description":"Apple spice and a crisp crumb coat. Juniper judges and Pippin growers both claim they inspired it.", "cost":2.5, "appeal":8.0, "unlock_rep":32, "tags":["fruit","agricultural","rural"], "color":"#ADAE70"},
+	{"id":"maple", "name":"Copper Kettle Maple", "description":"A glossy maple drizzle with a tiny pinch of salt. Steam-engine crews call it workshop fuel.", "cost":2.65, "appeal":10.0, "unlock_rep":40, "tags":["heritage","traditional"], "color":"#C48A55"},
+	{"id":"rainbow", "name":"Big Wheel Confetti", "description":"Vanilla glaze and a joyful scatter of colour. Marlow families eat these before taking the photo.", "cost":2.8, "appeal":11.0, "unlock_rep":48, "tags":["family","carnival","colourful"], "color":"#CD8EB3"},
+	{"id":"coffee", "name":"Encore Coffee Crunch", "description":"Coffee sugar and little caramel crunches. Cedar Reach's sound crew approves, between load-ins.", "cost":2.95, "appeal":12.0, "unlock_rep":56, "tags":["concert","night","bold"], "color":"#A78874"},
+	{"id":"caramel", "name":"Saltwind Caramel", "description":"Soft caramel, sea-salt sparkle, and sticky fingers. A coastal crowd-pleaser on blustery days.", "cost":3.15, "appeal":14.0, "unlock_rep":64, "tags":["coastal","bold"], "color":"#C99768"},
+	{"id":"berry", "name":"Meadow Berry Cloud", "description":"A berry glaze with a light vanilla finish. Exhibition visitors insist it counts as part of lunch.", "cost":3.4, "appeal":16.0, "unlock_rep":72, "tags":["fruit","family","agricultural"], "color":"#B984AA"},
+	{"id":"cocoa", "name":"Solstice Chilli Cocoa", "description":"Deep cocoa followed by a small, friendly warmth. A brave festival special with a loyal following.", "cost":3.65, "appeal":18.0, "unlock_rep":82, "tags":["concert","night","bold"], "color":"#A77577"}
 ]
 
 const STAFF: Array = [

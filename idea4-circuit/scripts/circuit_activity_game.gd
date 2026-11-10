@@ -1,6 +1,8 @@
 extends Control
 ## Original optional activity games. This control awards a score, never money or game state.
 signal completed(score: float)
+## Commit this result immediately; completed only marks the end of its animation.
+signal result_ready(score: float)
 signal feedback(kind: String)
 
 const FONT = preload("res://assets/fonts/Fredoka-Medium.ttf")
@@ -35,6 +37,7 @@ var _time = 0.0
 var _pause = 0.0
 var _score = 0.0
 var _emitted = false
+var _result_emitted = false
 var _particles: Array[Dictionary] = []
 var _rng = RandomNumberGenerator.new()
 var pipe_masks: Array[int] = []
@@ -66,6 +69,7 @@ func configure(activity_kind: String, new_seed: int, use_reduced_motion: bool, n
 	_pause = 0.0
 	_score = 0.0
 	_emitted = false
+	_result_emitted = false
 	_particles.clear()
 	pipe_masks.clear()
 	solution_masks.clear()
@@ -324,6 +328,8 @@ func choose_order(order_id: int) -> void:
 	if correct and not reduced_motion: _burst(_order_choice_rect(order_id).get_center(), 10)
 	_update_labels()
 	queue_redraw()
+	# The last answer fixes the score before its feedback animation finishes.
+	if order_answers.size() == order_sequence.size(): _lock_result(float(order_correct) / order_sequence.size())
 
 func inspect_hazard(index: int) -> void:
 	if kind != "inspection" or _state != "playing" or index < 0 or index >= 4 or index in hazards_found: return
@@ -348,6 +354,15 @@ func inspect_empty() -> void:
 func total_score() -> float:
 	return _score
 
+func has_result() -> bool:
+	return _result_emitted
+
+func _lock_result(score: float) -> void:
+	if _result_emitted: return
+	_score = clampf(score, 0.0, 1.0)
+	_result_emitted = true
+	result_ready.emit(_score)
+
 func _finish(score: float) -> void:
 	if _state in ["finishing", "complete"]: return
 	_score = clampf(score, 0.0, 1.0)
@@ -357,6 +372,7 @@ func _finish(score: float) -> void:
 	if not reduced_motion: _burst(Vector2(size.x * 0.5, 218), 26)
 	_update_labels()
 	queue_redraw()
+	_lock_result(_score)
 
 func _update_labels() -> void:
 	if not is_instance_valid(action_button): return

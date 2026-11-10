@@ -28,6 +28,7 @@ func _run() -> void:
 	app.settings.motion = false
 	await _settle()
 	_check(not app.has_run, "First launch starts at company creation")
+	_check(_label_is_visible(app, "Standard · tight margins, real upkeep"), "Company creation discloses standard challenge")
 	await _capture("01-welcome")
 	app._start_company("Golden Hour", false)
 	await _settle()
@@ -35,6 +36,7 @@ func _run() -> void:
 	await _test_visual_detail_views()
 	await _test_compact_event_views()
 	await _test_effect_feedback_flow()
+	await _test_pricing_disclosures()
 	_check(app.has_run and app.model.state.phase == "planning", "Company starts in planning")
 	_check(app.find_child("PrimaryAction", true, false) != null, "Primary action is available")
 	await _capture("02-journal")
@@ -122,6 +124,48 @@ func _run() -> void:
 	for failure in failures: print("FAIL: " + failure)
 	print("CIRCUIT_UI_CHECKS %d passed / %d" % [checks - failures.size(), checks])
 	quit(0 if failures.is_empty() else 1)
+
+func _test_pricing_disclosures() -> void:
+	var original: Dictionary = app.model.to_save()
+	app.model.state.unlocked_recipes = Content.RECIPES.map(func(recipe): return str(recipe.id))
+	app._navigate("menu")
+	await _settle()
+	_check(_label_is_visible(app.find_child("StockSpoilage", true, false), "6% leftovers spoil"), "Standard stock waste is disclosed before buying")
+	for setup in [["classic", "standard", 6.0], ["lemon", "premium", 8.0], ["classic", "budget", 3.0], ["cocoa", "premium", 3.0], ["classic", "standard", 14.0]]:
+		app._act("set_recipe", {"id": setup[0]})
+		app._act("set_quality", {"id": setup[1]})
+		app._act("set_price", {"value": setup[2]})
+		await _settle()
+		var before: Dictionary = app.model.to_save()
+		var pricing: Dictionary = app.model.pricing_info()
+		_check(app.model.to_save() == before, "Pricing preview preserves company and RNG")
+		_check(_label_is_visible(app.find_child("PricingDemand", true, false), "Price: %+.0f%% demand" % ((float(pricing.price_factor) - 1.0) * 100.0)), "Price change refreshes actual demand multiplier")
+		_check(_label_is_visible(app.find_child("PricingIngredients", true, false), app._money(pricing.unit_cost) + " ingredients"), "Recipe and quality refresh actual ingredient cost")
+		_check(_label_is_visible(app.find_child("PricingMargin", true, false), app._money(pricing.unit_margin) + " margin"), "Menu displays actual per-bag margin")
+		_check(_label_is_visible(app, "Per bag, before wages & fees."), "Margin is not represented as daily profit")
+		if float(setup[2]) == 14.0: _check(float(pricing.price_factor) < 1.0, "High-price preview communicates demand loss")
+	app.model.state.difficulty = "relaxed"
+	app._navigate("menu")
+	await _settle()
+	_check(_label_is_visible(app.find_child("StockSpoilage", true, false), "1.5% leftovers spoil"), "Relaxed stock warning reflects its gentler waste rule")
+	app.model.state.difficulty = "standard"
+	for dimensions in [Vector2i(360,780), Vector2i(390,844)]:
+		root.size = dimensions
+		await _settle()
+		app._navigate("menu")
+		await _settle()
+		await _capture("23-pricing-%dx%d" % [dimensions.x, dimensions.y])
+	app._navigate("crew")
+	await _settle()
+	_check(_label_is_visible(app, "Paid rest restores morale. Wages continue on missed shifts."), "Crew budget warning is visible before hiring")
+	app._navigate("garage")
+	await _settle()
+	_check(_label_is_visible(app, "A worn fryer serves fewer bags. Plan for repairs."), "Equipment upkeep warning is visible before purchase")
+	_check(app.model.from_save(original), "Pricing checks restore original company")
+	root.size = Vector2i(480,960)
+	await _settle()
+	app._navigate("journal")
+	await _settle()
 
 func _test_visual_asset_catalog() -> void:
 	var keys: Array[String] = []

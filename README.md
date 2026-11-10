@@ -8,7 +8,7 @@ season through venue bookings, staff, recipes, pricing, equipment upkeep and
 choice-driven stories. It has its own app identity and save; the first-person
 game below remains preserved. Android, Windows and Web packaging scripts and an
 iOS source/build handoff are included in that directory. Generated packages live
-under `builds/circuit/0.1.0/rN/`; consult the matching build manifest for validation.
+under `builds/circuit/<version>/rN/`; consult the matching build manifest for validation.
 
 ## First-person mini-donut game
 

@@ -129,6 +129,18 @@ func equipment_options() -> Array:
 			"capacity": current.capacity})
 	return rows
 
+func pricing_info() -> Dictionary:
+	# The menu and sales calculation share this exact price/cost evidence.
+	var recipe: Dictionary = Content.find(Content.RECIPES, str(state.recipe))
+	var price := float(state.price)
+	var relaxed := str(state.get("difficulty", "standard")) == "relaxed"
+	var price_factor := clampf(1.0 - (price - 6.0) * 0.12, 0.12, 1.45) if relaxed else (1.0 + (6.0 - price) * 0.1 if price <= 6 else exp(-(price - 6.0) * 0.24))
+	var quality := str(state.quality)
+	var quality_appeal := -0.12 if quality == "budget" else (0.15 if quality == "premium" else 0.0)
+	var quality_extra := -0.3 if quality == "budget" else (0.85 if quality == "premium" else 0.0)
+	var unit_cost := _money(1.0 + maxf(0, float(recipe.cost) - 1.0 + quality_extra))
+	return {"price_factor":price_factor, "unit_cost":unit_cost, "unit_margin":_money(price - unit_cost), "quality_review":quality_appeal * 6.0, "quality_appeal":quality_appeal}
+
 func to_save() -> Dictionary:
 	_sync_rng()
 	return state.duplicate(true)
@@ -393,10 +405,11 @@ func _trade_day(event_result: String) -> void:
 	var recipe: Dictionary = Content.find(Content.RECIPES, str(state.recipe))
 	var town := str(venue.get("town", "The roadside"))
 	var weather_factor := {"Clear": 1.0, "Sunny": 1.12, "Showers": 0.76, "Windy": 0.87}
-	var quality_appeal := -0.12 if str(state.quality) == "budget" else (0.15 if str(state.quality) == "premium" else 0.0)
-	var premium_cost := 0.85 if str(state.quality) == "premium" else 0.0
-	var price_factor := clampf(1.0 - (float(state.price) - 6.0) * 0.12, 0.12, 1.45)
-	var reputation_factor := 0.72 + float(state.rep) / 160.0
+	var relaxed := str(state.get("difficulty", "standard")) == "relaxed"
+	var pricing := pricing_info()
+	var quality_appeal := float(pricing.quality_appeal)
+	var price_factor := float(pricing.price_factor)
+	var reputation_factor := 0.72 + float(state.rep) / 160.0 if relaxed else 0.62 + float(state.rep) / 175.0
 	var relationship := float(state.relationships.get(town, 0))
 	var taste_bonus := 0.0
 	for tag in recipe.get("tags", []):
@@ -405,11 +418,11 @@ func _trade_day(event_result: String) -> void:
 	var minigame_bonus := float(state.minigame_boost) if int(state.minigame_day) == int(state.day) else 0.0
 	# A roadside pitch is a recovery option. Its small audience keeps investing in
 	# proper fairs more rewarding than spending every season on the free route.
-	var demand_base := float(venue.get("demand", 40))
+	var demand_base := float(venue.get("demand", 40 if relaxed else 22))
 	var appeal := 1.0 + float(recipe.appeal) / 100.0 + quality_appeal + taste_bonus + relationship / 250.0 + int(state.stand_tier) * 0.06 + float(state.day_modifiers.demand) + event_quality * 0.4 + minigame_bonus
 	var demand := maxi(0, int(round(demand_base * float(weather_factor[state.weather]) * price_factor * reputation_factor * maxf(0.15, appeal) * _rng.randf_range(0.9, 1.1))))
 	var fryer: Dictionary = Content.FRYERS[int(state.fryer_tier)]
-	var labor := 112.0 + maxf(0.0, float(fryer.capacity) - 140.0) * 0.28
+	var labor := (112.0 + maxf(0.0, float(fryer.capacity) - 140.0) * 0.28) if relaxed else (90.0 + maxf(0.0, float(fryer.capacity) - 140.0) * 0.1)
 	var wages := 0.0
 	var kindness := 0.0
 	var active_count := 0
@@ -421,20 +434,23 @@ func _trade_day(event_result: String) -> void:
 		if _rng.randf() < absence_chance:
 			absent_names.append(str(person.name))
 			continue
-		labor += 25.0 + float(person.skill) * 0.35
+		var morale_factor := 1.0 if relaxed else 0.65 + float(person.morale) * 0.0035
+		labor += (25.0 + float(person.skill) * (0.35 if relaxed else 0.45)) * morale_factor
 		kindness += float(person.kindness)
 		active_count += 1
-		person.morale = clampf(float(person.morale) - 1.1 + minigame_bonus * 5.0, 0, 100)
+		person.morale = clampf(float(person.morale) - (1.1 if relaxed else 3.2) + minigame_bonus * 5.0, 0, 100)
 		person.loyalty = clampf(float(person.loyalty) + 0.7, 0, 100)
-	var condition_factor := 0.35 + float(state.fryer) * 0.0065
-	var capacity := maxi(1, int(floor(minf(float(fryer.capacity), labor) * condition_factor * (1.0 - float(state.day_modifiers.delay)))))
+	var condition_factor := (0.35 + float(state.fryer) * 0.0065) if relaxed else pow(float(state.fryer) / 100.0, 1.15)
+	if float(state.fryer) <= 0: condition_factor = 0.0
+	var capacity := maxi(0, int(floor(minf(float(fryer.capacity), labor) * condition_factor * (1.0 - float(state.day_modifiers.delay)))))
 	var starting_stock := int(state.stock)
 	var sold := mini(mini(demand, capacity), starting_stock)
-	var waste := mini(maxi(0, starting_stock - sold), int(floor(maxi(0, starting_stock - sold) * 0.015)))
+	var spoilage_rate := 0.015 if relaxed else 0.06
+	var waste := mini(maxi(0, starting_stock - sold), int(floor(maxi(0, starting_stock - sold) * spoilage_rate)))
 	state.stock = starting_stock - sold - waste
 	var revenue := _money(sold * float(state.price))
 	var base_ingredients := float(sold + waste)
-	var extra_ingredients := _money(sold * (maxf(0.0, float(recipe.cost) - 1.0) + premium_cost))
+	var extra_ingredients := _money(sold * (float(pricing.unit_cost) - 1.0))
 	var ingredients := base_ingredients + extra_ingredients
 	var prepaid_fees := 0.0
 	if not roadside:
@@ -448,9 +464,14 @@ func _trade_day(event_result: String) -> void:
 	var cash_delta := _money(trading_cash_delta + event_cash)
 	var profit := _money(revenue + event_cash - ingredients - wages - fees)
 	state.cash = _money(float(state.cash) + trading_cash_delta)
-	var rep_gain := (0.15 if roadside else 0.6) + quality_appeal * 6.0 + event_quality * 2.5 + minigame_bonus * 3.0 + taste_bonus * 3.0 - maxf(0, float(state.price) - 8.0) * 0.5
+	var base_review := (0.15 if roadside else 0.6) if relaxed else (0.0 if roadside else 0.35)
+	var rep_gain := base_review + float(pricing.quality_review) + event_quality * 2.5 + minigame_bonus * 3.0 + taste_bonus * 3.0 - maxf(0, float(state.price) - 8.0) * 0.5
 	if active_count > 0: rep_gain += kindness / active_count / 240.0
-	if sold == 0: rep_gain -= 2.0
+	var service_penalty := 0.0
+	if not relaxed and demand > 0 and sold > 0:
+		service_penalty = maxf(0, 0.75 - float(sold) / demand) * 2.0
+		rep_gain -= service_penalty
+	if sold == 0: rep_gain -= 2.0 if relaxed else 3.0
 	elif starting_stock < mini(demand, capacity): rep_gain -= 0.9
 	var rep_before_trade := float(state.rep)
 	state.rep = clampf(float(state.rep) + rep_gain, 0, 100)
@@ -458,7 +479,8 @@ func _trade_day(event_result: String) -> void:
 	state.fame = clampf(float(state.fame) + sold / (360.0 if roadside else 180.0) + maxf(0, rep_gain) * 0.2, 0, 10000)
 	if not roadside and sold > 0:
 		state.relationships[town] = clampf(relationship + 0.8 + maxf(0.0, quality_appeal) * 3.0, -50, 100)
-	state.fryer = clampf(float(state.fryer) - (2.5 + sold / 65.0) / (1.0 + int(state.fryer_tier) * 0.2), 0, 100)
+	var fryer_wear := (2.5 + sold / 65.0) / (1.0 + int(state.fryer_tier) * 0.2) if relaxed else (5.0 + sold / 28.0) / (1.0 + int(state.fryer_tier) * 0.22)
+	state.fryer = clampf(float(state.fryer) - fryer_wear, 0, 100)
 	var completed_stop := false
 	if not roadside:
 		state.venue_day = int(state.venue_day) + 1
@@ -491,6 +513,11 @@ func _trade_day(event_result: String) -> void:
 	if active_count == 0 and state.staff.is_empty(): summary.append("The owner ran the stand alone. No staff wages were charged.")
 	if not absent_names.is_empty(): summary.append("Absent today: " + ", ".join(absent_names) + ". Their guaranteed wages were paid.")
 	if int(state.fryer) < 40: summary.append("The fryer needs attention. Low condition reduces daily capacity.")
+	if condition_factor == 0: summary.append("The fryer could not produce any bags. Restore its condition before the next opening.")
+	elif capacity == 0: summary.append("Equipment wear and opening delays left less than one bag of production capacity.")
+	if service_penalty > 0: summary.append("The stand served fewer than 75%% of potential customers: -%.2f review reputation." % service_penalty)
+	if waste > 0: summary.append("%d unused portions spoiled at closing (%.1f%% of leftovers, rounded down)." % [waste, spoilage_rate * 100])
+	if not state.staff.is_empty(): summary.append("Working staff lose %.1f morale before any opening-batch relief; lower morale reduces output and can increase absences." % (1.1 if relaxed else 3.2))
 	if completed_stop: summary.append("Stop complete. The town will remember you next season.")
 	state.last_report = {"title": "Closing time", "venue": str(venue.get("name", "Roadside pop-up")), "weather": state.weather,
 		"sold": sold, "revenue": revenue, "ingredients": ingredients, "wages": wages, "fees": fees, "profit": profit,
@@ -501,6 +528,11 @@ func _trade_day(event_result: String) -> void:
 	state.last_report["starting_stock"] = starting_stock
 	state.last_report["drivers"] = _report_drivers(demand, capacity, starting_stock, price_factor, float(weather_factor[state.weather]), taste_bonus, condition_factor, minigame_bonus, labor, float(fryer.capacity))
 	state.last_report["reactions"] = _report_reactions(sold, demand, capacity, starting_stock, taste_bonus, price_factor, active_count, kindness)
+	state.last_report["unit_ingredient_cost"] = float(pricing.unit_cost)
+	state.last_report["spoilage_rate"] = spoilage_rate
+	state.last_report["service_review_penalty"] = service_penalty
+	if service_penalty > 0: state.last_report.drivers.insert(1, {"id":"service", "label":"Customers left without a bag", "detail":"Serving fewer than 75%% of potential customers cost %.2f review reputation." % service_penalty, "tone":"bad", "value":-service_penalty})
+	if waste > 0: state.last_report.drivers.append({"id":"waste", "label":"Unused supplies spoiled", "detail":"%d prepaid portions were lost; smaller restocks reduce waste." % waste, "tone":"bad", "value":float(waste)})
 	# Retain the exact decision evidence and aggregate modifiers used for this report.
 	# Expiring a modifier changes no money or RNG and never reapplies its effect.
 	for outcome in state.active_outcomes:
@@ -919,6 +951,8 @@ func _report_reactions(sold: int, demand: int, capacity: int, stock: int, taste:
 
 func _valid_report_presentation(report: Dictionary) -> bool:
 	if report.has("starting_stock") and (not _is_number(report.starting_stock) or float(report.starting_stock) < 0 or float(report.starting_stock) > 10000): return false
+	for key in ["unit_ingredient_cost", "spoilage_rate", "service_review_penalty"]:
+		if report.has(key) and (not _is_number(report[key]) or float(report[key]) < 0 or float(report[key]) > (1.0 if key == "spoilage_rate" else 100.0)): return false
 	for key in ["drivers", "reactions"]:
 		if not report.has(key): continue
 		if not report[key] is Array or report[key].size() > 20: return false
@@ -934,7 +968,8 @@ func _apply_policies() -> void:
 		for id in ["truck", "fryer"]:
 			if float(state[id]) < 40 and float(state.cash) >= _service_cost(id) + 250: _service(id)
 	if bool(state.policy.restock):
-		var target := mini(_stock_capacity(), int(ceil(float(_venue().get("demand", 80)) * 1.5)))
+		var roadside_demand := 40 if str(state.get("difficulty", "standard")) == "relaxed" else 22
+		var target := mini(_stock_capacity(), int(ceil(float(_venue().get("demand", roadside_demand)) * 1.5)))
 		var amount := maxi(0, mini(target - int(state.stock), int(floor(float(state.cash) - 250))))
 		if amount > 0: _buy_stock(amount)
 
