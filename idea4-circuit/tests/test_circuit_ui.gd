@@ -64,14 +64,18 @@ func _run() -> void:
 	await _capture("06-minigame")
 	var batch = app._batch_game
 	batch.set_process(false)
-	for stage in range(3):
-		batch._phase = PI / 2 if stage == 1 else 0.0
+	for beat in range(batch.BEAT_COUNT):
+		if batch._state == "ready": batch._process(batch.READY_SECONDS)
+		var timing = batch.current_beat()
+		var period = 1.0 if batch.stage_index == 1 else 2.0
+		var remaining = fposmod(float(timing.first_target_seconds) * float(timing.speed) - batch._phase, period)
+		batch._process(remaining / float(timing.speed))
 		app._stop_minigame()
 		batch._process(batch.RESOLVE_SECONDS + 0.01)
 	batch._process(batch.FINISH_SECONDS + 0.01)
 	await _settle()
 	_check(app.model.state.minigame_day == app.model.state.day, "Batch bonus committed once")
-	_check(is_equal_approx(float(app.model.state.minigame_boost), 0.2), "Three perfect stages award the exact 20 percent appeal bonus")
+	_check(is_equal_approx(float(app.model.state.minigame_boost), 0.2), "Six accurate timing inputs award the exact 20 percent appeal bonus")
 	await _capture("06b-batch-reward")
 	app._close_modal()
 	app._primary()

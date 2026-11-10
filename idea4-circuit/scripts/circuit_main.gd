@@ -86,7 +86,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_queue_resize)
 	_render()
 	_sync_music()
-	print("CIRCUIT_READY version=0.3.1")
+	print("CIRCUIT_READY version=0.3.2")
 	if "--smoke" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(2.0).timeout
 		print("CIRCUIT_SMOKE_PASS")
@@ -259,7 +259,7 @@ func _build_welcome() -> void:
 			has_run = true
 			_render(), PAPER, INK)
 	_icon_button(col, "How to play", "info", _show_help, PAPER, INK)
-	_label(col, "Offline · Autosaves · No timers", 13, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_label(col, "Offline · Autosaves · Optional mini-games", 13, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _start_company(company: String, relaxed: bool = false) -> void:
 	_rng_seed = int(Time.get_unix_time_from_system()) if not test_mode else 2026
@@ -728,6 +728,10 @@ func _record_season() -> void:
 	records.push_front({"key": key, "company": model.state.company, "season": model.state.season, "profit": model.state.stats.get("season_profit", 0)})
 	if records.size() > 12: records.resize(12)
 
+func _opening_batch_seed() -> int:
+	# Stable for this company's trading day; reopening or renaming cannot reroll it.
+	return int(("%s:%d:%d:batch" % [str(model.state.rng_seed), int(model.state.season), int(model.state.day)]).hash() & 0x7fffffff)
+
 func _show_minigame() -> void:
 	if int(model.state.minigame_day) == int(model.state.day):
 		_show_batch_result(float(model.state.minigame_boost) / 0.2)
@@ -738,10 +742,11 @@ func _show_minigame() -> void:
 	var col = _modal_page("HEAT · COAT · PACK", "Make it golden")
 	_batch_game = BatchGame.new()
 	col.add_child(_batch_game)
-	_batch_game.configure(str(model.state.recipe), int(model.state.fryer_tier), not bool(settings.motion))
+	_batch_game.configure(str(model.state.recipe), int(model.state.fryer_tier), not bool(settings.motion), _opening_batch_seed(), str(model.state.get("difficulty", "standard")) == "relaxed")
 	_batch_game.feedback.connect(_game_feedback)
 	_batch_game.result_ready.connect(_commit_batch)
 	_batch_game.completed.connect(func(score): _finish_batch.call_deferred(float(score)))
+	_disclosure(col, "Batch technique", "Two beats each for heat, coating and packing. Watch the ready cue: targets and direction vary between beats. Aim for the gold core; mint gives partial credit. You can wait for another pass. Your final score is saved before the result animation.")
 	_button(col, "Skip · no penalty", _close_modal, PAPER, INK).name = "BatchLeave"
 	_minigame_playing = true
 
@@ -776,7 +781,7 @@ func _show_help() -> void:
 		["04  Learn the crowd", "Match recipes to local tastes. Higher prices can lose customers. Reviews, service and reliability shape reputation."],
 		["05  Leave a story", "Get to know your crew, support friendships and discuss wages. People and towns remember earlier decisions. Your company carries on next season."],
 		["A little hands-on help", "Activities offer repairs, order memory and spot-the-hazard jobs. Play yourself, delegate to available crew, or pay a specialist. They're optional; costs and rewards appear before you choose."],
-		["Choose your pace", "Standard has tight margins and equipment upkeep. Relaxed adds $700 and gentler wear, production limits and reviews. You choose when starting a new company."],
+		["Choose your pace", "Standard has tight margins, equipment upkeep and tougher mini-games. Relaxed adds $700, gentler management, wider batch targets and untimed order study. You choose when starting a new company."],
 		["Make the stand your own", "Complete three contracts each season, then collect cash and permanent decorations. Upgrades, crew, weather and keepsakes appear on your stand."],
 		["Need a second chance?", "Borrow working capital in Company, or run a $25 roadside pop-up. Staff and bigger machines are optional at the start."]]:
 		_label(col, entry[0], 20, GREEN)
@@ -785,7 +790,7 @@ func _show_help() -> void:
 
 func _show_credits() -> void:
 	var col = _modal_page("MADE FOR THE LONG WAY ROUND", "Credits & licenses")
-	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.3.1", 22, INK)
+	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.3.2", 22, INK)
 	_label(col, "Original game design, company stories, illustrations and interface. An independent choice-driven concessions simulator; no affiliation with BitLife or Candywriter.", 16, MUTED)
 	_label(col, "Built with Godot 4.7.2. Fredoka typeface under the SIL Open Font License. Original Golden Hour audio reused from the companion game.", 16, MUTED)
 	for entry in [["Godot engine license", "res://docs/licenses/Godot-LICENSE.txt"], ["Engine third-party notices", "res://docs/licenses/Godot-COPYRIGHT.txt"], ["Fredoka font license", "res://assets/fonts/OFL.txt"]]:
@@ -1497,6 +1502,10 @@ func _show_activity_choice(id: String) -> void:
 	_icon(hero, _activity_icon(str(offer.kind)), 64, GOLD)
 	_label(hero, str(offer.description), 20, CREAM)
 	_label(col, str(offer.reward_hint), 18, GREEN)
+	if str(offer.kind) in ["repair", "orders"]:
+		var facts = _flow(col)
+		_chip(facts, "skill", "Complexity %d / 3" % (clampi(int(offer.difficulty), 0, 2) + 1), PAPER, VIOLET)
+		_label(col, "Higher equipment tiers bring more intricate repairs." if str(offer.kind) == "repair" else "Larger stands bring longer order sequences.", 13, MUTED)
 	var self_cost = float(offer.self_cost)
 	var play = _icon_button(col, "Handle it yourself" + (" · " + _money(self_cost) if self_cost else " · free"), "skill", func(): _start_activity(id), GOLD, INK)
 	play.name = "ActivitySelf"
@@ -1519,12 +1528,13 @@ func _start_activity(id: String) -> void:
 	_activity_game = ActivityGame.new()
 	_activity_game.name = "ContextActivity"
 	col.add_child(_activity_game)
-	_activity_game.configure(str(offer.kind), int(offer.seed), not bool(settings.motion), int(offer.difficulty))
+	_activity_game.configure(str(offer.kind), int(offer.seed), not bool(settings.motion), int(offer.difficulty), str(model.state.get("difficulty", "standard")) == "relaxed")
 	_activity_game.feedback.connect(_game_feedback)
 	_activity_game.result_ready.connect(func(score): _commit_activity(id, float(score)))
 	_activity_game.completed.connect(func(score): _finish_activity.call_deferred(id, float(score)))
 	_activity_offer_id = id
 	_activity_busy = true
+	_disclosure(col, "How this job works", _activity_game.how_to())
 	if float(offer.self_cost) > 0: _label(col, "Parts: " + _money(offer.self_cost) + " when you finish, even if the repair is unsuccessful.", 13, MUTED)
 	_button(col, "Leave for later", _close_modal, PAPER, INK).name = "ActivityLeave"
 

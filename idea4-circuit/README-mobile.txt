@@ -1,8 +1,24 @@
-GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.3.1
+GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.3.2
 
 A portrait fairground business game. Book stops, choose recipes, look after your
 crew and equipment, and build a reputation across the travelling fair circuit.
 The demo plays offline and contains no purchases or payment integration.
+
+MINI-GAME CHALLENGE UPDATE — 0.3.2
+The opening batch now has six scored beats: two for heat, two for coating and
+two for packing. A small gold core earns perfect credit; the surrounding mint
+zone gives partial credit. Targets, directions and pace vary between beats,
+with a ready cue before each one. There is no deadline to press: wait for
+another pass if needed. Reopening the same day's batch keeps the same setup.
+
+Repairs use more varied routes and fewer spare turns. Standard order memory
+has six to eight pictures and a visible, limited study period that you start
+yourself. Choosing the remembered orders is untimed. Relaxed mode has fewer
+pictures and an untimed study period. Inspections vary which locations are
+unsafe; look for the actual problem rather than tapping every familiar spot.
+Order accuracy must exceed half to earn a reward. Wrong inspection guesses
+reduce the result; reaching the mistake limit earns zero. Reduced-motion settings remove decoration
+without changing the challenge or scoring. Completed scores still save once.
 
 MANAGEMENT BALANCE UPDATE — 0.3.1
 Standard play asks for a working reserve and more deliberate preparation.
@@ -43,7 +59,8 @@ The optional opening batch still has heat, coat and pack timing stages. Three
 new activities add a rotating repair puzzle, illustrated order memory and a
 stand inspection. Handle an available job yourself, delegate to suitable crew,
 or pay for help. Choices show costs and expected benefits. Activity attempts
-have limited moves or mistakes where relevant, but no real-time deadline.
+have limited moves or mistakes where relevant. Standard order study is timed;
+the business calendar, repair puzzles and answering phase have no deadline.
 Closing an unfinished activity gives no reward. Sounds, reduced motion and
 optional phone vibration can be controlled in Settings. Existing local saves
 continue from versions 0.1.0, 0.1.1 and 0.2.0.
@@ -94,7 +111,7 @@ real-time waiting, and browsing never advances a day. Company contains help,
 settings, credits, loans, milestones and new-company controls.
 
 ANDROID
-Install GoldenHourCircuit-0.3.1-Android.apk on Android 7.0 or later. Your Android
+Install GoldenHourCircuit-0.3.2-Android.apk on Android 7.0 or later. Your Android
 device may ask you to allow installation from the app that opened the APK.
 The package is com.goldenhourgame.circuit; it can coexist with the original
 Golden Hour mini-donut game. Saves stay on the device. Backups are not uploaded.
@@ -125,7 +142,7 @@ and provisioning profile. No Apple account, store upload, or payment is used.
 An unsigned IPA is not evidence of a physical iPhone playtest.
 
 BUILD EVIDENCE
-Versioned outputs live under ../builds/circuit/0.3.1/rN/. Each new build gets a
+Versioned outputs live under ../builds/circuit/0.3.2/rN/. Each new build gets a
 new revision folder. build-manifest.json identifies exact artifacts and hashes;
 logs/ contains export and verification output. Physical-device validation is
 recorded separately from automated checks and emulator testing.

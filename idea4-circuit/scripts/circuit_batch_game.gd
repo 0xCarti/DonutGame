@@ -1,5 +1,6 @@
 extends Control
-## A self-contained three-tap opening batch. Economic effects belong to the parent.
+## Six readable precision beats: two each for Heat, Coat and Pack.
+## Economic effects belong to the parent. A fixed attempt seed prevents rerolling.
 ## configure() can be called before or after adding this control to a scene.
 signal completed(score: float)
 ## Commit this result immediately; completed only marks the end of its animation.
@@ -15,14 +16,20 @@ const MINT = Color("31ba96")
 const MUTED = Color("b2c6cb")
 const STAGES = ["Heat", "Coat", "Pack"]
 const ACTIONS = ["LOCK THE HEAT", "COAT THE BATCH", "DROP INTO BAG"]
-const HINTS = ["Tap when the needle reaches mint.", "Tap when the shaker reaches mint.", "Tap when the bag is under the donuts."]
+const HINTS = ["Needle into the gold core. Mint still counts.", "Shaker into the gold arc. Mint still counts.", "Bag under the gold line. Mint still counts."]
 const ICONS = ["fryer", "recipe", "bag"]
-const RESOLVE_SECONDS = 0.95
+const BEAT_COUNT = 6
+const READY_SECONDS = 0.65
+const RESOLVE_SECONDS = 0.65
 const FINISH_SECONDS = 1.65
 
 var stage_index = 0
+var beat_index = 0
+var beat_scores: Array[float] = []
 var stage_scores: Array[float] = []
 var reduced_motion = false
+var relaxed = false
+var attempt_seed = 1
 var fryer_tier = 0
 var recipe_id = "classic"
 var action_button: Button
@@ -31,40 +38,78 @@ var _hint: Label
 var _status: Label
 var _donut: Texture2D
 var _icons: Array[Texture2D] = []
-var _phase = -PI / 2.0
+var _phase = 0.0
 var _time = 0.0
-var _state = "playing"
+var _state = "ready"
 var _pause = 0.0
 var _locked_position = 0.0
 var _emitted = false
 var _result_emitted = false
 var _particles: Array[Dictionary] = []
+var _beats: Array[Dictionary] = []
 
-func configure(new_recipe_id: String, new_fryer_tier: int, use_reduced_motion: bool) -> void:
+func configure(new_recipe_id: String, new_fryer_tier: int, use_reduced_motion: bool, new_seed: int = 1, use_relaxed: bool = false) -> void:
 	recipe_id = new_recipe_id
 	fryer_tier = clampi(new_fryer_tier, 0, 3)
 	reduced_motion = use_reduced_motion
+	relaxed = use_relaxed
+	attempt_seed = new_seed
 	var path = "res://assets/ui/recipes/" + recipe_id + ".svg"
 	if not ResourceLoader.exists(path): path = "res://assets/ui/recipes/classic.svg"
 	_donut = load(path) as Texture2D
 	stage_index = 0
+	beat_index = 0
+	beat_scores.clear()
 	stage_scores.clear()
-	_phase = -PI / 2.0
+	_phase = 0.0
 	_time = 0.0
 	_pause = 0.0
-	_state = "playing"
+	_state = "ready"
 	_emitted = false
 	_result_emitted = false
 	_particles.clear()
+	_build_beats()
+	_locked_position = float(_beats[0].start)
 	if is_instance_valid(action_button): _update_labels()
 	queue_redraw()
+
+func _build_beats() -> void:
+	var rng = RandomNumberGenerator.new()
+	rng.seed = attempt_seed
+	_beats.clear()
+	for stage in 3:
+		var first_direction = 1 if rng.randi_range(0, 1) == 1 else -1
+		for repeat in 2:
+			var direction = first_direction if repeat == 0 else -first_direction
+			# Targets are announced before motion begins, and never move mid-beat.
+			var distance = rng.randf_range(0.55, 0.77)
+			var center = distance if direction > 0 else 1.0 - distance
+			var speed = rng.randf_range(0.36, 0.43) * (0.82 if relaxed else 1.0)
+			var start = 0.0 if direction > 0 else 1.0
+			if stage == 1:
+				# The circular stage wraps smoothly; both directions get equal runway.
+				distance = rng.randf_range(0.57, 0.73)
+				start = fposmod(center - direction * distance, 1.0)
+			_beats.append({"center": center, "start": start, "direction": direction,
+				"speed": speed, "first_target_seconds": distance / speed})
+
+func current_beat() -> Dictionary:
+	return _beats[clampi(beat_index, 0, BEAT_COUNT - 1)].duplicate()
+
+func target_position() -> float:
+	return float(_beats[clampi(beat_index, 0, BEAT_COUNT - 1)].center)
+
+func target_bands() -> Dictionary:
+	# Drawing and scoring share these normalized bounds on every stage.
+	return {"center": target_position(), "perfect": target_half_width(stage_index, fryer_tier, relaxed),
+		"good": good_half_width(stage_index, fryer_tier, relaxed)}
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(0, 390)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	clip_contents = true
-	if not is_instance_valid(_donut): configure(recipe_id, fryer_tier, reduced_motion)
+	if not is_instance_valid(_donut): configure(recipe_id, fryer_tier, reduced_motion, attempt_seed, relaxed)
 	for key in ICONS:
 		_icons.append(load("res://assets/ui/icons/" + key + ".svg") as Texture2D)
 	_title = _label("BatchStageTitle", 23, IVORY)
@@ -103,6 +148,7 @@ func _label(node_name: String, font_size: int, color: Color) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.clip_text = true
 	add_child(label)
 	return label
 
@@ -120,9 +166,15 @@ func _layout() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
-	if _state == "playing":
+	if _state == "ready":
+		_pause += delta
+		if _pause >= READY_SECONDS:
+			_pause = 0.0
+			_state = "playing"
+			_update_labels()
+	elif _state == "playing":
 		# Only the indicator is essential motion. It always moves, including reduced motion.
-		_phase += delta * [1.65, 1.28, 2.05][stage_index]
+		_phase += delta * float(_beats[beat_index].speed)
 	elif _state == "resolving":
 		_pause += delta
 		if _pause >= RESOLVE_SECONDS: _advance_stage()
@@ -142,25 +194,33 @@ func _process(delta: float) -> void:
 
 func indicator_position() -> float:
 	if _state != "playing": return _locked_position
-	if stage_index == 1: return fposmod((_phase + PI / 2.0) / TAU, 1.0)
-	return (sin(_phase) + 1.0) * 0.5
+	var beat = _beats[beat_index]
+	var position = float(beat.start) + float(beat.direction) * _phase
+	if stage_index == 1: return fposmod(position, 1.0)
+	# A constant-speed sweep with visible end stops. No random acceleration.
+	return 1.0 - absf(fposmod(position, 2.0) - 1.0)
 
-static func target_half_width(stage: int, tier: int = 0) -> float:
-	return [0.085, 0.078, 0.10][clampi(stage, 0, 2)] + clampi(tier, 0, 3) * 0.008
+static func target_half_width(stage: int, tier: int = 0, gentle: bool = false) -> float:
+	return ([0.024, 0.023, 0.027][clampi(stage, 0, 2)] + clampi(tier, 0, 3) * 0.002) * (1.7 if gentle else 1.0)
 
-static func score_at(stage: int, position: float, tier: int = 0) -> float:
-	# A narrow perfect window, with useful but smaller rewards for a near miss.
-	if not is_finite(position): return 0.0
-	var distance = absf(clampf(position, 0.0, 1.0) - 0.5)
-	var width = target_half_width(stage, tier)
-	if distance <= width: return 1.0
-	return clampf(1.0 - (distance - width) / (0.5 - width), 0.0, 1.0)
+static func good_half_width(stage: int, tier: int = 0, gentle: bool = false) -> float:
+	return ([0.088, 0.085, 0.095][clampi(stage, 0, 2)] + clampi(tier, 0, 3) * 0.003) * (1.35 if gentle else 1.0)
+
+static func score_at(stage: int, position: float, tier: int = 0, center: float = 0.5, gentle: bool = false) -> float:
+	if not is_finite(position) or not is_finite(center): return 0.0
+	var distance = absf(clampf(position, 0.0, 1.0) - clampf(center, 0.0, 1.0))
+	var perfect = target_half_width(stage, tier, gentle)
+	var good = good_half_width(stage, tier, gentle)
+	if distance <= perfect + 0.000001: return 1.0
+	if distance <= good: return lerpf(1.0, 0.6, (distance - perfect) / (good - perfect))
+	# Near misses have a short tail. Blind taps no longer earn most of the reward.
+	return 0.6 * pow(clampf(1.0 - (distance - good) / (0.045 if not gentle else 0.065), 0.0, 1.0), 2.0)
 
 func total_score() -> float:
-	if stage_scores.is_empty(): return 0.0
+	if beat_scores.is_empty(): return 0.0
 	var total = 0.0
-	for score in stage_scores: total += score
-	return total / stage_scores.size()
+	for score in beat_scores: total += score
+	return total / beat_scores.size()
 
 func has_result() -> bool:
 	return _result_emitted
@@ -168,49 +228,53 @@ func has_result() -> bool:
 func press_action() -> void:
 	if _state != "playing" or _emitted: return
 	_locked_position = indicator_position()
-	var score = score_at(stage_index, _locked_position, fryer_tier)
-	stage_scores.append(score)
+	var score = score_at(stage_index, _locked_position, fryer_tier, target_position(), relaxed)
+	beat_scores.append(score)
+	if beat_scores.size() % 2 == 0:
+		stage_scores.append((beat_scores[-2] + beat_scores[-1]) * 0.5)
 	_state = "resolving"
 	_pause = 0.0
 	if not reduced_motion: _burst(Vector2(size.x * 0.5, 185), score)
 	feedback.emit("batch_perfect" if score >= 0.999 else "batch_good")
 	_update_labels()
 	queue_redraw()
-	# The third timing action fixes all three scores. Leaving during the
+	# The sixth timing action fixes the score. Leaving during the
 	# drop/medal animation must not turn a completed batch into a free retry.
-	if stage_scores.size() == 3 and not _result_emitted:
+	if beat_scores.size() == BEAT_COUNT and not _result_emitted:
 		_result_emitted = true
 		result_ready.emit(total_score())
 
 func _advance_stage() -> void:
 	_pause = 0.0
-	if stage_index == 2:
+	if beat_index == BEAT_COUNT - 1:
 		_state = "finishing"
 		if not reduced_motion: _burst(Vector2(size.x * 0.5, 170), 1.0)
 		feedback.emit("batch_finish")
 	else:
-		stage_index += 1
-		_phase = -PI / 2.0
-		_state = "playing"
+		beat_index += 1
+		stage_index = beat_index / 2
+		_phase = 0.0
+		_locked_position = float(_beats[beat_index].start)
+		_state = "ready"
 	_update_labels()
 
 func _update_labels() -> void:
 	if not is_instance_valid(action_button): return
 	var final = _state in ["finishing", "complete"]
-	_title.text = ("Golden batch!" if total_score() >= 0.9 else "Ready for the rush!") if final else "%d / 3   %s" % [stage_index + 1, STAGES[stage_index]]
+	_title.text = ("Golden batch!" if total_score() >= 0.9 else "Ready for the rush!") if final else "%s   %d / 2%s" % [STAGES[stage_index], beat_index % 2 + 1, " · relaxed" if relaxed else ""]
 	_hint.text = "Your opening batch is ready." if final else HINTS[stage_index]
 	action_button.disabled = _state != "playing"
-	action_button.text = "BATCH READY" if final else (ACTIONS[stage_index] if _state == "playing" else "NICE WORK" if stage_scores.back() >= 0.7 else "KEEP GOING")
+	action_button.text = "BATCH READY" if final else ("GET READY" if _state == "ready" else ACTIONS[stage_index] if _state == "playing" else "NICE WORK" if beat_scores.back() >= 0.6 else "NEXT BEAT")
 	if final:
 		_status.text = "+%d%% customer appeal today" % roundi(total_score() * 20.0)
 	elif _state == "resolving":
-		var grade = "Perfect!" if stage_scores.back() >= 0.999 else ("Sweet!" if stage_scores.back() >= 0.7 else "A little rustic!")
-		_status.text = "%s   %d / 100" % [grade, roundi(stage_scores.back() * 100.0)]
+		var grade = "Perfect!" if beat_scores.back() >= 0.999 else ("Good!" if beat_scores.back() >= 0.6 else "Too far!" if beat_scores.back() <= 0.01 else "Just missed!")
+		_status.text = "%s   %d / 100" % [grade, roundi(beat_scores.back() * 100.0)]
 	else:
-		var heat_low = roundi(160 + (0.5 - target_half_width(0, fryer_tier)) * 60)
-		var heat_high = roundi(160 + (0.5 + target_half_width(0, fryer_tier)) * 60)
-		_status.text = ["%d–%d°C is the sweet spot" % [heat_low, heat_high], "Mint arc = even coating", "Mint lane = a clean catch"][stage_index]
-	_status.add_theme_color_override("font_color", MINT if _state == "resolving" and stage_scores.back() >= 0.7 else GOLD)
+		var direction = "Moves right" if _beats[beat_index].direction > 0 else "Moves left"
+		if stage_index == 1: direction = "Turns clockwise" if _beats[beat_index].direction > 0 else "Turns counterclockwise"
+		_status.text = direction if _state == "ready" else "Gold = perfect · Mint = good"
+	_status.add_theme_color_override("font_color", MINT if _state == "resolving" and beat_scores.back() >= 0.6 else GOLD)
 
 func _draw() -> void:
 	if size.x < 1: return
@@ -235,13 +299,20 @@ func _draw() -> void:
 func _draw_progress() -> void:
 	var spacing = (size.x - 48.0) / 3.0
 	for index in 3:
-		var point = Vector2(24 + spacing * (index + 0.5), 27)
+		var point = Vector2(24 + spacing * (index + 0.5), 21)
 		var done = index < stage_scores.size()
 		var active = index == stage_index and _state not in ["finishing", "complete"]
 		if index < 2:
 			draw_line(point + Vector2(20, 0), point + Vector2(spacing - 20, 0), MINT if done else Color("355467"), 2, true)
-		draw_circle(point, 18, MINT if done else GOLD if active else Color("2b4b60"))
-		if index < _icons.size(): draw_texture_rect(_icons[index], Rect2(point - Vector2(10, 10), Vector2(20, 20)), false, NAVY if done or active else MUTED)
+		draw_circle(point, 14, MINT if done else GOLD if active else Color("2b4b60"))
+		if index < _icons.size(): draw_texture_rect(_icons[index], Rect2(point - Vector2(9, 9), Vector2(18, 18)), false, NAVY if done or active else MUTED)
+		for repeat in 2:
+			var beat = index * 2 + repeat
+			var dot = point + Vector2(-7 if repeat == 0 else 7, 22)
+			var color = Color("466373")
+			if beat < beat_scores.size(): color = GOLD if beat_scores[beat] >= 0.999 else MINT if beat_scores[beat] >= 0.6 else CORAL
+			draw_circle(dot, 3.5, color)
+			if beat == beat_index and beat >= beat_scores.size(): draw_arc(dot, 5.5, 0, TAU, 16, IVORY, 1.3, true)
 
 func _draw_heat() -> void:
 	var center = Vector2(size.x * 0.5, 178)
@@ -269,8 +340,12 @@ func _draw_heat() -> void:
 	_center_text("GOLDEN HOUR", Vector2(center.x - 22, 197), 13, NAVY)
 	var gauge = Rect2(32, 239, size.x - 64, 14)
 	draw_style_box(_panel(Color("0d2535"), 7), gauge)
-	var width = target_half_width(0, fryer_tier)
-	draw_style_box(_panel(MINT, 4), Rect2(gauge.position.x + gauge.size.x * (0.5 - width), 237, gauge.size.x * width * 2, 18))
+	var bands = target_bands()
+	draw_style_box(_panel(MINT, 4), Rect2(gauge.position.x + gauge.size.x * (bands.center - bands.good), 237, gauge.size.x * bands.good * 2, 18))
+	draw_style_box(_panel(GOLD, 2), Rect2(gauge.position.x + gauge.size.x * (bands.center - bands.perfect), 235, gauge.size.x * bands.perfect * 2, 22))
+	for edge in [-1, 1]:
+		var x = gauge.position.x + gauge.size.x * (bands.center + bands.perfect * edge)
+		draw_line(Vector2(x, 235), Vector2(x, 257), IVORY, 1, true)
 	var marker_x = gauge.position.x + gauge.size.x * indicator_position()
 	draw_line(Vector2(marker_x, 232), Vector2(marker_x, 259), IVORY, 4, true)
 	draw_circle(Vector2(marker_x, 232), 4, GOLD)
@@ -283,11 +358,16 @@ func _draw_coat() -> void:
 	if is_instance_valid(_donut): draw_texture_rect(_donut, Rect2(-57, -57, 114, 114), false)
 	draw_set_transform(Vector2.ZERO)
 	draw_arc(center, 69, 0, TAU, 80, Color("466373"), 8, true)
-	var half_angle = target_half_width(1, fryer_tier) * TAU
-	draw_arc(center, 69, PI / 2 - half_angle, PI / 2 + half_angle, 24, MINT, 10, true)
-	# White outer ticks frame the target so it does not rely on color alone.
-	for angle in [PI / 2 - half_angle, PI / 2 + half_angle]:
+	var bands = target_bands()
+	var target_angle = bands.center * TAU - PI / 2
+	draw_arc(center, 69, target_angle - bands.good * TAU, target_angle + bands.good * TAU, 32, MINT, 10, true)
+	draw_arc(center, 69, target_angle - bands.perfect * TAU, target_angle + bands.perfect * TAU, 16, GOLD, 13, true)
+	# White ticks frame the narrow perfect core as well as its distinct gold color.
+	for angle in [target_angle - bands.perfect * TAU, target_angle + bands.perfect * TAU]:
 		draw_line(center + Vector2.from_angle(angle) * 61, center + Vector2.from_angle(angle) * 77, IVORY, 2, true)
+	# Keep the target's center visible even when the shaker crosses the core.
+	draw_circle(center + Vector2.from_angle(target_angle) * 88, 3, GOLD)
+	draw_line(center + Vector2.from_angle(target_angle) * 81, center + Vector2.from_angle(target_angle) * 85, GOLD, 2, true)
 	var angle = indicator_position() * TAU - PI / 2
 	var pos = center + Vector2.from_angle(angle) * 69
 	draw_circle(pos, 13, Color("0b2030"))
@@ -304,10 +384,14 @@ func _draw_coat() -> void:
 			draw_circle(point, 1.7, IVORY if index % 3 else GOLD)
 
 func _draw_pack() -> void:
-	var center_x = size.x * 0.5
+	var bands = target_bands()
+	var center_x = lerpf(51, size.x - 51, bands.center)
 	var bag_x = lerpf(51, size.x - 51, indicator_position())
-	var lane = target_half_width(2, fryer_tier) * (size.x - 102)
+	var lane = bands.good * (size.x - 102)
+	var core = bands.perfect * (size.x - 102)
 	draw_style_box(_panel(Color(MINT, 0.14), 9), Rect2(center_x - lane, 128, lane * 2, 119))
+	draw_style_box(_panel(Color(GOLD, 0.35), 3), Rect2(center_x - core, 128, core * 2, 119))
+	for side in [-1, 1]: draw_line(Vector2(center_x + core * side, 132), Vector2(center_x + core * side, 249), Color(IVORY, 0.6), 1, true)
 	for side in [-1, 1]:
 		draw_line(Vector2(center_x + lane * side, 242), Vector2(center_x + lane * side, 249), MINT, 2, true)
 	for offset in range(0, 92, 12): draw_line(Vector2(center_x, 135 + offset), Vector2(center_x, 140 + offset), Color(IVORY, 0.35), 2, true)
@@ -329,7 +413,8 @@ func _draw_pack() -> void:
 	draw_line(Vector2(bag_x - 19, 202), Vector2(bag_x - 16, 233), Color("f5cf91"), 2, true)
 	draw_circle(Vector2(bag_x, 219), 14, NAVY)
 	draw_arc(Vector2(bag_x, 219), 7, 0, TAU, 24, GOLD, 5, true)
-	_center_text("CATCH", Vector2(center_x, 266), 11, MINT)
+	draw_line(Vector2(bag_x, 238), Vector2(bag_x, 252), IVORY, 3, true)
+	_center_text("ALIGN THE BAG'S CENTER", Vector2(size.x * 0.5, 266), 11, MUTED)
 
 func _draw_finish() -> void:
 	var center = Vector2(size.x * 0.5, 184)

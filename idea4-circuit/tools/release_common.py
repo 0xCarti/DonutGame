@@ -8,8 +8,8 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = "0.3.1"
-BUILD = "301"
+VERSION = "0.3.2"
+BUILD = "302"
 PACKAGE = "com.goldenhourgame.circuit"
 NAME = "GoldenHourCircuit"
 LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt",

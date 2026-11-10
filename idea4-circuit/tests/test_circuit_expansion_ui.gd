@@ -14,6 +14,12 @@ func _initialize() -> void:
 		if argument.begins_with("--capture-dir="): capture_dir = argument.trim_prefix("--capture-dir=")
 	call_deferred("_run")
 
+func _has_text(node: Node, value: String) -> bool:
+	if node is Label and node.text == value: return true
+	for child in node.get_children():
+		if _has_text(child, value): return true
+	return false
+
 func _run() -> void:
 	root.size = Vector2i(390, 844)
 	root.content_scale_size = Vector2i(390, 844)
@@ -35,6 +41,7 @@ func _run() -> void:
 	app._show_activity_choice(str(repair.id))
 	await _settle()
 	_check(app.find_child("ActivityDelegate", true, false).disabled, "Unstaffed company cannot delegate")
+	_check(_has_text(app.modal, "Complexity 1 / 3"), "Activity choice discloses initial repair complexity")
 	await _capture("03-activity-choice")
 	var original: Dictionary = app.model.to_save()
 	app._start_activity(str(repair.id))

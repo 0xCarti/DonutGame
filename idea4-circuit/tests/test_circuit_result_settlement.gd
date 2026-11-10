@@ -87,21 +87,38 @@ func _run() -> void:
 	app._show_minigame()
 	await _settle()
 	before = app.model.to_save()
+	var initial_seed = app._opening_batch_seed()
+	var initial_beat = app._batch_game.current_beat()
+	app.model.state.company = "Renamed company"
+	_check(app._opening_batch_seed() == initial_seed, "Renaming cannot reroll the daily batch")
+	app.model.from_save(before)
+	_check(app._opening_batch_seed() == initial_seed, "Save reload preserves daily batch seed")
+	app.model.state.day += 1
+	_check(app._opening_batch_seed() != initial_seed, "A new trading day gives a new batch")
+	app.model.from_save(before)
+	app.model.state.rng_seed = str(int(app.model.state.rng_seed) + 1)
+	_check(app._opening_batch_seed() != initial_seed, "Another company seed gives another batch")
+	app.model.from_save(before)
 	app._batch_game.set_process(false)
+	if app._batch_game._state == "ready": app._batch_game._process(app._batch_game.READY_SECONDS)
 	app._batch_game.press_action()
+	_check(app._batch_game.beat_scores.size() == 1, "Cancellation test has actually played a beat")
 	app._close_modal()
 	_check(app.model.to_save() == before, "Cancelling an unfinished batch remains free")
 	app._show_minigame()
 	await _settle()
 	var batch = app._batch_game
 	batch.set_process(false)
+	_check(batch.current_beat() == initial_beat, "Reopening does not reroll the batch")
 	sheet = app.modal
-	for stage in range(3):
-		batch._phase = -PI / 2.0
+	for beat in range(batch.BEAT_COUNT):
+		if batch._state == "ready": batch._process(batch.READY_SECONDS)
 		batch.press_action()
-		if stage < 2: batch._process(batch.RESOLVE_SECONDS + 0.01)
-	_check(batch.has_result(), "Third timing action fixes the batch result")
-	_check(app.model.state.minigame_day == app.model.state.day, "Third action consumes today's batch before the drop animation")
+		if beat < batch.BEAT_COUNT - 1:
+			_check(not batch.has_result() and app.model.to_save() == before, "Intermediate beat does not settle partial results")
+			batch._process(batch.RESOLVE_SECONDS + 0.01)
+	_check(batch.has_result(), "Sixth timing action fixes the batch result")
+	_check(app.model.state.minigame_day == app.model.state.day, "Sixth action consumes today's batch before the drop animation")
 	_check(app.modal == sheet and is_instance_valid(batch), "Batch settlement preserves the drop animation")
 	_check(is_equal_approx(float(app.model.state.minigame_boost), batch.total_score() * 0.2), "Saved bonus equals the locked actual batch score")
 	_check(app.saved_model == app.model.to_save(), "Final batch score is saved before animation completion")

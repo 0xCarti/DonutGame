@@ -90,7 +90,9 @@ static func activity_offers(s: Dictionary) -> Array:
 			if score > best_score:
 				best = person
 				best_score = score
-		offer["seed"] = int(str(offer.id).hash() & 0x7fffffff)
+		# The company seed is permanent; its RNG state and display name are not.
+		# Offer IDs already include the season and fair or repair time window.
+		offer["seed"] = int((str(s.rng_seed) + ":" + str(offer.id)).hash() & 0x7fffffff)
 		offer["delegate_id"] = str(best.get("id", ""))
 		offer["delegate_name"] = str(best.get("name", "No available crew"))
 		offer["delegate_score"] = maxf(0, best_score)

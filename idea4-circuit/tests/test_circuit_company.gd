@@ -10,6 +10,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	_migration_and_reads()
+	_activity_seeds()
 	_activities()
 	_negative_cash_options()
 	_contracts()
@@ -85,6 +86,47 @@ func _migration_and_reads() -> void:
 	_check(not _offer(m, "repair").is_empty(), "Worn starting van offers optional repair")
 	for def in Company.CONTRACTS:
 		_check(not str(def.decoration_name).is_empty() and float(def.goal) > 0 and float(def.cash_reward) > 0, "Authored objective has an earned reward: " + str(def.id))
+
+func _activity_seeds() -> void:
+	var m = _new()
+	var repair := _offer(m, "repair")
+	var before := _snapshot(m)
+	for reopen in range(5):
+		_check(_offer(m, "repair").seed == repair.seed, "Reopening an activity keeps its challenge seed")
+	_check(_snapshot(m) == before, "Activity seed calculation leaves the entire save and gameplay RNG unchanged")
+	_check(bool(m.act("rename", {"name":"A New Sign"}).ok), "Company can be renamed before replaying a challenge")
+	_check(_offer(m, "repair").seed == repair.seed, "Company rename cannot reroll a challenge")
+	var loaded = Model.new()
+	_check(loaded.from_save(JSON.parse_string(JSON.stringify(m.to_save()))), "Seeded activity save reloads")
+	_check(_offer(loaded, "repair").seed == repair.seed, "Reload keeps the same activity seed")
+	m.state.day = 3
+	_check(_offer(m, "repair").seed == repair.seed, "Repair seed stays fixed throughout its three-day window")
+	m.state.day = 4
+	_check(_offer(m, "repair").seed != repair.seed, "New repair time window gets a different challenge")
+	var other = Model.new()
+	other.new_run("New Road", 2469)
+	_check(_offer(other, "repair").id == repair.id and _offer(other, "repair").seed != repair.seed, "Different company seed varies the same activity context")
+	var replay = _new()
+	_check(_offer(replay, "repair").seed == repair.seed, "Replaying the same company seed is deterministic")
+	_prepare(replay)
+	var offers := replay.activity_offers()
+	var seeds: Array = []
+	for offer in offers:
+		_check(int(offer.seed) >= 0 and int(offer.seed) <= 0x7fffffff, "Activity seed fits the game control's supported range")
+		_check(offer.seed not in seeds, "Different activity contexts get distinct challenge seeds")
+		seeds.append(offer.seed)
+	var orders := _offer(replay, "orders")
+	var inspection := _offer(replay, "inspection")
+	var next_day: Dictionary = replay.to_save().duplicate(true)
+	next_day.day = int(next_day.day) + 1
+	next_day.rng_state = str(int(next_day.rng_state) + 1)
+	for offer in Company.activity_offers(next_day):
+		if offer.kind == "orders": _check(offer.seed == orders.seed, "Order challenge stays fixed for the fair despite day and gameplay RNG changes")
+		if offer.kind == "inspection": _check(offer.seed == inspection.seed, "Inspection stays fixed for the fair despite day and gameplay RNG changes")
+	next_day.season = int(next_day.season) + 1
+	for offer in Company.activity_offers(next_day):
+		if offer.kind == "orders": _check(offer.seed != orders.seed, "Returning to the same fair next season varies the order challenge")
+		if offer.kind == "inspection": _check(offer.seed != inspection.seed, "Returning to the same fair next season varies the inspection")
 
 func _activities() -> void:
 	var m = _new()

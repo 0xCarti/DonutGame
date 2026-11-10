@@ -113,13 +113,14 @@ func _run() -> void:
 	_check(is_instance_valid(batch), "Real opening batch sheet opened")
 	if is_instance_valid(batch):
 		batch.set_process(false)
+		if batch._state == "ready": batch._process(batch.READY_SECONDS)
 		var batch_scroll = _scroll_in(app.modal)
 		saved = app.model.to_save()
 		await _swipe(batch.action_button, batch_scroll, "Batch action", true, -50)
-		_check(batch.stage_scores.is_empty(), "Batch swipe does not play a stage")
+		_check(batch.beat_scores.is_empty(), "Batch swipe does not play a beat")
 		_check(app.model.to_save() == saved, "Batch swipe does not award a bonus")
 		await _tap_visible(batch.action_button, batch_scroll)
-		_check(batch.stage_scores.size() == 1, "Batch tap plays exactly one stage")
+		_check(batch.beat_scores.size() == 1 and batch.stage_scores.is_empty(), "Batch tap plays exactly one of the two stage beats")
 	app.queue_free()
 	await process_frame
 	Input.emulate_touch_from_mouse = previous_touch_emulation
