@@ -8,11 +8,11 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = "0.1.0"
-BUILD = "100"
+VERSION = "0.1.1"
+BUILD = "101"
 PACKAGE = "com.goldenhourgame.circuit"
 NAME = "GoldenHourCircuit"
-LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt", "docs/licenses/ASSET-PROVENANCE.txt", "assets/fonts/OFL.txt")
+LICENSES = ("docs/licenses/Godot-LICENSE.txt", "docs/licenses/Godot-COPYRIGHT.txt", "docs/licenses/ASSET-PROVENANCE.txt", "docs/licenses/ART-VISUAL-UPDATE.txt", "assets/fonts/OFL.txt")
 PRIVATE = {".p12", ".p8", ".pfx", ".pem", ".key", ".keystore", ".mobileprovision"}
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -73,7 +73,7 @@ def source_files(root):
 
 def validate_source(root):
     project = (root / "project.godot").read_text(encoding="utf-8-sig")
-    for required in ['config/version="0.1.0"', 'config/use_custom_user_dir=true',
+    for required in [f'config/version="{VERSION}"', 'config/use_custom_user_dir=true',
                      'config/custom_user_dir_name="GoldenHourCircuit"', 'window/handheld/orientation=1']:
         if required not in project.replace(" = ", "="):
             raise RuntimeError("Missing required isolated mobile setting: " + required)
@@ -82,7 +82,10 @@ def validate_source(root):
             raise RuntimeError("Missing license notice: " + path)
     preset = (root / "export_presets.cfg").read_text(encoding="utf-8")
     for required in ['variant/thread_support=false', 'package/unique_name="' + PACKAGE + '"',
-                     'version/code=100', 'application/bundle_identifier="' + PACKAGE + '"']:
+                     f'version/code={BUILD}', f'version/name="{VERSION}"',
+                     f'application/file_version="{VERSION}.0"', f'application/product_version="{VERSION}.0"',
+                     f'application/short_version="{VERSION}"', f'application/version="{BUILD}"',
+                     'application/bundle_identifier="' + PACKAGE + '"']:
         if required not in preset:
             raise RuntimeError("Unexpected platform identity or configuration: " + required)
     if "stand_main" in project or "minidonuts" in preset:

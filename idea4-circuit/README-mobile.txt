@@ -1,8 +1,16 @@
-GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.1.0
+GOLDEN HOUR: ON THE CIRCUIT — IDEA #4 DEMO 0.1.1
 
 A portrait fairground business game. Book stops, choose recipes, look after your
 crew and equipment, and build a reputation across the travelling fair circuit.
 The demo plays offline and contains no purchases or payment integration.
+
+VISUAL UPDATE — 0.1.1
+Browse illustrated fair cards, crew portraits, recipe pictures and equipment.
+Most screens use icons and compact stats. Events show a short situation and
+the cost, benefit and risk of every choice; tap Story & details for the longer
+version. Profiles and Details open the full staff, recipe and equipment cards.
+Recent moments keeps the latest four entries; Full journal holds your history.
+Existing companies and local saves continue unchanged from version 0.1.0.
 
 PLAYING YOUR FIRST SEASON
 Name your company, then choose Willowbank in Circuit for a modest first stop.
@@ -32,8 +40,8 @@ READING THE RECEIPT
 Supplies cost $1 per bag when purchased. Consumed stock and prepaid pitch/travel
 costs count toward operating profit, but are never deducted from cash twice.
 Recipe/quality extras, wages and interest are charged during trading. The
-receipt separates cash change from operating profit; tap Why did today go this
-way? to inspect demand, capacity, weather and the effects of your decisions.
+receipt separates cash change from operating profit; tap Story & receipt to
+inspect demand, capacity, weather and the effects of your decisions.
 
 CONTROLS
 Tap/click buttons and scroll the journal or long pages. Android Back or Esc
@@ -43,7 +51,7 @@ real-time waiting, and browsing never advances a day. Company contains help,
 settings, credits, loans, milestones and new-company controls.
 
 ANDROID
-Install GoldenHourCircuit-0.1.0-Android.apk on Android 7.0 or later. Your Android
+Install GoldenHourCircuit-0.1.1-Android.apk on Android 7.0 or later. Your Android
 device may ask you to allow installation from the app that opened the APK.
 The package is com.goldenhourgame.circuit; it can coexist with the original
 Golden Hour mini-donut game. Saves stay on the device. Backups are not uploaded.
@@ -70,7 +78,7 @@ and provisioning profile. No Apple account, store upload, or payment is used.
 An unsigned IPA is not evidence of a physical iPhone playtest.
 
 BUILD EVIDENCE
-Versioned outputs live under ../builds/circuit/0.1.0/rN/. Each new build gets a
+Versioned outputs live under ../builds/circuit/0.1.1/rN/. Each new build gets a
 new revision folder. build-manifest.json identifies exact artifacts and hashes;
 logs/ contains export and verification output. Physical-device validation is
 recorded separately from automated checks and emulator testing.

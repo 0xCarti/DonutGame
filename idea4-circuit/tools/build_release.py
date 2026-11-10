@@ -70,7 +70,7 @@ def verify_android(apk, logs, env, java, sdk):
             raise RuntimeError("APK contains development files")
         if any("stand_main" in name for name in names):
             raise RuntimeError("APK contains the original game's entry point")
-    return dict(artifact(apk), package=PACKAGE, version_code=100, signed=True,
+    return dict(artifact(apk), package=PACKAGE, version_code=int(BUILD), signed=True,
                 signature_verified=True, minimum_android_api=24, target_android_api=36,
                 architectures=["armeabi-v7a", "arm64-v8a", "x86_64"], permissions=[], portrait=True,
                 physical_device_validation="pending", emulator_validation="pending")

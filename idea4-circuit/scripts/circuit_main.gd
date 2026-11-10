@@ -3,6 +3,7 @@ extends Control
 
 const Model = preload("res://scripts/circuit_model.gd")
 const Content = preload("res://scripts/circuit_content.gd")
+const Presenter = preload("res://scripts/circuit_presenter.gd")
 const FONT = preload("res://assets/fonts/Fredoka-Medium.ttf")
 const LANDSCAPE = preload("res://assets/circuit_landscape.svg")
 const PAPER = Color("f5f0e5")
@@ -44,6 +45,8 @@ var _modal_close_allowed = true
 var _rng_seed = 2026
 var _focus_return: Control
 var _reviewing_season = false
+var venue_filter = "ready"
+var _art_cache: Dictionary = {}
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
@@ -71,7 +74,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_queue_resize)
 	_render()
 	_sync_music()
-	print("CIRCUIT_READY version=0.1.0")
+	print("CIRCUIT_READY version=0.1.1")
 	if "--smoke" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(2.0).timeout
 		print("CIRCUIT_SMOKE_PASS")
@@ -174,22 +177,28 @@ func _render() -> void:
 			"season_end", "bankrupt": call_deferred("_show_ending")
 
 func _build_header() -> void:
-	var wrap = _box(screen, INK, 0, 16)
-	var col = _column(wrap, 9)
+	var col = _column(_box(screen, INK, 0, 14), 8)
 	var row = _row(col)
 	var names = _column(row, 1)
-	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(names, "ON THE CIRCUIT  /  COMPANY JOURNAL", 11, GOLD)
+	_label(names, "ON THE CIRCUIT", 10, GOLD)
 	var title = _label(names, str(model.state.company), 25, CREAM)
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title.autowrap_mode = TextServer.AUTOWRAP_OFF
-	_button(row, "Company", func(): _navigate("company"), GOLD, INK, 44).custom_minimum_size.x = 96
-	var stats = _row(col, 8)
-	_metric(stats, _money(model.state.cash), "CASH ON HAND", CREAM)
-	_metric(stats, "%d / 100" % int(model.state.rep), "REPUTATION", GOLD)
-	_metric(stats, str(int(model.state.stock)), "BAGS IN STOCK", CREAM)
-	var venue = _venue()
-	_label(col, "SEASON %02d   ·   DAY %02d / %d   ·   %s" % [model.state.season, model.state.day, model.state.season_length, "ON THE ROAD" if venue.is_empty() else str(venue.town).to_upper()], 12, Color("b9cec4"))
+	var company_button = _icon_button(row, "Company", "stand", func(): _navigate("company"), GOLD, INK)
+	company_button.custom_minimum_size.x = 128
+	company_button.autowrap_mode = TextServer.AUTOWRAP_OFF
+	var stats = _row(col, 10)
+	_header_stat(stats, "cash", _money(model.state.cash), "Cash")
+	_header_stat(stats, "rep", str(int(model.state.rep)), "Rep", GOLD)
+	_header_stat(stats, "stock", str(int(model.state.stock)), "Stock")
+	var line = _row(col)
+	_icon(line, "calendar", 16, GOLD)
+	_label(line, "Day %d / %d   ·   Season %d" % [model.state.day, model.state.season_length, model.state.season], 12, Color("c8d5cb"))
+	var location = _venue()
+	var town = _label(line, "On the road" if location.is_empty() else str(location.town), 12, GOLD)
+	town.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	town.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	town.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
 func _build_welcome() -> void:
 	var welcome_scroll = ScrollContainer.new()
@@ -200,39 +209,39 @@ func _build_welcome() -> void:
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for edge in ["left", "right", "top", "bottom"]: margin.add_theme_constant_override("margin_" + edge, 24)
 	welcome_scroll.add_child(margin)
-	var col = _column(margin, 18)
-	_label(col, "GOLDEN HOUR", 16, RED, HORIZONTAL_ALIGNMENT_CENTER)
-	_label(col, "On the Circuit", 42, INK, HORIZONTAL_ALIGNMENT_CENTER)
-	_hero(col, 175)
-	_label(col, "A small stand.\nA very big season.", 29, INK)
-	_label(col, "Book the fair. Hire the characters. Keep the fryer alive. Build a company the circuit remembers.", 18, MUTED)
+	var col = _column(margin, 16)
+	_label(col, "GOLDEN HOUR", 14, RED, HORIZONTAL_ALIGNMENT_CENTER)
+	_label(col, "On the Circuit", 41, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_hero(col, 210)
+	_label(col, "Your stand. Your story.", 28, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	var features = _row(col, 10)
+	for item in [["map", "Travel"], ["crew", "Hire"], ["recipe", "Create"]]:
+		var tile = _column(_box(features, CREAM, 14, 12), 5)
+		tile.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_icon(tile, item[0], 28, GREEN)
+		_label(tile, item[1], 15, INK, HORIZONTAL_ALIGNMENT_CENTER)
 	var card = _column(_box(col, CREAM, 16, 18), 12)
-	_label(card, "NAME YOUR COMPANY", 12, GREEN)
+	_label(card, "YOUR COMPANY", 12, GREEN)
 	var name_edit = LineEdit.new()
 	name_edit.name = "CompanyName"
 	name_edit.text = "Golden Hour"
 	name_edit.max_length = 28
-	name_edit.custom_minimum_size.y = 52
+	name_edit.custom_minimum_size.y = 54
 	name_edit.add_theme_stylebox_override("normal", _style(PAPER, 10, LINE))
 	name_edit.add_theme_stylebox_override("focus", _style(PAPER, 10, GREEN))
 	name_edit.add_theme_color_override("font_color", INK)
 	card.add_child(name_edit)
 	var relaxed = CheckButton.new()
-	relaxed.text = "A gentler first season"
-	relaxed.custom_minimum_size.y = 48
-	relaxed.tooltip_text = "A little more room to recover from a rough day."
-	relaxed.add_theme_color_override("font_color", INK)
+	relaxed.text = "Relaxed start (+$700)"
+	relaxed.custom_minimum_size.y = 54
 	card.add_child(relaxed)
-	_button(card, "START YOUR FIRST SEASON", func():
-		_start_company(name_edit.text, relaxed.button_pressed), RED, CREAM, 60)
+	_icon_button(card, "START YOUR SEASON", "arrow", func(): _start_company(name_edit.text, relaxed.button_pressed), RED, CREAM)
 	if not model.state.is_empty():
-		_button(card, "Return to " + str(model.state.company), func():
+		_button(card, "Resume " + str(model.state.company), func():
 			has_run = true
 			_render(), PAPER, INK)
-	_label(col, "ONE TAP AT A TIME", 12, GREEN)
-	_label(col, "Time moves only when you choose. Every day saves automatically. No ads, purchases, or waiting for real-world timers.", 15, MUTED)
-	_button(col, "How to play", _show_help, PAPER, INK, 48)
-	_label(col, "IDEA #4  ·  PLAYABLE DEMO 0.1", 11, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_icon_button(col, "How to play", "info", _show_help, PAPER, INK)
+	_label(col, "Offline · Autosaves · No timers", 13, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _start_company(company: String, relaxed: bool = false) -> void:
 	_rng_seed = int(Time.get_unix_time_from_system()) if not test_mode else 2026
@@ -247,23 +256,32 @@ func _start_company(company: String, relaxed: bool = false) -> void:
 	_chime("win")
 
 func _build_primary() -> void:
-	var outer = _column(_box(screen, PAPER, 0, 12), 4)
+	var outer = _column(_box(screen, PAPER, 0, 10), 0)
 	var data: Dictionary = model.primary_action()
 	if _reviewing_season: data.label = "Season summary"
-	var button = _button(outer, str(data.get("label", "Continue")).to_upper(), _primary, RED, CREAM, 54)
+	var button = _icon_button(outer, str(data.get("label", "Continue")).to_upper(), "arrow", _primary, RED, CREAM)
 	button.name = "PrimaryAction"
 	button.disabled = not bool(data.get("enabled", true))
-	_label(outer, str(data.get("hint", "Your next decision awaits.")), 12, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _build_nav() -> void:
-	var panel = _box(screen, INK, 0, 7)
-	var row = _row(panel, 2)
+	var row = _row(_box(screen, INK, 0, 7), 3)
+	var icons = {"journal": "journal", "circuit": "map", "crew": "crew", "menu": "recipe", "garage": "garage"}
 	for entry in NAV:
 		var id: String = entry[1]
-		var button = _button(row, str(entry[0]), func(): _navigate(id), GOLD if tab == id else INK, INK if tab == id else CREAM, 51)
+		var selected: bool = tab == id
+		var button = _button(row, "", func(): _navigate(id), GOLD if selected else INK, INK if selected else CREAM, 64)
 		button.name = "Nav_" + id
-		button.add_theme_font_size_override("font_size", 16)
+		button.tooltip_text = str(entry[0])
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var center = VBoxContainer.new()
+		center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		center.add_theme_constant_override("separation", 2)
+		button.add_child(center)
+		center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		center.offset_top = 7
+		center.offset_bottom = -5
+		_icon(center, str(icons[id]), 25, INK if selected else CREAM)
+		_label(center, str(entry[0]), 12, INK if selected else CREAM, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _navigate(id: String) -> void:
 	if not has_run: return
@@ -282,145 +300,164 @@ func _primary() -> void:
 
 func _build_journal() -> void:
 	var venue = _venue()
-	_hero(content, 135)
-	var headline = _column(_box(content, INK, 15, 17), 8)
-	_label(headline, "YOUR NEXT CHAPTER", 11, GOLD)
-	_label(headline, "The road is calling." if venue.is_empty() else str(venue.name), 27, CREAM)
-	_label(headline, "A fresh town, a promising pitch, and somebody who has never tried your donuts." if venue.is_empty() else str(venue.description), 16, Color("c8d5cb"))
+	var cover = _column(_box(content, INK, 17, 12), 9)
+	if venue.is_empty(): _hero(cover, 155)
+	else: _picture(cover, "venues/" + str(venue.id), Vector2(0, 155), true)
+	_label(cover, "Where to next?" if venue.is_empty() else str(venue.name), 26, CREAM)
 	if venue.is_empty():
-		_button(headline, "Find your next fair", func(): _navigate("circuit"), GOLD, INK)
+		_icon_button(cover, "Find a fair", "map", func(): _navigate("circuit"), GOLD, INK)
 	else:
-		var row = _row(headline)
-		_label(row, "TRADING DAY %d / %d" % [int(model.state.venue_day) + 1, int(venue.days)], 12, GOLD)
-		_label(row, "  ·  " + str(model.state.get("weather", "Clear")), 12, CREAM)
-		var batch_done = int(model.state.minigame_day) == int(model.state.day)
-		var batch_button = _button(headline, "Opening batch complete" if batch_done else "Try a perfect batch", _show_minigame, GOLD, INK, 48)
+		var details = _flow(cover)
+		_chip(details, "calendar", "%d / %d days" % [int(model.state.venue_day) + 1, venue.days], INK, GOLD)
+		_chip(details, "weather", str(model.state.weather), INK, CREAM)
+		var batch_done: bool = int(model.state.minigame_day) == int(model.state.day)
+		var batch_button = _icon_button(cover, "Batch ready" if batch_done else "Perfect batch", "recipe", _show_minigame, GOLD, INK)
 		batch_button.disabled = batch_done or str(model.state.phase) != "planning"
+	var ready = _row(content, 9)
+	for item in [["truck", "Truck", int(model.state.truck), "garage"], ["fryer", "Fryer", int(model.state.fryer), "garage"], ["stock", "Supplies", int(model.state.stock), "menu"]]:
+		var destination: String = item[3]
+		var low: bool = item[2] < (50 if item[0] == "stock" else 35)
+		var box = _column(_box(ready, Color("f6dfcc") if low else CREAM, 13, 10), 5)
+		box.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_icon(box, item[0], 28, RED if low else GREEN)
+		_label(box, str(item[2]) + ("" if item[0] == "stock" else "%"), 24, RED if low else INK, HORIZONTAL_ALIGNMENT_CENTER)
+		_button(box, str(item[1]), func(): _navigate(destination), PAPER, INK).add_theme_font_size_override("font_size", 14)
 	if settings.guide and int(model.state.day) <= 4:
-		var guide = _column(_box(content, Color("e7eddf"), 14, 16), 8)
-		_label(guide, "YOUR FIRST FEW STOPS", 13, GREEN)
-		_label(guide, "1  Book a fair that fits your budget.\n2  Check supplies, recipe and equipment.\n3  Open the stand and make the call.\n4  Read the receipt, then do it better tomorrow.", 16, INK)
-	var warning: Array[String] = []
-	if float(model.state.truck) < 35: warning.append("Truck needs attention before another trip.")
-	if float(model.state.fryer) < 35: warning.append("Your fryer is becoming unreliable.")
-	if int(model.state.stock) < 50: warning.append("Supplies are low. Restock in Menu before opening.")
-	if not warning.is_empty():
-		var alert = _column(_box(content, Color("f6dfcc"), 12, 15), 6)
-		_label(alert, "A LITTLE ATTENTION NOW…", 12, RED)
-		for line in warning: _label(alert, line, 15, INK)
-	_section("THE COMPANY JOURNAL", "Your decisions leave a paper trail.")
+		var steps = _row(_box(content, Color("e7eddf"), 14, 10), 10)
+		for item in [["map", "1  Book"], ["stock", "2  Prep"], ["fryer", "3  Open"]]:
+			var step = _column(steps, 4)
+			_icon(step, item[0], 24, GREEN)
+			_label(step, item[1], 14, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_section("RECENT MOMENTS")
 	var entries: Array = model.state.get("journal", [])
-	if entries.is_empty(): _label(content, "Your first entry is waiting at the next fair.", 17, MUTED)
-	for index in range(entries.size() - 1, maxi(-1, entries.size() - 31), -1):
+	for index in range(entries.size() - 1, maxi(-1, entries.size() - 5), -1):
 		var entry: Dictionary = entries[index]
-		var col = _column(_box(content, CREAM, 12, 15), 5)
 		var tone: String = str(entry.get("tone", "info"))
-		var color: Color = GREEN if tone == "good" else RED if tone == "bad" else MUTED
-		_label(col, "DAY %02d  ·  %s" % [int(entry.get("day", 1)), tone.to_upper()], 11, color)
-		_label(col, str(entry.get("title", "On the circuit")), 20, INK)
-		_label(col, str(entry.get("text", "")), 16, MUTED)
+		var row = _row(_box(content, CREAM, 12, 10), 10)
+		_icon(row, "star" if tone == "good" else "wrench" if tone == "bad" else "journal", 25, GREEN if tone == "good" else RED)
+		var col = _column(row, 2)
+		_label(col, "DAY %d" % int(entry.get("day", 1)), 10, MUTED)
+		_button(col, str(entry.get("title", "A new chapter")), func(): _show_entry(entry), CREAM, INK).alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if not entries.is_empty(): _icon_button(content, "Full journal", "journal", _show_history, PAPER, INK)
 
 func _build_circuit() -> void:
-	_section("THE FAIR CIRCUIT", "Small towns. Big weekends. Find your next good story.")
+	_section("PICK YOUR NEXT STOP")
 	var current = _venue()
 	if not current.is_empty():
-		var booked = _column(_box(content, Color("e7eddf"), 14, 16), 6)
-		_label(booked, "YOUR CURRENT BOOKING", 12, GREEN)
-		_label(booked, str(current.name), 24, INK)
-		_label(booked, "%s · %d trading day(s) remaining" % [current.town, maxi(0, int(current.days) - int(model.state.venue_day))], 15, MUTED)
-		_label(booked, "Finish this stop before booking the next. Your entry and travel were paid when you booked.", 15, MUTED)
+		var booked = _column(_box(content, Color("e7eddf"), 14, 14), 6)
+		_label(booked, str(current.name), 23, INK)
+		_chip(_flow(booked), "calendar", "%d days left · booked" % maxi(0, int(current.days) - int(model.state.venue_day)))
+	var filters = _row(content)
+	for option in [["ready", "Ready to book"], ["all", "All stops"]]:
+		var key: String = option[0]
+		_button(filters, option[1], func():
+			venue_filter = key
+			_render(), GOLD if venue_filter == key else CREAM, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var shown = 0
 	for offer in model.venue_offers():
-		var col = _column(_box(content, CREAM, 16, 17), 9)
-		var color = Color(str(offer.get("color", "36725f")))
-		_label(col, str(offer.get("town", "")).to_upper() + "  /  " + str(offer.get("tagline", "ON THE CIRCUIT")).to_upper(), 11, color.darkened(0.35))
-		_label(col, str(offer.name), 25, INK)
-		_label(col, str(offer.description), 16, MUTED)
-		var row = _row(col)
-		_pill(row, "%d DAYS" % int(offer.days), PAPER, INK)
-		_pill(row, "%d KM" % int(offer.distance), PAPER, INK)
-		_pill(row, "%s / DAY" % _money(offer.fee), PAPER, INK)
-		_label(col, "Local favorite: " + str(offer.flavor).replace("_", " ").capitalize(), 14, GREEN)
-		var relationship = float(model.state.relationships.get(str(offer.id), 0))
-		if not is_zero_approx(relationship): _label(col, "Your relationship here: %s%d" % ["+" if relationship > 0 else "", int(relationship)], 14, GREEN if relationship > 0 else RED)
+		if venue_filter == "ready" and not bool(offer.can_book): continue
+		shown += 1
+		var col = _column(_box(content, CREAM, 16, 12), 8)
+		_picture(col, "venues/" + str(offer.id), Vector2(0, 125), true)
+		_label(col, str(offer.name), 24, INK)
+		var badges = _flow(col)
+		_chip(badges, "calendar", "%d days" % offer.days)
+		_chip(badges, "truck", "%d km" % offer.distance)
+		_chip(badges, "recipe", str(offer.flavor).capitalize())
 		var id: String = str(offer.id)
-		var button = _button(col, "BOOK STOP  ·  " + _money(offer.get("total_cost", offer.fee)), func(): _confirm_booking(id), INK, CREAM)
-		button.disabled = not bool(offer.get("can_book", true))
-		_label(col, str(offer.get("reason", "Entry for the full stop + fuel. No hidden booking charges.")) if button.disabled else "Full stop entry + travel. Paid now.", 13, MUTED)
+		var buttons = _row(col)
+		var book = _icon_button(buttons, "Book · " + _money(offer.total_cost), "map", func(): _confirm_booking(id), INK, CREAM)
+		book.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		book.disabled = not bool(offer.can_book)
+		_icon_button(buttons, "Info", "info", func(): _show_venue(id), PAPER, INK).custom_minimum_size.x = 90
+		if not bool(offer.can_book): _label(col, str(offer.reason), 13, MUTED)
+	if shown == 0: _label(content, "Finish this stop to travel again." if not current.is_empty() else "No ready bookings. Try All stops or a pop-up.", 17, MUTED)
 	if current.is_empty():
-		var backup = _column(_box(content, Color("e7eddf"), 13, 16), 8)
-		_label(backup, "Need a little breathing room?", 19, INK)
-		_label(backup, "Run a smaller roadside pop-up for a $25 pitch fee. A way to earn your next booking.", 15, MUTED)
-		_button(backup, "OPEN A ROADSIDE POP-UP", func(): _act("advance"), GREEN, CREAM)
+		var backup = _row(_box(content, Color("e7eddf"), 14, 12), 12)
+		_picture(backup, "equipment/stand_0", Vector2(92, 72))
+		var col = _column(backup, 5)
+		_label(col, "Roadside pop-up", 21, INK)
+		_icon_button(col, "Open · $25", "stand", func(): _act("advance"), GREEN, CREAM)
 
 func _confirm_booking(id: String) -> void:
 	var offer: Dictionary = {}
 	for candidate in model.venue_offers():
 		if candidate.id == id: offer = candidate
 	if offer.is_empty(): return
-	var col = _modal_page("PACK UP. WE'RE GOING.", str(offer.name))
-	_label(col, "%d trading days in %s, %d km down the road." % [offer.days, offer.town, offer.distance], 18, MUTED)
-	_label(col, "Pay %s for the full booking and travel. The trip uses one day; you may have a decision to make along the way." % _money(offer.total_cost), 17, INK)
-	_label(col, "Truck condition: %d%% · supplies: %d bags" % [int(model.state.truck), int(model.state.stock)], 16, GREEN)
-	_button(col, "BOOK & HIT THE ROAD  ·  " + _money(offer.total_cost), func(): _act("book", {"id": id}), RED, CREAM, 56)
-	_button(col, "Stay a little longer", _close_modal, PAPER, INK)
+	var col = _modal_page("NEXT STOP", str(offer.name))
+	_picture(col, "venues/" + id, Vector2(0, 145), true)
+	var chips = _flow(col)
+	_chip(chips, "calendar", "%d trading days" % offer.days)
+	_chip(chips, "truck", "%d km" % offer.distance)
+	_chip(chips, "clock", "1 travel day")
+	_receipt(col, "Pitch fees", _money(float(offer.fee) * int(offer.days)))
+	_receipt(col, "Travel", _money(offer.travel_cost))
+	_label(col, "Full stop paid now.", 15, MUTED)
+	_icon_button(col, "BOOK · " + _money(offer.total_cost), "arrow", func(): _act("book", {"id": id}), RED, CREAM)
 
 func _build_crew() -> void:
-	_section("YOUR PEOPLE", "Good people turn a long weekend into a good story.")
-	var daily_wages = 0
-	for employee in model.state.staff: daily_wages += int(employee.wage)
-	var owner = _column(_box(content, INK, 14, 16), 7)
-	_label(owner, "YOU'RE ON THE ROSTER, TOO.", 13, GOLD)
-	_label(owner, "You always work the stand. Hire when another pair of hands can earn its keep.", 16, CREAM)
-	_label(owner, "%d CREW  ·  %s DAILY WAGES" % [model.state.staff.size(), _money(daily_wages)], 13, GOLD)
+	var wages = 0
+	for employee in model.state.staff: wages += int(employee.wage)
+	var summary = _flow(content)
+	_chip(summary, "crew", "%d crew + you" % model.state.staff.size(), INK, CREAM)
+	_chip(summary, "cash", _money(wages) + " / day", INK, GOLD)
 	for employee in model.state.staff:
-		var col = _column(_box(content, CREAM, 14, 16), 8)
+		var col = _column(_box(content, CREAM, 16, 13), 9)
 		_staff_heading(col, employee)
-		_meter(col, "Morale", float(employee.get("morale", 70)), GREEN)
-		_meter(col, "Loyalty", float(employee.get("loyalty", 60)), GOLD)
-		_label(col, "Skill %d · reliability %d · %s/day" % [employee.skill, employee.reliability, _money(employee.wage)], 14, MUTED)
-		var id: String = employee.id
-		var row = _row(col)
-		_button(row, "Train · $120", func(): _act("train", {"id": id}), INK, CREAM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_button(row, "Give a break", func(): _act("rest", {"id": id}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_button(col, "Let them go", func(): _confirm_action("Part ways with " + str(employee.name) + "?", "They leave your roster. A good company remembers how it treats its people.", "fire", {"id": id}), CREAM, RED, 44)
-	_section("THE HELP-WANTED BOARD", "Signing costs one daily wage. Wages are paid on trading days.")
+		var chips = _flow(col)
+		_chip(chips, "heart", "%d morale" % employee.morale)
+		_chip(chips, "shield", "%d loyalty" % employee.loyalty)
+		_icon_button(col, "Manage", "crew", func(): _show_staff(str(employee.id)), GREEN, CREAM)
+	_section("HELP WANTED")
+	var board = GridContainer.new()
+	board.columns = 2
+	board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board.add_theme_constant_override("h_separation", 12)
+	board.add_theme_constant_override("v_separation", 12)
+	content.add_child(board)
 	for applicant in Content.STAFF:
 		var employed = false
 		for employee in model.state.staff:
 			if employee.id == applicant.id: employed = true
 		if employed: continue
-		var col = _column(_box(content, CREAM, 14, 16), 8)
-		_staff_heading(col, applicant)
-		_label(col, str(applicant.description), 16, MUTED)
-		_label(col, "Skill %d · reliability %d · kindness %d" % [applicant.skill, applicant.reliability, applicant.kindness], 14, MUTED)
+		var col = _column(_box(board, CREAM, 16, 10), 7)
+		col.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_picture(col, "crew/" + str(applicant.id), Vector2(0, 120))
+		_label(col, str(applicant.name), 22, INK, HORIZONTAL_ALIGNMENT_CENTER)
+		_label(col, str(applicant.role), 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		var id: String = applicant.id
-		_button(col, "HIRE  ·  %s + %s / DAY" % [_money(applicant.wage), _money(applicant.wage)], func(): _act("hire", {"id": id}), GREEN, CREAM)
+		_chip(_flow(col), "cash", _money(applicant.wage) + " / day")
+		_icon_button(col, "Hire · " + _money(applicant.wage), "crew", func(): _act("hire", {"id": id}), GREEN, CREAM)
+		_icon_button(col, "Profile", "info", func(): _show_staff(id), PAPER, INK)
 
 func _staff_heading(parent: Node, entry: Dictionary) -> void:
 	var row = _row(parent, 12)
-	var badge = _box(row, Color(str(entry.get("color", "e8b85e"))), 26, 8)
-	badge.custom_minimum_size = Vector2(51, 51)
-	_label(badge, str(entry.name).left(1), 29, INK, HORIZONTAL_ALIGNMENT_CENTER)
-	var col = _column(row, 2)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(col, str(entry.name), 23, INK)
-	_label(col, str(entry.role) + " · " + str(entry.trait), 13, GREEN)
+	_picture(row, "crew/" + str(entry.id), Vector2(84, 84))
+	var col = _column(row, 3)
+	_label(col, str(entry.name), 24, INK)
+	_label(col, str(entry.role), 14, GREEN)
+	var chips = _flow(col)
+	_chip(chips, "skill", str(int(entry.skill)), PAPER, INK, "Skill")
+	_chip(chips, "shield", str(int(entry.reliability)), PAPER, INK, "Reliability")
+	_chip(chips, "heart", str(int(entry.kindness)), PAPER, INK, "Kindness")
 
 func _build_menu() -> void:
-	_section("THE DONUT BOARD", "A recipe worth coming back for. A price that pays the bills.")
-	var col = _column(_box(content, INK, 15, 17), 11)
-	_label(col, "YOUR CURRENT PRICE", 12, GOLD)
-	var row = _row(col, 10)
-	_button(row, "−", func(): _act("set_price", {"value": float(model.state.price) - 0.5}), GOLD, INK).custom_minimum_size.x = 62
-	var price = _label(row, _money(model.state.price) + " / bag", 31, CREAM, HORIZONTAL_ALIGNMENT_CENTER)
+	var active = Content.find(Content.RECIPES, str(model.state.recipe))
+	var card = _column(_box(content, INK, 16, 14), 9)
+	var current = _row(card, 12)
+	_picture(current, "recipes/" + str(active.id), Vector2(96, 96))
+	var title = _column(current, 4)
+	_label(title, "ON THE MENU", 11, GOLD)
+	_label(title, str(active.name), 24, CREAM)
+	var prices = _row(card)
+	_button(prices, "−", func(): _act("set_price", {"value": float(model.state.price) - 0.5}), GOLD, INK).custom_minimum_size.x = 62
+	var price = _label(prices, _money(model.state.price) + " / bag", 30, CREAM, HORIZONTAL_ALIGNMENT_CENTER)
 	price.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_button(row, "+", func(): _act("set_price", {"value": float(model.state.price) + 0.5}), GOLD, INK).custom_minimum_size.x = 62
-	_label(col, "Higher prices improve margin, but some crowds will walk on. The daily receipt explains the trade-off.", 15, Color("ccd9cd"))
-	var stock = _column(_box(content, CREAM, 14, 16), 10)
+	_button(prices, "+", func(): _act("set_price", {"value": float(model.state.price) + 0.5}), GOLD, INK).custom_minimum_size.x = 62
 	var capacity: int = Content.TRUCKS[int(model.state.truck_tier)].capacity
 	var room: int = maxi(0, capacity - int(model.state.stock))
-	_label(stock, "%d / %d bags of supplies" % [int(model.state.stock), capacity], 25, INK)
-	_label(stock, "$1 buys the base supplies for one bag. Recipe and quality extras are charged as you sell.", 15, MUTED)
+	var stock = _column(_box(content, CREAM, 14, 13), 9)
+	_chip(_flow(stock), "stock", "%d / %d bags" % [model.state.stock, capacity])
 	var stock_row = _row(stock)
 	for amount in [50, 100, 200]:
 		var order: int = room if amount == 200 else mini(amount, room)
@@ -428,89 +465,88 @@ func _build_menu() -> void:
 		var purchase = _button(stock_row, caption if room > 0 else "Full", func(): _act("buy_stock", {"amount": order}), PAPER, INK)
 		purchase.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		purchase.disabled = room == 0 or float(model.state.cash) < order
-	_section("INGREDIENT STANDARD", "Choose what goes into every batch.")
 	var quality_row = _row(content)
 	for quality in ["budget", "standard", "premium"]:
-		var selected = str(model.state.quality) == quality
+		var selected: bool = str(model.state.quality) == quality
 		_button(quality_row, quality.capitalize(), func(): _act("set_quality", {"id": quality}), GOLD if selected else CREAM, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(content, "Budget keeps costs down. Premium costs more and can win better reviews.", 14, MUTED)
-	_section("YOUR RECIPE BOOK", "Build reputation to unlock more of the good stuff.")
+	_disclosure(content, "Pricing & ingredients", "Higher prices reduce demand. Base supplies cost $1 per bag; recipe and quality extras are charged when sold. Budget lowers costs; premium improves reviews.")
+	_section("RECIPE BOOK")
+	var board = GridContainer.new()
+	board.columns = 2
+	board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board.add_theme_constant_override("h_separation", 12)
+	board.add_theme_constant_override("v_separation", 12)
+	content.add_child(board)
 	for recipe in Content.RECIPES:
-		var item = _column(_box(content, CREAM, 15, 17), 9)
-		var recipe_row = _row(item)
-		var swatch = _box(recipe_row, Color(str(recipe.get("color", "e8b85e"))), 24, 6)
-		swatch.custom_minimum_size = Vector2(48, 48)
-		var center = _box(swatch, CREAM, 8, 0)
-		center.custom_minimum_size = Vector2(14, 14)
-		center.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		center.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var title = _label(recipe_row, str(recipe.name), 23, INK)
-		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(item, str(recipe.description), 16, MUTED)
-		_label(item, "Base recipe cost %s / bag · appeal +%d" % [_money(recipe.cost), int(recipe.appeal)], 14, GREEN)
+		var item = _column(_box(board, CREAM, 15, 10), 7)
+		item.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var id: String = recipe.id
-		var locked = id not in model.state.get("unlocked_recipes", [])
-		var selected = str(model.state.recipe) == id
-		var button = _button(item, "ON YOUR MENU" if selected else "REPUTATION %d TO UNLOCK" % int(recipe.unlock_rep) if locked else "PUT IT ON THE MENU", func(): _act("set_recipe", {"id": id}), GOLD if selected else PAPER, INK)
+		_picture(item, "recipes/" + id, Vector2(0, 114))
+		_label(item, str(recipe.name), 21, INK, HORIZONTAL_ALIGNMENT_CENTER)
+		var chips = _flow(item)
+		_chip(chips, "cash", _money(recipe.cost))
+		_chip(chips, "heart", "+%d" % recipe.appeal, PAPER, GREEN, "Recipe appeal")
+		var locked: bool = id not in model.state.get("unlocked_recipes", [])
+		var selected: bool = str(model.state.recipe) == id
+		var button = _icon_button(item, "On menu" if selected else "%d rep" % recipe.unlock_rep if locked else "Serve this", "check" if selected else "rep" if locked else "recipe", func(): _act("set_recipe", {"id": id}), GOLD if selected else PAPER, INK)
 		button.disabled = selected or locked
+		_icon_button(item, "Details", "info", func(): _show_recipe(id), CREAM, INK)
 
 func _build_garage() -> void:
-	_section("THE WORKING END", "The less glamorous part of making something wonderful.")
+	_section("YOUR EQUIPMENT")
 	for gear in model.equipment_options():
-		var col = _column(_box(content, CREAM, 16, 17), 10)
-		_label(col, str(gear.id).to_upper() + "  /  LEVEL %d" % (int(gear.level) + 1), 12, GREEN)
-		_label(col, str(gear.name), 26, INK)
-		_label(col, str(gear.description), 16, MUTED)
+		var col = _column(_box(content, CREAM, 16, 13), 9)
 		var id: String = gear.id
+		_picture(col, "equipment/" + id + "_" + str(gear.level), Vector2(0, 135))
+		_label(col, str(gear.name), 25, INK)
+		var chips = _flow(col)
+		_chip(chips, id, "Level %d" % (int(gear.level) + 1))
+		_chip(chips, "stock" if id == "truck" else "crew" if id == "stand" else "recipe", "%d %s" % [int(gear.capacity), "stored bags" if id == "truck" else "crew places" if id == "stand" else "bags / day"])
+		if id != "stand": _meter(col, "Condition", float(gear.condition), RED if float(gear.condition) < 35 else GREEN)
+		var actions = _row(col)
 		if id != "stand":
-			_meter(col, "Condition", float(gear.condition), RED if float(gear.condition) < 35 else GREEN)
-			_button(col, "SERVICE  ·  " + _money(gear.service_cost), func(): _act("service", {"id": id}), PAPER, INK)
-		if not bool(gear.get("maxed", false)):
-			_label(col, "NEXT: " + str(gear.next_name), 13, GREEN)
-			_button(col, "UPGRADE  ·  " + _money(gear.next_cost), func(): _confirm_action("A better " + id + ".", "Buy " + str(gear.next_name) + " for " + _money(gear.next_cost) + "?", "upgrade", {"id": id}), INK, CREAM)
-		else: _pill(col, "TOP OF THE LINE", GOLD, INK)
-	_section("LESS BUSYWORK", "Your crew follows the policies you set.")
-	for policy in [["restock", "Automatic restocking", "Buy supplies before trading when there is room and enough cash."], ["service", "Preventive maintenance", "Service low-condition equipment when the budget allows."]]:
-		var col = _column(_box(content, CREAM, 13, 15), 7)
-		_label(col, policy[1], 21, INK)
-		_label(col, policy[2], 15, MUTED)
+			_icon_button(actions, "Service · " + _money(gear.service_cost), "wrench", func(): _act("service", {"id": id}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_icon_button(actions, "Details" if bool(gear.maxed) else "Upgrade", "info" if bool(gear.maxed) else "upgrade", func(): _show_gear(id), INK, CREAM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_section("AUTO-PILOT")
+	for policy in [["restock", "Auto stock", "stock"], ["service", "Auto service", "wrench"]]:
 		var id: String = policy[0]
-		var enabled = bool(model.state.policy.get(id, false))
-		_button(col, "ENABLED · TAP TO DISABLE" if enabled else "DISABLED · TAP TO ENABLE", func(): _act("set_policy", {"id": id, "enabled": not enabled}), GOLD if enabled else PAPER, INK)
+		var enabled: bool = model.state.policy.get(id, false)
+		_icon_button(content, policy[1] + (" · ON" if enabled else " · OFF"), policy[2], func(): _act("set_policy", {"id": id, "enabled": not enabled}), GOLD if enabled else CREAM, INK)
+	_disclosure(content, "How auto-pilot works", "Auto stock buys supplies before trading when there is room and cash. Auto service repairs worn equipment when the budget allows.")
 
 func _build_company() -> void:
-	_section("THE BIGGER PICTURE", "A company is more than today's cash drawer.")
 	var stats: Dictionary = model.state.get("stats", {})
-	var col = _column(_box(content, INK, 16, 17), 12)
-	_label(col, str(model.state.company), 29, CREAM)
-	var row = _row(col)
-	_metric(row, str(int(stats.get("total_sold", 0))), "BAGS SOLD", CREAM)
-	_metric(row, _money(stats.get("total_sales", 0)), "LIFETIME SALES", GOLD)
-	_label(col, "%d completed stops · season profit %s" % [int(stats.get("completed_stops", 0)), _money(stats.get("season_profit", 0))], 16, CREAM)
-	var bank = _column(_box(content, CREAM, 14, 16), 9)
-	_label(bank, "A little breathing room", 23, INK)
-	_label(bank, "Outstanding loan: " + _money(model.state.debt), 18, RED if float(model.state.debt) > 0 else GREEN)
-	_label(bank, "Borrow in $500 steps, up to $2,000. Borrowed cash is not profit. Interest appears on your trading receipts.", 15, MUTED)
+	var top = _column(_box(content, INK, 16, 14), 10)
+	_label(top, str(model.state.company), 28, CREAM)
+	var metrics = _row(top)
+	_header_stat(metrics, "bag", str(int(stats.get("total_sold", 0))), "Sold")
+	_header_stat(metrics, "cash", _money(stats.get("total_sales", 0)), "Sales", GOLD)
+	_chip(_flow(top), "map", "%d stops complete" % int(stats.get("completed_stops", 0)), INK, CREAM)
+	var bank = _column(_box(content, CREAM, 14, 14), 8)
+	_chip(_flow(bank), "coin", "Debt: " + _money(model.state.debt))
 	var buttons = _row(bank)
-	_button(buttons, "Borrow $500", func(): _confirm_action("Take a $500 loan?", "This gives you working cash and increases your debt. It does not count toward profit.", "loan", {"amount": 500}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_button(buttons, "Repay $500", func(): _act("repay", {"amount": 500}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_section("MILESTONES", "%d / %d collected" % [model.state.achievements.size(), Content.BADGES.size()])
+	_icon_button(buttons, "Borrow $500", "cash", func(): _confirm_action("Borrow $500?", "$2,000 credit limit. Interest is charged on trading days. Borrowing adds debt, not profit.", "loan", {"amount": 500}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_icon_button(buttons, "Repay $500", "check", func(): _act("repay", {"amount": 500}), PAPER, INK).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_section("MILESTONES · %d / %d" % [model.state.achievements.size(), Content.BADGES.size()])
+	var board = GridContainer.new()
+	board.columns = 3
+	board.add_theme_constant_override("h_separation", 9)
+	board.add_theme_constant_override("v_separation", 9)
+	content.add_child(board)
 	for badge in Content.BADGES:
-		var earned = model.state.achievements.has(str(badge.id))
-		var badge_row = _row(_box(content, Color("e7eddf") if earned else CREAM, 12, 14), 12)
-		_pill(badge_row, "EARNED" if earned else "LOCKED", GREEN if earned else PAPER, CREAM if earned else MUTED)
-		var text = _column(badge_row, 4)
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(text, str(badge.get("name", badge.id)), 20, INK)
-		_label(text, str(badge.get("description", "")), 15, MUTED)
+		var earned: bool = model.state.achievements.has(str(badge.id))
+		var cell = _column(_box(board, Color("e7eddf") if earned else CREAM, 14, 10), 7)
+		cell.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_icon(cell, "star", 38, GREEN if earned else Color("b9b5a7"))
+		_button(cell, str(badge.name), func(): _show_info(str(badge.name), str(badge.description), "star", "Earned" if earned else "Not earned yet"), CREAM if not earned else Color("e7eddf"), INK, 72).add_theme_font_size_override("font_size", 14)
 	if not records.is_empty():
-		_section("PAST SEASONS", "The stories that got you here.")
-		for record in records:
-			_label(content, "%s · season %d · %s" % [record.get("company", "Company"), int(record.get("season", 1)), _money(record.get("profit", 0))], 16, MUTED)
-	_button(content, "Settings & accessibility", _show_settings, INK, CREAM)
-	_button(content, "How to play", _show_help, CREAM, INK)
+		var history = ""
+		for record in records: history += "%s · Season %d · %s\n" % [record.get("company", "Company"), record.get("season", 1), _money(record.get("profit", 0))]
+		_disclosure(content, "Past seasons", history.strip_edges())
+	_icon_button(content, "Settings", "settings", _show_settings, INK, CREAM)
+	_icon_button(content, "How to play", "info", _show_help, CREAM, INK)
 	_button(content, "Credits & licenses", _show_credits, CREAM, INK)
-	_button(content, "Start a new company", _confirm_restart, CREAM, RED)
+	_button(content, "New company", _confirm_restart, CREAM, RED)
 
 func _act(action: String, args: Dictionary = {}) -> void:
 	if not has_run: return
@@ -528,55 +564,59 @@ func _show_event() -> void:
 	if not has_run or str(model.state.phase) != "event": return
 	var event: Dictionary = model.state.get("event", {})
 	if event.is_empty(): return
-	var col = _modal_page("A MOMENT ON THE CIRCUIT", str(event.get("title", "A decision to make")), false)
-	_label(col, str(event.get("body", "")), 20, INK)
-	_label(col, "WHAT DO YOU DO?", 12, GREEN)
+	var col = _modal_page("YOUR CALL", str(event.title), false)
+	_picture(col, "events/" + Presenter.event_art_key(event), Vector2(0, 105), true)
+	_label(col, Presenter.event_teaser(event), 20, INK)
 	var choices: Array = event.get("choices", [])
 	for index in range(choices.size()):
 		var choice: Dictionary = choices[index]
-		var box = _column(_box(col, PAPER, 13, 13), 7)
+		var box = _column(_box(col, PAPER, 13, 10), 5)
 		var pick = index
-		var button = _button(box, str(choice.get("label", "Make the call")), func(): _act("decide", {"choice": pick}), INK if index == 0 else CREAM, CREAM if index == 0 else INK, 50)
+		var button = _button(box, str(choice.label), func(): _act("decide", {"choice": pick}), INK if index == 0 else CREAM, CREAM if index == 0 else INK)
 		button.name = "EventChoice_" + str(index)
+		var chips = _flow(box)
+		for item in Presenter.choice_chips(choice):
+			var color: Color = RED if str(item.tone) == "bad" or str(item.tone) == "risk" else GREEN if str(item.tone) == "good" else MUTED
+			_chip(chips, str(item.icon), str(item.label), PAPER, color)
 		var effects: Dictionary = choice.get("effects", {})
 		var risk: Dictionary = choice.get("risk", {}).get("effects", {})
 		var cost = maxf(0, -float(effects.get("cash", 0))) + maxf(0, -float(risk.get("cash", 0)))
 		var portions = maxi(0, -int(effects.get("stock", 0))) + maxi(0, -int(risk.get("stock", 0)))
 		button.disabled = cost > maxf(0, float(model.state.cash)) or portions > int(model.state.stock)
-		_label(box, str(choice.get("detail", "")), 15, MUTED)
-		if cost > maxf(0, float(model.state.cash)): _label(box, "Needs " + _money(cost) + " available, including any stated risk.", 13, RED)
-		if portions > int(model.state.stock): _label(box, "Needs %d bags of supplies, including any stated risk." % portions, 13, RED)
-	_label(col, "The day waits for your decision. Your place is saved.", 13, MUTED)
+		if cost > maxf(0, float(model.state.cash)): _label(box, "Needs " + _money(cost) + " available", 13, RED)
+		if portions > int(model.state.stock): _label(box, "Needs %d stocked bags" % portions, 13, RED)
+	var details = str(event.body)
+	for choice in choices: details += "\n\n" + str(choice.label) + "\n" + str(choice.detail)
+	_disclosure(col, "Story & details", details)
 
 func _show_report() -> void:
 	if not has_run or str(model.state.phase) != "report": return
 	var report: Dictionary = model.state.get("last_report", {})
-	var col = _modal_page("THE DAILY TAKINGS", str(report.get("title", "That's a day's work.")), false)
-	var profit = float(report.get("profit", 0))
-	_label(col, _money(profit), 47, GREEN if profit >= 0 else RED, HORIZONTAL_ALIGNMENT_CENTER)
-	_label(col, "TODAY'S PROFIT" if profit >= 0 else "TODAY'S LOSS", 12, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	var summary: Array = report.get("summary", [])
-	if not summary.is_empty(): _label(col, str(summary[0]), 17, INK)
-	var receipt = _column(_box(col, PAPER, 14, 16), 9)
-	_receipt(receipt, "Bags sold", str(int(report.get("sold", 0))))
-	_receipt(receipt, "Sales", _money(report.get("revenue", 0)))
-	_receipt(receipt, "Ingredients used", "−" + _money(report.get("ingredients", 0)))
-	_receipt(receipt, "Crew wages", "−" + _money(report.get("wages", 0)))
-	_receipt(receipt, "Pitch & travel allocation", "−" + _money(float(report.get("fees", 0)) - float(report.get("interest", 0))))
-	if float(report.get("interest", 0)) > 0: _receipt(receipt, "Loan interest", "−" + _money(report.interest))
-	if not is_zero_approx(float(report.get("event_cash", 0))): _receipt(receipt, "Today's decision", _money(report.event_cash))
-	_receipt(receipt, "Reputation", "%+d" % int(report.get("rep_change", 0)))
-	if report.has("cash_delta"):
-		_label(col, "Cash change: %s. Profit includes supplies and booking costs you paid earlier." % _money(report.cash_delta), 14, MUTED)
-	_button(col, "CLOSE THE BOOKS & CONTINUE", func(): _act("dismiss_report"), RED, CREAM, 56).name = "DismissReport"
-	var details = VBoxContainer.new()
-	details.add_theme_constant_override("separation", 12)
-	var disclosure = _button(col, "WHY DID TODAY GO THIS WAY?", func():
-		details.visible = not details.visible, PAPER, INK, 46)
-	disclosure.name = "ReportDetails"
-	col.add_child(details)
-	for index in range(1, summary.size()): _label(details, "•  " + str(summary[index]), 15, INK)
+	var col = _modal_page("DAY COMPLETE", "Closing time", false)
+	var result = _row(col, 14)
+	_picture(result, "recipes/" + str(model.state.recipe), Vector2(108, 108))
+	var hero = _column(result, 2)
+	var profit: float = report.get("profit", 0)
+	_label(hero, _money(profit), 44, GREEN if profit >= 0 else RED)
+	_label(hero, "PROFIT" if profit >= 0 else "LOSS", 12, MUTED)
+	var chips = _flow(col)
+	_chip(chips, "bag", "%d sold" % int(report.get("sold", 0)))
+	_chip(chips, "rep", "%+d rep" % int(report.get("rep_change", 0)))
+	var totals = _column(_box(col, PAPER, 14, 16), 9)
+	_receipt(totals, "Sales", _money(report.get("revenue", 0)))
+	_receipt(totals, "Cash change", _money(report.get("cash_delta", 0)))
+	_icon_button(col, "CONTINUE", "arrow", func(): _act("dismiss_report"), RED, CREAM).name = "DismissReport"
+	var details = _column(col, 10)
+	_receipt(details, "Ingredients", "−" + _money(report.get("ingredients", 0)))
+	_receipt(details, "Wages", "−" + _money(report.get("wages", 0)))
+	_receipt(details, "Pitch & travel", "−" + _money(float(report.get("fees", 0)) - float(report.get("interest", 0))))
+	if float(report.get("interest", 0)) > 0: _receipt(details, "Interest", "−" + _money(report.interest))
+	if not is_zero_approx(float(report.get("event_cash", 0))): _receipt(details, "Decision", _money(report.event_cash))
+	for line in report.get("summary", []): _label(details, str(line), 16, INK)
 	details.visible = false
+	var disclosure = _icon_button(col, "Story & receipt", "journal", func(): details.visible = not details.visible, PAPER, INK)
+	disclosure.name = "ReportDetails"
+	col.move_child(disclosure, details.get_index())
 
 func _show_ending() -> void:
 	if not has_run or str(model.state.phase) not in ["season_end", "bankrupt"]: return
@@ -619,9 +659,10 @@ func _show_minigame() -> void:
 	if str(model.state.phase) != "planning" or str(model.state.booked_id).is_empty():
 		_notify("Book a fair first. Then you can perfect the opening batch.", RED)
 		return
-	var col = _modal_page("A LITTLE HANDS-ON MAGIC", "The perfect first batch")
-	_label(col, "Stop the thermometer as close to 190°C as you can. A good opening batch gives today's sales a small lift.", 19, INK)
-	_label(col, "Optional · once per day · no penalty for skipping", 14, GREEN)
+	var col = _modal_page("OPENING BATCH", "A golden start")
+	_picture(col, "equipment/fryer_" + str(model.state.fryer_tier), Vector2(0, 180))
+	_label(col, "Stop near 190°C for a sales boost.", 21, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_chip(_flow(col), "star", "Optional · once a day")
 	_minigame_marker = _label(col, "190°C · aim for 185–195°C", 22, INK, HORIZONTAL_ALIGNMENT_CENTER)
 	_minigame_gauge = ProgressBar.new()
 	_minigame_gauge.custom_minimum_size.y = 42
@@ -630,8 +671,8 @@ func _show_minigame() -> void:
 	_minigame_gauge.add_theme_stylebox_override("fill", _style(GOLD, 18))
 	col.add_child(_minigame_gauge)
 	_label(col, "160°                 190°                 220°", 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	_button(col, "THAT'S THE TEMPERATURE!", _stop_minigame, RED, CREAM, 58)
-	_button(col, "Leave it to the crew", _close_modal, PAPER, INK)
+	_icon_button(col, "STOP!", "check", _stop_minigame, RED, CREAM)
+	_button(col, "Skip · no penalty", _close_modal, PAPER, INK)
 	_minigame_phase = -1.57
 	_minigame_playing = true
 
@@ -674,7 +715,7 @@ func _show_help() -> void:
 
 func _show_credits() -> void:
 	var col = _modal_page("MADE FOR THE LONG WAY ROUND", "Credits & licenses")
-	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.1.0", 22, INK)
+	_label(col, "Golden Hour: On the Circuit\nIdea #4 · Demo 0.1.1", 22, INK)
 	_label(col, "Original game design, company stories, illustrations and interface. An independent choice-driven concessions simulator; no affiliation with BitLife or Candywriter.", 16, MUTED)
 	_label(col, "Built with Godot 4.7.2. Fredoka typeface under the SIL Open Font License. Original Golden Hour audio reused from the companion game.", 16, MUTED)
 	for entry in [["Godot engine license", "res://docs/licenses/Godot-LICENSE.txt"], ["Engine third-party notices", "res://docs/licenses/Godot-COPYRIGHT.txt"], ["Fredoka font license", "res://assets/fonts/OFL.txt"]]:
@@ -954,3 +995,154 @@ func _money(value: Variant) -> String:
 	var fraction = absf(amount) - floorf(absf(amount))
 	if fraction > 0.001 and absf(amount) < 100: return ("−" if amount < 0 else "") + "$%.2f" % absf(amount)
 	return ("−" if amount < 0 else "") + "$" + grouped
+
+
+func _art(key: String) -> Texture2D:
+	if not _art_cache.has(key):
+		var path = "res://assets/ui/" + key + ".svg"
+		_art_cache[key] = load(path) if ResourceLoader.exists(path) else null
+	return _art_cache[key]
+
+func _picture(parent: Node, key: String, dimensions: Vector2, crop: bool = false) -> TextureRect:
+	var art = TextureRect.new()
+	art.texture = _art(key)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED if crop else TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.custom_minimum_size = dimensions
+	art.clip_contents = true
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(art)
+	return art
+
+func _icon(parent: Node, key: String, pixels: int = 24, tint: Color = GREEN) -> TextureRect:
+	var icon = _picture(parent, "icons/" + key, Vector2(pixels, pixels))
+	icon.modulate = tint
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return icon
+
+func _icon_button(parent: Node, text: String, key: String, callback: Callable, fill: Color = INK, ink: Color = CREAM) -> Button:
+	var button = _button(parent, text, callback, fill, ink)
+	button.icon = _art("icons/" + key)
+	button.expand_icon = true
+	button.add_theme_constant_override("icon_max_width", 21)
+	button.add_theme_constant_override("h_separation", 8)
+	for state_name in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]: button.add_theme_color_override(state_name, ink)
+	button.add_theme_color_override("icon_disabled_color", MUTED)
+	return button
+
+func _flow(parent: Node) -> HFlowContainer:
+	var flow = HFlowContainer.new()
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.add_theme_constant_override("h_separation", 7)
+	flow.add_theme_constant_override("v_separation", 6)
+	parent.add_child(flow)
+	return flow
+
+func _chip(parent: Node, key: String, text: String, fill: Color = PAPER, ink: Color = INK, hint: String = "") -> void:
+	var panel = _box(parent, fill, 9, 7)
+	panel.tooltip_text = hint
+	var row = _row(panel, 5)
+	_icon(row, key, 18, ink)
+	_label(row, text, 13, ink)
+
+func _header_stat(parent: Node, key: String, value: String, caption: String, color: Color = CREAM) -> void:
+	var block = _column(parent, 1)
+	var line = _row(block, 6)
+	_icon(line, key, 22, color)
+	_label(line, value, 23, color)
+	_label(block, caption, 10, Color("b9cec4"))
+
+func _disclosure(parent: Node, title: String, text: String) -> void:
+	var detail = Label.new()
+	var button = _icon_button(parent, title, "info", func(): detail.visible = not detail.visible, PAPER, INK)
+	button.tooltip_text = "Show or hide details"
+	parent.add_child(detail)
+	detail.text = text
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_theme_font_size_override("font_size", 16)
+	detail.add_theme_color_override("font_color", MUTED)
+	detail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	detail.visible = false
+
+func _show_info(title: String, body: String, icon: String = "info", status: String = "") -> void:
+	var col = _modal_page(status.to_upper() if not status.is_empty() else "DETAILS", title)
+	_icon(col, icon, 50, GREEN)
+	_label(col, body, 19, INK)
+
+func _show_entry(entry: Dictionary) -> void:
+	var col = _modal_page("DAY %d" % int(entry.get("day", 1)), str(entry.get("title", "On the circuit")))
+	_label(col, str(entry.get("text", "")), 19, INK)
+
+func _show_history() -> void:
+	var col = _modal_page("YOUR STORY", "Company journal")
+	var entries: Array = model.state.get("journal", [])
+	for index in range(entries.size() - 1, -1, -1):
+		var entry: Dictionary = entries[index]
+		_label(col, "Day %d · %s" % [entry.get("day", 1), entry.get("title", "")], 21, GREEN)
+		_label(col, str(entry.get("text", "")), 17, INK)
+
+func _show_venue(id: String) -> void:
+	var venue = Content.find(Content.VENUES, id)
+	var col = _modal_page(str(venue.town), str(venue.name))
+	_picture(col, "venues/" + id, Vector2(0, 155), true)
+	_label(col, str(venue.description), 18, INK)
+	var chips = _flow(col)
+	_chip(chips, "recipe", "Favorite: " + str(venue.flavor).capitalize())
+	_chip(chips, "rep", "%d reputation" % venue.min_rep)
+	_chip(chips, "cash", _money(venue.fee) + " / day")
+	_chip(chips, "heart", "%+d town goodwill" % int(model.state.relationships.get(str(venue.town), 0)))
+
+func _show_staff(id: String) -> void:
+	var person: Dictionary = Content.find(Content.STAFF, id)
+	var employed = false
+	for employee in model.state.staff:
+		if str(employee.id) == id:
+			person = employee
+			employed = true
+	var col = _modal_page(str(person.role), str(person.name))
+	_picture(col, "crew/" + id, Vector2(0, 165))
+	_label(col, str(person.description), 17, INK)
+	var stats = _flow(col)
+	_chip(stats, "skill", "%d skill" % person.skill)
+	_chip(stats, "shield", "%d reliability" % person.reliability)
+	_chip(stats, "heart", "%d kindness" % person.kindness)
+	_chip(stats, "cash", _money(person.wage) + " / trading day")
+	if employed:
+		_meter(col, "Morale", float(person.morale), GREEN)
+		_meter(col, "Loyalty", float(person.loyalty), GOLD)
+		_icon_button(col, "Train · $120", "train", func(): _act("train", {"id": id}), INK, CREAM).disabled = int(person.trained) >= 3
+		_icon_button(col, "Paid day off", "rest", func(): _act("rest", {"id": id}), PAPER, INK).disabled = int(person.rested_day) == int(model.state.day)
+		_label(col, "Rest restores morale; they earn wages but do not work that day.", 14, MUTED)
+		_button(col, "Let them go", func(): _confirm_action("Let " + str(person.name) + " go?", "They leave your roster.", "fire", {"id": id}), PAPER, RED)
+	else:
+		_icon_button(col, "Hire · " + _money(person.wage), "crew", func(): _act("hire", {"id": id}), GREEN, CREAM)
+		_label(col, "Hiring costs one day's wage. Daily wages are paid while trading.", 14, MUTED)
+
+func _show_recipe(id: String) -> void:
+	var recipe = Content.find(Content.RECIPES, id)
+	var col = _modal_page("RECIPE CARD", str(recipe.name))
+	_picture(col, "recipes/" + id, Vector2(0, 185))
+	_label(col, str(recipe.description), 18, INK)
+	var chips = _flow(col)
+	_chip(chips, "cash", _money(recipe.cost) + " / bag base")
+	_chip(chips, "heart", "+%d recipe appeal" % recipe.appeal)
+	var locked: bool = id not in model.state.get("unlocked_recipes", [])
+	if locked: _chip(chips, "rep", "%d rep to unlock" % recipe.unlock_rep)
+	else: _icon_button(col, "Serve this recipe", "recipe", func(): _act("set_recipe", {"id": id}), GREEN, CREAM)
+
+func _show_gear(id: String) -> void:
+	for gear in model.equipment_options():
+		if str(gear.id) != id: continue
+		var col = _modal_page("EQUIPMENT", str(gear.name))
+		_picture(col, "equipment/" + id + "_" + str(gear.level), Vector2(0, 140))
+		_label(col, str(gear.description), 17, INK)
+		if not bool(gear.maxed):
+			_label(col, "NEXT: " + str(gear.next_name), 22, GREEN)
+			_picture(col, "equipment/" + id + "_" + str(int(gear.level) + 1), Vector2(0, 140))
+			var catalog: Array = Content.TRUCKS if id == "truck" else Content.FRYERS if id == "fryer" else Content.STANDS
+			var units: String = "stored bags" if id == "truck" else "crew places" if id == "stand" else "bags / day"
+			_chip(_flow(col), "upgrade", "%d to %d %s" % [int(gear.capacity), int(catalog[int(gear.level) + 1].capacity), units], PAPER, GREEN)
+			_label(col, str(catalog[int(gear.level) + 1].description), 17, INK)
+			_icon_button(col, "Buy upgrade · " + _money(gear.next_cost), "upgrade", func(): _confirm_action("Upgrade " + id + "?", str(gear.next_name) + " · " + _money(gear.next_cost), "upgrade", {"id": id}), RED, CREAM)
+		else: _chip(_flow(col), "check", "Fully upgraded")

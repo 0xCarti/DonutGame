@@ -1,0 +1,17 @@
+Golden Hour: On the Circuit — illustrated interface artwork
+
+All SVG files in assets/ui/ are original vector illustrations created specifically
+for this project. No stock photographs, traced commercial art, third-party icon
+libraries, logos, or likenesses were used.
+
+The reproducible source is tools/generate_ui_art.py (Python standard library).
+It creates 12 venue landscapes, 14 fictional crew portraits, 10 mini-donut recipe
+illustrations, 12 equipment illustrations, 7 event scenes, and 30 interface icons.
+
+Icons have white strokes for runtime color tinting. SVG intrinsic dimensions
+are 3 times the logical viewBox size for icons and 2 times for illustrations,
+providing sharper imported Godot textures on high-density mobile displays.
+
+The illustrations extend this game's existing warm cream, teal, rust, and gold
+visual palette. Portraits depict fictional adults. The assets introduce no new
+third-party attribution or runtime dependencies.
